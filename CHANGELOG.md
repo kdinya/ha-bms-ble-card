@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.8.0
+
+- **Дизайн переписано під макети README** (widget + full-view):
+  темна панель, батарея з % всередині, метрики у вигляді rounded pills
+  (значення зверху / підпис знизу), комірки — filled rounded tiles
+  як на mockup (C1…Cn), status-pill, діагностика і ємність у тому ж стилі.
+- **Setup Wizard реально створює helpers**:
+  - integration: прибрано невалідний unit_prefix: "none" (опційне поле)
+  - history_stats: multi-step flow (user → state → options), як у HA core
+  - детальніші помилки з типом кроку / errors schema
+  - retry entity_id після create_entry
+
 ## 1.7.0
 
 - **Дизайн ближче до макетів у README.** Метрики (напруга/струм/потужність/
