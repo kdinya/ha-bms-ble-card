@@ -22,7 +22,41 @@ const {
   cellVoltageFraction,
   CELL_VOLTAGE_RANGE,
   DEFAULT_THRESHOLDS,
+  findBmsBleDeviceIds,
+  autoDiscoverEntities,
 } = require("../dist/ha-bms-ble-card.js");
+
+// Мінімальний фейковий hass для тестів автопошуку: один пристрій
+// BMS_BLE-HA з типовим набором сутностей + одна "чужа" сутність з
+// device_class "battery", яка НЕ повинна бути сплутана з SOC акумулятора.
+function fakeHass() {
+  const entities = {
+    "sensor.battery_voltage": { device_id: "dev1", platform: "bms_ble", device_class: "voltage" },
+    "sensor.battery_current": { device_id: "dev1", platform: "bms_ble", device_class: "current" },
+    "sensor.battery_power": { device_id: "dev1", platform: "bms_ble", device_class: "power" },
+    "sensor.battery_state_of_charge": { device_id: "dev1", platform: "bms_ble", device_class: "battery" },
+    "sensor.battery_temperature": { device_id: "dev1", platform: "bms_ble", device_class: "temperature" },
+    "sensor.battery_max_cell_voltage": { device_id: "dev1", platform: "bms_ble", device_class: "voltage" },
+    "sensor.battery_min_cell_voltage": { device_id: "dev1", platform: "bms_ble", device_class: "voltage" },
+    "sensor.battery_delta_voltage": { device_id: "dev1", platform: "bms_ble", device_class: "voltage" },
+    "binary_sensor.battery_charging": { device_id: "dev1", platform: "bms_ble", device_class: "battery_charging" },
+    // "Чужий" сенсор на іншому пристрої, не з bms_ble — не повинен потрапити в результат.
+    "sensor.proxy_node_battery": { device_id: "dev2", platform: "esphome", device_class: "battery" },
+  };
+  const states = {
+    "sensor.battery_voltage": { attributes: { device_class: "voltage" } },
+    "sensor.battery_current": { attributes: { device_class: "current" } },
+    "sensor.battery_power": { attributes: { device_class: "power" } },
+    "sensor.battery_state_of_charge": { attributes: { device_class: "battery" } },
+    "sensor.battery_temperature": { attributes: { device_class: "temperature" } },
+    "sensor.battery_max_cell_voltage": { attributes: { device_class: "voltage" } },
+    "sensor.battery_min_cell_voltage": { attributes: { device_class: "voltage" } },
+    "sensor.battery_delta_voltage": { attributes: { device_class: "voltage" } },
+    "binary_sensor.battery_charging": { attributes: { device_class: "battery_charging" } },
+    "sensor.proxy_node_battery": { attributes: { device_class: "battery" } },
+  };
+  return { entities, states };
+}
 
 test("fmt: базове форматування чисел з одиницею", () => {
   assert.equal(fmt(12.345, 2, " V"), "12.35 V");
@@ -92,4 +126,38 @@ test("автовизначення кількості комірок: довжи
   assert.equal(explicit.length, 4);
   const fromAttribute = [3.30, 3.29, 3.31]; // напр. пакет з 3 комірок
   assert.equal(fromAttribute.length, 3);
+});
+
+test("findBmsBleDeviceIds: знаходить лише пристрої з платформою bms_ble", () => {
+  const hass = fakeHass();
+  assert.deepEqual(findBmsBleDeviceIds(hass), ["dev1"]);
+});
+
+test("autoDiscoverEntities: правильно розкладає sensor за device_class і не плутає SOC з чужим battery-сенсором", () => {
+  const hass = fakeHass();
+  const entities = autoDiscoverEntities(hass, "dev1");
+  assert.equal(entities.soc, "sensor.battery_state_of_charge");
+  assert.equal(entities.voltage, "sensor.battery_voltage");
+  assert.equal(entities.current, "sensor.battery_current");
+  assert.equal(entities.power, "sensor.battery_power");
+  assert.equal(entities.temperature, "sensor.battery_temperature");
+  assert.equal(entities.charging, "binary_sensor.battery_charging");
+  // Ключове: сенсор іншого пристрою (esphome proxy) не повинен потрапити.
+  assert.notEqual(entities.soc, "sensor.proxy_node_battery");
+});
+
+test("autoDiscoverEntities: max/min/delta cell voltage розпізнаються за ключовими словами, а не забирають 'voltage'", () => {
+  const hass = fakeHass();
+  const entities = autoDiscoverEntities(hass, "dev1");
+  assert.equal(entities.max_cell_voltage, "sensor.battery_max_cell_voltage");
+  assert.equal(entities.min_cell_voltage, "sensor.battery_min_cell_voltage");
+  assert.equal(entities.delta_cell_voltage, "sensor.battery_delta_voltage");
+  // Основна напруга пакета не має бути жодною з трьох вище.
+  assert.equal(entities.voltage, "sensor.battery_voltage");
+});
+
+test("autoDiscoverEntities: без пристрою повертає порожній обʼєкт", () => {
+  const hass = fakeHass();
+  assert.deepEqual(autoDiscoverEntities(hass, undefined), {});
+  assert.deepEqual(autoDiscoverEntities(hass, "unknown-device"), {});
 });

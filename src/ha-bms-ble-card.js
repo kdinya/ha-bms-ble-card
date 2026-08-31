@@ -7,7 +7,7 @@
  * https://github.com/kdinya/ha-bms-ble-card
  */
 
-const CARD_VERSION = "1.4.0";
+const CARD_VERSION = "1.5.0";
 
 console.info(
   `%c HA-BMS-BLE-CARD %c v${CARD_VERSION} `,
@@ -67,6 +67,137 @@ function cellVoltageFraction(v) {
   const { lo, hi } = CELL_VOLTAGE_RANGE;
   if (v === undefined || v === null || Number.isNaN(Number(v))) return 0;
   return Math.max(0, Math.min(1, (Number(v) - lo) / (hi - lo)));
+}
+
+/* ----------------------------------------------------------------------
+ * Автопошук акумулятора та сутностей.
+ *
+ * Раніше картка вимагала вручну прописати кожен entity_id в entities.*.
+ * Якщо користувач помилявся (вказував не той сенсор — наприклад SOC
+ * власного BLE-проксі замість SOC акумулятора), картка мовчки показувала
+ * дані з чужого сенсора (типовий симптом — SOC завжди 100%, бо сплутаний
+ * сенсор ніколи не змінюється).
+ *
+ * Тепер картка сама знаходить пристрій інтеграції BMS_BLE-HA (домен
+ * "bms_ble") і підбирає потрібні сенсори за device_class/entity_id —
+ * ручні entities.* (якщо задані) завжди мають пріоритет і потрібні лише
+ * для перевизначення в нетипових випадках.
+ * -------------------------------------------------------------------- */
+const BMS_BLE_DOMAIN = "bms_ble";
+
+function objectIdOf(entityId) {
+  const idx = entityId.indexOf(".");
+  return idx >= 0 ? entityId.slice(idx + 1).toLowerCase() : entityId.toLowerCase();
+}
+
+function hasWord(haystack, word) {
+  if (!haystack) return false;
+  return new RegExp(`(^|_)${word}(_|$)`).test(haystack);
+}
+
+/** Всі зареєстровані ID пристроїв, на яких є хоч одна сутність з
+ *  інтеграції BMS_BLE-HA (за платформою реєстру сутностей). */
+function findBmsBleDeviceIds(hass) {
+  if (!hass || !hass.entities) return [];
+  const ids = new Set();
+  for (const e of Object.values(hass.entities)) {
+    if (e && e.platform === BMS_BLE_DOMAIN && e.device_id) ids.add(e.device_id);
+  }
+  return Array.from(ids);
+}
+
+/** Список сутностей конкретного пристрою з розширеною інформацією,
+ *  потрібною для класифікації (домен, device_class, object_id тощо). */
+function deviceEntitiesInfo(hass, deviceId) {
+  if (!hass || !hass.entities || !deviceId) return [];
+  return Object.entries(hass.entities)
+    .filter(([, e]) => e && e.device_id === deviceId)
+    .map(([entityId, e]) => {
+      const state = hass.states && hass.states[entityId];
+      return {
+        entityId,
+        domain: entityId.split(".")[0],
+        objectId: objectIdOf(entityId),
+        deviceClass: (state && state.attributes && state.attributes.device_class) || e.device_class,
+        friendlyName: (state && state.attributes && state.attributes.friendly_name) || "",
+      };
+    })
+    .sort((a, b) => a.entityId.localeCompare(b.entityId));
+}
+
+// Ключові слова (специфічні, перевіряються ДО загальних правил за
+// device_class, щоб, наприклад, "max_cell_voltage" не забрав собі
+// device_class "voltage" раніше за основну напругу пакета).
+const KEYWORD_RULES = [
+  { key: "delta_cell_voltage", domain: "sensor", test: (o) => hasWord(o, "delta") },
+  { key: "max_cell_voltage", domain: "sensor", test: (o) => o.includes("max") && o.includes("volt") },
+  { key: "min_cell_voltage", domain: "sensor", test: (o) => o.includes("min") && o.includes("volt") },
+  { key: "runtime", domain: "sensor", test: (o) => hasWord(o, "runtime") },
+  { key: "link_quality", domain: "sensor", test: (o) => o.includes("link_quality") || o.includes("linkquality") },
+  { key: "charge_cycles", domain: "sensor", test: (o) => o.includes("cycle") },
+  { key: "balancer", domain: "binary_sensor", test: (o) => o.includes("balanc") },
+  { key: "chrg_mosfet", domain: "binary_sensor", test: (o) => o.includes("mosfet") && !o.includes("dis") },
+  { key: "dischrg_mosfet", domain: "binary_sensor", test: (o) => o.includes("mosfet") && o.includes("dis") },
+  { key: "heater", domain: "binary_sensor", test: (o) => hasWord(o, "heater") || hasWord(o, "heating") },
+];
+
+// Загальні правила за device_class — застосовуються ДРУГИМ проходом,
+// лише до сутностей, які ще нічим не зайняті.
+const DEVICE_CLASS_RULES = [
+  { key: "soc", domain: "sensor", deviceClass: "battery" },
+  { key: "voltage", domain: "sensor", deviceClass: "voltage" },
+  { key: "current", domain: "sensor", deviceClass: "current" },
+  { key: "power", domain: "sensor", deviceClass: "power" },
+  { key: "temperature", domain: "sensor", deviceClass: "temperature" },
+  { key: "rssi", domain: "sensor", deviceClass: "signal_strength" },
+  { key: "charging", domain: "binary_sensor", deviceClass: "battery_charging" },
+  { key: "problem", domain: "binary_sensor", deviceClass: "problem" },
+];
+
+/**
+ * Повертає мапу entities.* (як у ручному конфізі), автоматично підібрану
+ * з реальних сутностей пристрою `deviceId`. Best-effort: жодне поле не
+ * гарантоване, якщо конкретна BMS-плата (Redodo/LiTime/JBD/Daly/JK/Seplos)
+ * не публікує відповідний сенсор — тоді просто лишається undefined, як і
+ * при ручному конфізі, і картка коректно показує "—" замість помилки.
+ */
+function autoDiscoverEntities(hass, deviceId) {
+  if (!hass || !deviceId) return {};
+  const list = deviceEntitiesInfo(hass, deviceId);
+  const used = new Set();
+  const result = {};
+
+  for (const rule of KEYWORD_RULES) {
+    const match = list.find(
+      (e) => !used.has(e.entityId) && e.domain === rule.domain && rule.test(e.objectId)
+    );
+    if (match) {
+      result[rule.key] = match.entityId;
+      used.add(match.entityId);
+    }
+  }
+
+  for (const rule of DEVICE_CLASS_RULES) {
+    const match = list.find(
+      (e) => !used.has(e.entityId) && e.domain === rule.domain && e.deviceClass === rule.deviceClass
+    );
+    if (match) {
+      result[rule.key] = match.entityId;
+      used.add(match.entityId);
+    }
+  }
+
+  // rssi — fallback за назвою, якщо BMS не проставляє device_class
+  // "signal_strength" на своєму сенсорі RSSI.
+  if (!result.rssi) {
+    const match = list.find((e) => !used.has(e.entityId) && e.domain === "sensor" && hasWord(e.objectId, "rssi"));
+    if (match) {
+      result.rssi = match.entityId;
+      used.add(match.entityId);
+    }
+  }
+
+  return result;
 }
 
 /* ----------------------------------------------------------------------
@@ -186,6 +317,14 @@ class SetupWizard {
       cycle,
       offset: 0,
       net_consumption: false,
+      delta_values: false,
+      // Наше джерело — сенсор накопиченої (lifetime) ємності: він ніколи
+      // сам не скидається в 0, тож periodically_resetting: false, інакше
+      // сучасна (2024+) схема utility_meter НЕ приймає крок форми (flow
+      // повертає "form" з errors замість "create_entry"), і майстер падав
+      // з помилкою "utility_meter flow не завершився" / "Не вдалося
+      // створити сенсори" — саме це й було причиною помилки в редакторі.
+      periodically_resetting: false,
       tariffs: [],
     });
     if (result.type !== "create_entry") {
@@ -338,7 +477,7 @@ class HaBmsBleCardEditor extends HTMLElement {
     // просто освіжаємо .hass у вже змонтованих ha-entity-picker, щоб не
     // губити фокус/курсор користувача під час введення.
     if (this._mounted) {
-      this.querySelectorAll("ha-entity-picker").forEach((el) => {
+      this.querySelectorAll("ha-entity-picker, ha-device-picker").forEach((el) => {
         el.hass = hass;
       });
     } else {
@@ -350,17 +489,41 @@ class HaBmsBleCardEditor extends HTMLElement {
     return (this._config && this._config.entities) || {};
   }
 
+  /** device_id, з якого автопошук бере сутності: ручний вибір у редакторі
+   *  має пріоритет, інакше — єдиний знайдений пристрій BMS_BLE-HA. */
+  _autoDeviceId() {
+    const manual = this._entities().device_id;
+    if (manual) return manual;
+    if (!this._hass) return undefined;
+    const ids = findBmsBleDeviceIds(this._hass);
+    return ids.length === 1 ? ids[0] : undefined;
+  }
+
+  /** Автовизначені + ручні entities.* — лише для читання (перевірки
+   *  готовності майстра, підказки в пікерах). НІКОЛИ не використовувати
+   *  як базу для збереження — інакше кожна точкова зміна одного поля
+   *  записала б у конфіг усі автовизначені entity_id назавжди. */
+  _effectiveEntities() {
+    const deviceId = this._autoDeviceId();
+    const auto = this._hass && deviceId ? autoDiscoverEntities(this._hass, deviceId) : {};
+    return { ...auto, ...this._entities() };
+  }
+
   _hasEntityPicker() {
     return typeof customElements !== "undefined" && !!customElements.get("ha-entity-picker");
   }
 
+  _hasDevicePicker() {
+    return typeof customElements !== "undefined" && !!customElements.get("ha-device-picker");
+  }
+
   _wizardEligible() {
-    const e = this._entities();
+    const e = this._effectiveEntities();
     return !!(e.power || e.current);
   }
 
   _wizardAlreadyConfigured() {
-    const e = this._entities();
+    const e = this._effectiveEntities();
     const capacityDone = !!(e.capacity_daily && e.capacity_weekly && e.capacity_monthly && e.capacity_total);
     if (!e.charging) return capacityDone;
     const dischargeDone = !!(e.discharge_time_daily && e.discharge_time_weekly && e.discharge_time_monthly);
@@ -378,7 +541,7 @@ class HaBmsBleCardEditor extends HTMLElement {
       this._render();
       return;
     }
-    const e = this._entities();
+    const e = this._effectiveEntities();
     const source = e.power || e.current;
     if (!source) return;
     const batteryName = (this._config.name && this._config.name.trim()) || "BMS Battery";
@@ -449,7 +612,7 @@ class HaBmsBleCardEditor extends HTMLElement {
    *  версії HA, інакше — звичайний текстовий інпут з entity_id (fallback,
    *  щоб редактор не ламався на нетипових/старих фронтендах). */
   _renderEntityField(key, label, domain) {
-    const value = this._entities()[key] || "";
+    const value = this._effectiveEntities()[key] || "";
     if (this._hasEntityPicker()) {
       return `
         <div class="bms-field" data-key="${key}" data-domain="${domain}">
@@ -463,6 +626,34 @@ class HaBmsBleCardEditor extends HTMLElement {
         <input data-key="${key}" type="text" value="${value}" placeholder="entity_id"
           style="width:100%; box-sizing:border-box;" />
       </div>
+    `;
+  }
+
+  _deviceLabel(deviceId) {
+    const device = this._hass && this._hass.devices && this._hass.devices[deviceId];
+    return device ? device.name_by_user || device.name || deviceId : deviceId;
+  }
+
+  _renderDevicePicker() {
+    const manualDeviceId = this._entities().device_id || "";
+    const autoIds = this._hass ? findBmsBleDeviceIds(this._hass) : [];
+    let note;
+    if (manualDeviceId) {
+      note = `✓ Обрано вручну: ${this._deviceLabel(manualDeviceId)}`;
+    } else if (autoIds.length === 1) {
+      note = `✓ Автоматично визначено: ${this._deviceLabel(autoIds[0])}`;
+    } else if (autoIds.length > 1) {
+      note = `Знайдено декілька акумуляторів BMS_BLE-HA — оберіть потрібний вище.`;
+    } else {
+      note = `Акумулятор BMS_BLE-HA не знайдено автоматично. Перевірте, що інтеграція встановлена і акумулятор підключений, або оберіть пристрій вручну.`;
+    }
+    const field = this._hasDevicePicker()
+      ? `<ha-device-picker data-key="device_id"></ha-device-picker>`
+      : `<input data-key="device_id" type="text" value="${manualDeviceId}" placeholder="device_id (опційно)"
+          style="width:100%; box-sizing:border-box;" />`;
+    return `
+      <div class="bms-field" data-key="device_id">${field}</div>
+      <p style="font-size:11px; opacity:0.6; margin:4px 0 0;">${note}</p>
     `;
   }
 
@@ -549,7 +740,17 @@ class HaBmsBleCardEditor extends HTMLElement {
           </select>
         </div>
         <div>
-          <div class="bms-editor-group-title">Сутності (entities)</div>
+          <div class="bms-editor-group-title">Акумулятор</div>
+          ${this._renderDevicePicker()}
+        </div>
+        <div>
+          <div class="bms-editor-group-title">Сутності (entities) — ручне перевизначення</div>
+          <p style="font-size:11px; opacity:0.6; margin:0 0 8px;">
+            Якщо вище знайдено акумулятор, картка вже сама підставила
+            потрібні сенсори — поля нижче не обов'язкові й потрібні лише
+            щоб виправити щось вручну (наприклад, якщо конкретна BMS-плата
+            публікує сенсор нетипово).
+          </p>
           ${this._renderEntityGroups()}
           ${this._renderCellVoltagesGroup()}
         </div>
@@ -573,14 +774,40 @@ class HaBmsBleCardEditor extends HTMLElement {
    *  кожну зміну — інакше редактор губив би фокус під час набору тексту. */
   _wireEntityFields() {
     const entities = this._entities();
+    // Для показу значення в пікері беремо ефективні (авто+ручні) сутності,
+    // щоб було видно, що саме автоматично підхоплено — але збереження
+    // (_updateEntity) завжди пише лише в ручний блок entities.*.
+    const displayEntities = this._effectiveEntities();
+
+    const devWrap = this.querySelector('.bms-field[data-key="device_id"]');
+    if (devWrap) {
+      const devPicker = devWrap.querySelector("ha-device-picker");
+      if (devPicker) {
+        devPicker.hass = this._hass;
+        devPicker.value = entities.device_id || "";
+        devPicker.label = "Акумулятор (BMS_BLE-HA)";
+        devPicker.addEventListener("value-changed", (ev) => {
+          ev.stopPropagation();
+          this._updateEntity("device_id", ev.detail.value || undefined);
+        });
+      } else {
+        const devInput = devWrap.querySelector("input[data-key='device_id']");
+        if (devInput) {
+          devInput.addEventListener("change", (ev) =>
+            this._updateEntity("device_id", ev.target.value.trim() || undefined)
+          );
+        }
+      }
+    }
 
     this.querySelectorAll(".bms-field[data-key]:not([data-index])").forEach((wrap) => {
       const key = wrap.dataset.key;
+      if (key === "device_id") return;
       const domain = wrap.dataset.domain;
       const picker = wrap.querySelector("ha-entity-picker");
       if (picker) {
         picker.hass = this._hass;
-        picker.value = entities[key] || "";
+        picker.value = displayEntities[key] || "";
         picker.label = ENTITY_FIELD_GROUPS.flatMap((g) => g.fields).find((f) => f[0] === key)?.[1] || key;
         if (domain) picker.includeDomains = [domain];
         picker.allowCustomEntity = true;
@@ -678,14 +905,16 @@ class HaBmsBleCard extends HTMLElement {
   }
 
   setConfig(config) {
-    if (!config.entities) {
-      throw new Error("ha-bms-ble-card: потрібно вказати блок 'entities'");
-    }
+    // "entities" тепер опційний: якщо не вказано (або вказано частково),
+    // картка сама спробує знайти акумулятор BMS_BLE-HA і підтягнути
+    // сутності автоматично (див. autoDiscoverEntities). Ручні entities.*
+    // лишаються і завжди мають пріоритет над автовизначеними.
     this._config = {
       display_mode: "widget",
       thresholds: DEFAULT_THRESHOLDS,
-      ...config,
-      thresholds: { ...DEFAULT_THRESHOLDS, ...(config.thresholds || {}) },
+      entities: {},
+      ...(config || {}),
+      thresholds: { ...DEFAULT_THRESHOLDS, ...((config && config.thresholds) || {}) },
     };
     this._expanded = false;
     this._render();
@@ -714,8 +943,38 @@ class HaBmsBleCard extends HTMLElement {
     if (this._onResize) window.removeEventListener("resize", this._onResize);
   }
 
+  /**
+   * ID пристрою для автопошуку: explicit entities.device_id з конфіга
+   * (обрано вручну в редакторі) має пріоритет; інакше — якщо в системі
+   * рівно один пристрій з інтеграції BMS_BLE-HA, беремо його автоматично.
+   * Якщо знайдено декілька — не вгадуємо, користувач має обрати вручну.
+   */
+  _resolvedDeviceId() {
+    const explicit = this._config && this._config.entities && this._config.entities.device_id;
+    if (explicit) return explicit;
+    if (!this._hass) return undefined;
+    const ids = findBmsBleDeviceIds(this._hass);
+    return ids.length === 1 ? ids[0] : undefined;
+  }
+
+  /** Автовизначені entities.* для поточного пристрою (порожньо, якщо
+   *  пристрій не вдалось однозначно визначити). */
+  _autoEntities() {
+    const deviceId = this._resolvedDeviceId();
+    return deviceId && this._hass ? autoDiscoverEntities(this._hass, deviceId) : {};
+  }
+
+  /** Ефективні entities.*: автовизначені + ручні (ручні перемагають). */
+  _effectiveEntities() {
+    return { ...this._autoEntities(), ...((this._config && this._config.entities) || {}) };
+  }
+
   _e(key) {
-    return this._config && this._config.entities ? this._config.entities[key] : undefined;
+    return this._resolvedEntities ? this._resolvedEntities[key] : undefined;
+  }
+
+  _hasAnyData() {
+    return !!(this._e("soc") || this._e("voltage") || this._e("current") || this._e("power"));
   }
 
   /**
@@ -728,15 +987,17 @@ class HaBmsBleCard extends HTMLElement {
   _batteryName() {
     if (this._config.name && this._config.name.trim()) return this._config.name.trim();
 
-    const anchorEntity = this._e("soc") || this._e("voltage") || this._e("current") || this._e("power");
-    if (anchorEntity && this._hass) {
-      const entReg = this._hass.entities && this._hass.entities[anchorEntity];
-      const deviceId = entReg && entReg.device_id;
-      const device = deviceId && this._hass.devices && this._hass.devices[deviceId];
+    const deviceId = this._resolvedDeviceId();
+    if (deviceId && this._hass && this._hass.devices) {
+      const device = this._hass.devices[deviceId];
       if (device) {
         const deviceName = device.name_by_user || device.name;
         if (deviceName) return deviceName;
       }
+    }
+
+    const anchorEntity = this._e("soc") || this._e("voltage") || this._e("current") || this._e("power");
+    if (anchorEntity && this._hass) {
       const friendly = attrOf(this._hass, anchorEntity, "friendly_name");
       if (friendly) {
         const stripped = friendly
@@ -1092,6 +1353,31 @@ class HaBmsBleCard extends HTMLElement {
   _render() {
     if (!this._config || !this._hass) return;
 
+    // Обчислюємо ефективні сутності один раз на рендер (автовизначені +
+    // ручні перекриття) — усі виклики _e() нижче та в дочірніх методах
+    // читають саме з цього кешу.
+    this._resolvedEntities = this._effectiveEntities();
+
+    if (!this._hasAnyData()) {
+      this.innerHTML = `
+        <ha-card style="padding:16px;">
+          <div style="display:flex; align-items:center; gap:8px; margin-bottom:6px; font-weight:500;">
+            <i class="ti ti-bluetooth" style="font-size:16px;"></i>
+            <span>${this._config.name && this._config.name.trim() ? this._config.name.trim() : "BMS Battery"}</span>
+          </div>
+          <p style="font-size:13px; opacity:0.75; margin:0;">
+            Не вдалося автоматично знайти акумулятор BMS_BLE-HA або визначити
+            його сенсори. Перевірте, що інтеграція
+            <a href="https://github.com/patman15/BMS_BLE-HA" target="_blank" rel="noopener">BMS_BLE-HA</a>
+            встановлена і акумулятор підключений, або оберіть пристрій/сенсори
+            вручну в редакторі картки.
+          </p>
+          <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css">
+        </ha-card>
+      `;
+      return;
+    }
+
     const style = `
       <style>
         :host { display:block; }
@@ -1236,5 +1522,8 @@ if (typeof module !== "undefined" && module.exports) {
     cellVoltageFraction,
     CELL_VOLTAGE_RANGE,
     DEFAULT_THRESHOLDS,
+    BMS_BLE_DOMAIN,
+    findBmsBleDeviceIds,
+    autoDiscoverEntities,
   };
 }
