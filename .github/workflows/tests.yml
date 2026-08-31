@@ -1,0 +1,21 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Verify dist matches src (no forgotten build step)
+        run: diff src/ha-bms-ble-card.js dist/ha-bms-ble-card.js
+      - name: Syntax check
+        run: node --check dist/ha-bms-ble-card.js
+      - name: Run unit tests
+        run: node --test test/logic.test.js

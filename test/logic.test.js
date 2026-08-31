@@ -19,6 +19,7 @@ const {
   fmt,
   secondsToHuman,
   batteryFillColor,
+  dischargeOnlyTemplate,
   cellVoltageFraction,
   CELL_VOLTAGE_RANGE,
   DEFAULT_THRESHOLDS,
@@ -160,4 +161,31 @@ test("autoDiscoverEntities: без пристрою повертає порож�
   const hass = fakeHass();
   assert.deepEqual(autoDiscoverEntities(hass, undefined), {});
   assert.deepEqual(autoDiscoverEntities(hass, "unknown-device"), {});
+});
+
+test("dischargeOnlyTemplate: заряд (додатне значення power/current) дає 0", () => {
+  assert.equal(dischargeOnlyTemplate(27.8), 0);
+  assert.equal(dischargeOnlyTemplate(368), 0);
+  assert.equal(dischargeOnlyTemplate(0), 0);
+});
+
+test("dischargeOnlyTemplate: розряд (від'ємне значення) дає додатний модуль", () => {
+  assert.equal(dischargeOnlyTemplate(-16.8), 16.8);
+  assert.equal(dischargeOnlyTemplate(-222), 222);
+});
+
+test("Setup Wizard fix: інтегрування dischargeOnlyTemplate не дає заряду й розряду " +
+  "взаємно скасовуватись у накопиченій сумі (регресія бага 'накопичена ємність показує неправильно')", () => {
+  // Типовий цикл: розряд -16.8 A годину, потім заряд +27.8 A півгодини.
+  // Стара реалізація (Riemann sum напряму на сирому current) підсумовувала
+  // ЗІ ЗНАКОМ, тож заряд частково "з'їдав" облік розряду.
+  const samples = [-16.8, -16.8, -16.8, 27.8, 27.8];
+  const naiveSignedSum = samples.reduce((sum, v) => sum + v, 0);
+  const dischargeOnlySum = samples.reduce((sum, v) => sum + dischargeOnlyTemplate(v), 0);
+
+  assert.equal(dischargeOnlySum, 16.8 * 3);
+  // Наочна демонстрація самого бага: наївна сума геть інша (і навіть може
+  // бути близькою до нуля або додатною) — саме тому capacity_total був
+  // невірний до фіксу.
+  assert.notEqual(naiveSignedSum, dischargeOnlySum);
 });

@@ -7,7 +7,7 @@
  * https://github.com/kdinya/ha-bms-ble-card
  */
 
-const CARD_VERSION = "1.5.0";
+const CARD_VERSION = "1.6.0";
 
 console.info(
   `%c HA-BMS-BLE-CARD %c v${CARD_VERSION} `,
@@ -48,6 +48,19 @@ function batteryFillColor(percent) {
   if (percent <= 15) return "#E24B4A";
   if (percent <= 30) return "#EF9F27";
   return "#1D9E75";
+}
+
+/**
+ * Чиста функція, що відповідає шаблону, який ensureDischargeTemplateSensor
+ * підставляє в Template-хелпер: {{ [value, 0] | min | abs }}. Позитивне
+ * (заряд) → 0, від'ємне (розряд) → додатне значення. Винесена окремо, щоб
+ * можна було юніт-тестом підтвердити, що інтегрування ЦЬОГО (а не сирого
+ * знакозмінного power/current) не дає заряду й розряду скасовувати один
+ * одного в накопиченій сумі.
+ */
+function dischargeOnlyTemplate(value) {
+  const n = Number(value) || 0;
+  return Math.abs(Math.min(n, 0));
 }
 
 function secondsToHuman(seconds) {
@@ -268,9 +281,58 @@ class SetupWizard {
     const entries = await this.hass.callWS({ type: "config_entries/get" });
     return entries.find(
       (e) =>
-        (e.domain === "integration" || e.domain === "utility_meter" || e.domain === "history_stats") &&
+        (e.domain === "integration" ||
+          e.domain === "utility_meter" ||
+          e.domain === "history_stats" ||
+          e.domain === "template") &&
         e.title === title
     );
+  }
+
+  /**
+   * Creates (or reuses) a Template sensor helper that isolates only the
+   * discharge portion of a signed power/current entity:
+   * value = abs(min(source, 0)) — 0 while charging or idle, positive while
+   * discharging. This is exactly the approach the BMS_BLE-HA README
+   * recommends for Energy Dashboard integration (see "Energy Dashboard
+   * Integration" section: two template sensors + two integration
+   * sensors, one pair per direction). Integrating the raw signed
+   * power/current directly (as earlier releases of this card did) makes
+   * charge and discharge cancel out in the Riemann sum, so accumulated
+   * capacity/energy is silently wrong — this sensor is what fixes that.
+   *
+   * The Template helper flow starts with a menu step ("user") where the
+   * frontend picks a sensor type by submitting {next_step_id: "sensor"};
+   * this mirrors that exactly.
+   */
+  async ensureDischargeTemplateSensor(sourceEntity, title, unit, deviceClass) {
+    const existing = await this._existingEntry(title);
+    if (existing) {
+      const entityId = await this._entityForEntry(existing.entry_id);
+      if (entityId) return { entityId, created: false };
+    }
+    const flow = await this._initFlow("template");
+    let step = flow;
+    if (step.type === "menu") {
+      step = await this._submitStep(step.flow_id, { next_step_id: "sensor" });
+    }
+    if (step.type !== "form") {
+      await this._abortFlow(flow.flow_id);
+      throw new Error(`template flow: неочікуваний крок "${step.type}"`);
+    }
+    const result = await this._submitStep(step.flow_id, {
+      name: title,
+      state: `{{ [ (states('${sourceEntity}') | float(0)), 0 ] | min | abs }}`,
+      unit_of_measurement: unit,
+      device_class: deviceClass,
+      state_class: "measurement",
+    });
+    if (result.type !== "create_entry") {
+      await this._abortFlow(flow.flow_id);
+      throw new Error(result.errors ? JSON.stringify(result.errors) : "template flow не завершився");
+    }
+    const entityId = await this._entityForEntry(result.result.entry_id);
+    return { entityId, created: true };
   }
 
   async _entityForEntry(entryId) {
@@ -363,22 +425,34 @@ class SetupWizard {
   }
 
   /**
-   * Full run: 1 lifetime integral (capacity_total) + 3 utility meters
+   * Full run: 1 template sensor (discharge-only power/current) → 1
+   * lifetime integral (capacity_total) → 3 utility meters
    * (capacity_daily/weekly/monthly), і, якщо переданий chargingEntity —
    * 3 history_stats helpers (discharge_time_daily/weekly/monthly).
    * Повертає мапу entity_id + людський лог подій, щоб можна було показати
    * прогрес і одразу підставити результат у конфіг картки.
+   *
+   * sourceKind визначає одиниці: "current" → Ah (як на скріншотах),
+   * "power" → Wh, якщо entities.current не вказано.
    */
-  async run(sourceEntity, chargingEntity, batteryName, onProgress) {
+  async run(sourceEntity, sourceKind, chargingEntity, batteryName, onProgress) {
     const log = [];
     const report = (msg) => {
       log.push(msg);
       if (onProgress) onProgress(msg);
     };
 
-    const totalTitle = `${batteryName} — накопичена ємність`;
+    const unit = sourceKind === "current" ? "A" : "W";
+    const deviceClass = sourceKind === "current" ? "current" : "power";
+
+    const dischargeTitle = `${batteryName} — розряд (${unit}, без заряду)`;
+    report(`Створюю "${dischargeTitle}"…`);
+    const discharge = await this.ensureDischargeTemplateSensor(sourceEntity, dischargeTitle, unit, deviceClass);
+    report(discharge.created ? `✓ Створено ${discharge.entityId}` : `✓ Вже існує: ${discharge.entityId}`);
+
+    const totalTitle = `${batteryName} — накопичена ємність розряду`;
     report(`Створюю "${totalTitle}"…`);
-    const total = await this.ensureIntegral(sourceEntity, totalTitle);
+    const total = await this.ensureIntegral(discharge.entityId, totalTitle);
     report(total.created ? `✓ Створено ${total.entityId}` : `✓ Вже існує: ${total.entityId}`);
 
     const entities = { capacity_total: total.entityId };
@@ -542,7 +616,8 @@ class HaBmsBleCardEditor extends HTMLElement {
       return;
     }
     const e = this._effectiveEntities();
-    const source = e.power || e.current;
+    const source = e.current || e.power;
+    const sourceKind = e.current ? "current" : "power";
     if (!source) return;
     const batteryName = (this._config.name && this._config.name.trim()) || "BMS Battery";
 
@@ -552,7 +627,7 @@ class HaBmsBleCardEditor extends HTMLElement {
 
     const progressLines = [];
     try {
-      const { entities, log } = await wizard.run(source, e.charging, batteryName, (msg) => {
+      const { entities, log } = await wizard.run(source, sourceKind, e.charging, batteryName, (msg) => {
         progressLines.push(msg);
         this._wizardStatus = { ok: true, text: "Створення…", lines: [...progressLines] };
         this._render();
@@ -1519,6 +1594,7 @@ if (typeof module !== "undefined" && module.exports) {
     fmt,
     secondsToHuman,
     batteryFillColor,
+    dischargeOnlyTemplate,
     cellVoltageFraction,
     CELL_VOLTAGE_RANGE,
     DEFAULT_THRESHOLDS,

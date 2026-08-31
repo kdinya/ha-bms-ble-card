@@ -208,10 +208,20 @@ template:
 
 1. Перевіряє, чи такі helper-сенсори для цієї батареї вже створювались
    раніше (за назвою) — щоб не плодити дублікати при повторному відкритті.
-2. Створює один helper `integration` (Riemann sum, накопичена ємність за
-   весь час — не скидається) на основі `entities.power`, і три helpers
-   `utility_meter` (daily/weekly/monthly) поверх нього — **скільки ємності
-   взято з акумулятора**.
+2. Створює шаблонний сенсор **лише розрядного** струму/потужності —
+   `{{ [value, 0] | min | abs }}` (0 під час заряду, додатне значення під
+   час розряду; той самий прийом, що й у [офіційному README
+   BMS_BLE-HA](https://github.com/patman15/BMS_BLE-HA#energy-dashboard-integration)
+   для інтеграції з Energy Dashboard) — і на ньому один helper
+   `integration` (Riemann sum, накопичена ємність за весь час — не
+   скидається) плюс три helpers `utility_meter` (daily/weekly/monthly) —
+   **скільки ємності взято з акумулятора**. Джерело — `entities.current`
+   (Ah), або `entities.power` (Wh), якщо `current` не вказано.
+   > До версії 1.6.0 майстер інтегрував сирий знакозмінний `power`
+   > напряму, через що заряд і розряд взаємно скасовувались у сумі і
+   > "накопичена ємність" рахувалась неправильно. Якщо у вас лишились
+   > старі хелпери з версій до 1.6.0 — видаліть їх вручну в
+   > Settings → Helpers і повторно натисніть кнопку майстра.
 3. Якщо в конфізі вказано `entities.charging` — додатково створює три
    helpers `history_stats`, які рахують, скільки часу за останню
    добу/тиждень/місяць сенсор заряду перебував у стані "off"
@@ -238,34 +248,51 @@ template:
 ### Helper-сенсори вручну
 
 BMS_BLE-HA не рахує накопичену ємність і час розряду сам — це стандартні
-HA helpers: `integration` (Riemann sum) + `utility_meter` для ємності,
-`history_stats` для часу розряду.
+HA helpers: `template` (виділяє лише розрядну складову) + `integration`
+(Riemann sum) + `utility_meter` для ємності, `history_stats` для часу
+розряду.
 
-**Ємність:**
+**Ємність.** `power`/`current` — знакозмінні (додатне під час заряду,
+від'ємне під час розряду), тому інтегрувати їх напряму **не можна** —
+заряд і розряд взаємно скасуються в сумі. Спершу виділяємо шаблоном лише
+розрядну частину (той самий прийом, що й в [офіційній інструкції
+BMS_BLE-HA для Energy
+Dashboard](https://github.com/patman15/BMS_BLE-HA#energy-dashboard-integration)):
 
 ```yaml
+template:
+  - sensor:
+      - name: redodo_discharge_current
+        unique_id: redodo_discharge_current
+        state: "{{ [ (states('sensor.redodo_current') | float(0)), 0 ] | min | abs }}"
+        unit_of_measurement: "A"
+        device_class: current
+        state_class: measurement
+        availability: "{{ has_value('sensor.redodo_current') }}"
+
 sensor:
   - platform: integration
-    name: redodo_capacity_integral
-    source: sensor.redodo_power
-    unit_prefix: k
+    name: redodo_capacity_total
+    source: sensor.redodo_discharge_current
+    unit_time: h
     round: 2
-    method: left
+    method: trapezoidal
 
 utility_meter:
   redodo_capacity_daily:
-    source: sensor.redodo_capacity_integral
+    source: sensor.redodo_capacity_total
     cycle: daily
   redodo_capacity_weekly:
-    source: sensor.redodo_capacity_integral
+    source: sensor.redodo_capacity_total
     cycle: weekly
   redodo_capacity_monthly:
-    source: sensor.redodo_capacity_integral
+    source: sensor.redodo_capacity_total
     cycle: monthly
-  redodo_capacity_total:
-    source: sensor.redodo_capacity_integral
-    cycle: yearly
 ```
+
+`redodo_capacity_total` (сам integration-сенсор, ніколи не скидається) —
+це і є `entities.capacity_total`; три `utility_meter` вище — це
+`entities.capacity_daily` / `capacity_weekly` / `capacity_monthly`.
 
 **Час розряду** (потребує `binary_sensor.redodo_battery_charging`):
 
