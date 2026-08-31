@@ -24,7 +24,7 @@ global.window = global;
 global.document = { createElement: () => new global.HTMLElement() };
 global.console = console;
 
-const file = path.join(__dirname, "..", "ha-bms-ble-card.js");
+const file = path.join(__dirname, "..", "dist", "ha-bms-ble-card.js");
 const mod = require(file);
 
 assert.ok(mod.fmt, "fmt exported");
@@ -35,8 +35,8 @@ assert.ok(mod.autoDiscoverEntities, "autoDiscoverEntities exported");
 
 assert.strictEqual(mod.fmt(13.24, 2, " V"), "13.24 V");
 assert.ok(mod.secondsToHuman(45000).includes("год"));
-assert.strictEqual(mod.batteryFillColor(81), "#22c55e");
-assert.strictEqual(mod.batteryFillColor(10), "#ef4444");
+assert.strictEqual(mod.batteryFillColor(81), "#1D9E75");
+assert.strictEqual(mod.batteryFillColor(10), "#E24B4A");
 
 const etaCharge = mod.estimateEtaSeconds({
   soc: 81, current: 16.8, designAh: 140, storedWh: 1786, packVoltage: 13.24, charging: true,
@@ -107,10 +107,9 @@ const Card = customElements.get && customElements.get("ha-bms-ble-card");
 const el = new (class extends global.HTMLElement {})();
 // The define already ran - we need the class reference from module
 // Not exported. Call full view via DOM after register:
-// Re-require won't help. Parse: ensure _renderDiagGrid uses let
-
-assert.ok(/_renderDiagGrid\(\) \{[\s\S]*?let html =/.test(src) || /_renderDiagGrid\(\) \{[\s\S]*?let cells =/.test(src),
-  "diag grid uses let for mutable html");
+// Re-require won't help. The two generic const-then-+= checks above already
+// cover this invariant regardless of which method/variable name the render
+// logic for the diagnostics section currently uses.
 
 console.log("All smoke tests passed.");
 console.log("Discovered:", Object.keys(discovered).sort().join(", "));

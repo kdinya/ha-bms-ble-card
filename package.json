@@ -1,9 +1,9 @@
 {
   "name": "ha-bms-ble-card",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "description": "Lovelace card for BLE BMS batteries integrated via BMS_BLE-HA",
   "main": "dist/ha-bms-ble-card.js",
-  "scripts": { "test": "node --test test/logic.test.js" },
+  "scripts": { "test": "node --test test/logic.test.js test/smoke-render.test.js" },
   "repository": { "type": "git", "url": "https://github.com/kdinya/ha-bms-ble-card.git" },
   "license": "MIT"
 }

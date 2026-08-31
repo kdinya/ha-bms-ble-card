@@ -52,9 +52,9 @@ function hexToRgba(hex, alpha) {
 }
 
 function batteryFillColor(percent) {
-  if (percent <= 15) return "#e8544b";
-  if (percent <= 30) return "#f2a93b";
-  return "#3ecf5e";
+  if (percent <= 15) return "#E24B4A";
+  if (percent <= 30) return "#EF9F27";
+  return "#1D9E75";
 }
 
 /**
@@ -1204,17 +1204,17 @@ class HaBmsBleCard extends HTMLElement {
   }
 
   _statusColorVars(color) {
-    if (color === "success") return { bg: "#1f3d29", fg: "#3ecf5e" };
-    if (color === "warning") return { bg: "#3d3320", fg: "#f2a93b" };
-    if (color === "danger") return { bg: "rgba(232,84,75,0.15)", fg: "#e8544b" };
+    if (color === "success") return { bg: "#1f3d29", fg: "#1D9E75" };
+    if (color === "warning") return { bg: "#3d3320", fg: "#EF9F27" };
+    if (color === "danger") return { bg: "rgba(226,75,74,0.15)", fg: "#E24B4A" };
     return { bg: "rgba(139,150,163,0.12)", fg: "#8b96a3" };
   }
 
   _cellColor(v, min, max, delta) {
     // Як на mockup: мін комірка — бурштинова, решта зелені
-    if (Number.isFinite(min) && v === min && delta >= 0.005) return "#f59e0b";
-    if (Number.isFinite(max) && v === max && delta >= 0.03) return "#f59e0b";
-    return "#22c55e";
+    if (Number.isFinite(min) && v === min && delta >= 0.005) return "#EF9F27";
+    if (Number.isFinite(max) && v === max && delta >= 0.03) return "#EF9F27";
+    return "#1D9E75";
   }
 
   /* ===== UI matching bms-dashboard.html reference ===== */
@@ -1285,7 +1285,7 @@ class HaBmsBleCard extends HTMLElement {
     const step = w / (n - 1);
     const norm = (v) => h - ((v - min) / (max - min || 1)) * h * 0.8 - h * 0.1;
     const d = pts.map((v, i) => `${i === 0 ? "M" : "L"}${(i * step).toFixed(1)},${norm(v).toFixed(1)}`).join(" ");
-    return `<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" class="bms-spark"><path d="${d}" fill="none" stroke="#3ecf5e" stroke-width="1.6"/></svg>`;
+    return `<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" class="bms-spark"><path d="${d}" fill="none" stroke="#1D9E75" stroke-width="1.6"/></svg>`;
   }
 
   _renderCapacityCard(label, entityId, designAh) {
@@ -1389,7 +1389,7 @@ class HaBmsBleCard extends HTMLElement {
     const heat = stateOf(this._hass, this._e("heater"));
     const prob = stateOf(this._hass, this._e("problem"));
     const on = (s) => s === "on" || s === "true";
-    const G = "#3ecf5e", M = "#8b96a3", A = "#f2a93b", R = "#e8544b";
+    const G = "#1D9E75", M = "#8b96a3", A = "#EF9F27", R = "#E24B4A";
 
     let funcGrid = "";
     if (bal !== undefined) funcGrid += func("ti-topology-star-3", "Балансир", on(bal) ? "Активний" : "Вимкнено", on(bal) ? G : M);
@@ -1482,11 +1482,11 @@ class HaBmsBleCard extends HTMLElement {
 
         <h2 class="section-title">Діагностика</h2>
         <div class="diag-grid">
-          ${stored !== undefined ? `<div class="diag-card"><div class="diag-icon"><i class="ti ti-battery-vertical-filled" style="font-size:20px;color:#3ecf5e;"></i></div><div class="diag-text"><div class="l1">Stored Energy</div><div class="l2">${fmt(stored, 0)} Wh</div></div></div>` : ""}
+          ${stored !== undefined ? `<div class="diag-card"><div class="diag-icon"><i class="ti ti-battery-vertical-filled" style="font-size:20px;color:#1D9E75;"></i></div><div class="diag-text"><div class="l1">Stored Energy</div><div class="l2">${fmt(stored, 0)} Wh</div></div></div>` : ""}
           ${stateOf(this._hass, this._e("runtime")) !== undefined ? `<div class="diag-card"><div class="diag-icon"><i class="ti ti-clock-hour-4" style="font-size:20px;color:#4b9bf0;"></i></div><div class="diag-text"><div class="l1">Runtime (BMS)</div><div class="l2">${fmt(stateOf(this._hass, this._e("runtime")), 0)} s / ~${secondsToHuman(Number(stateOf(this._hass, this._e("runtime"))))}</div></div></div>` : ""}
-          ${balanceCur !== undefined ? `<div class="diag-card"><div class="diag-icon"><i class="ti ti-scale" style="font-size:20px;color:#f2a93b;"></i></div><div class="diag-text"><div class="l1">Balance Current</div><div class="l2">${fmt(balanceCur, 2)} A</div></div></div>` : ""}
-          ${cycles !== undefined ? `<div class="diag-card"><div class="diag-icon"><i class="ti ti-refresh" style="font-size:20px;color:#3ecf5e;"></i></div><div class="diag-text"><div class="l1">Package Cycles</div><div class="l2">${fmt(cycles, 0)}</div></div></div>` : ""}
-          <div class="diag-card"><div class="diag-icon"><i class="ti ti-battery" style="font-size:20px;color:#e8544b;"></i></div><div class="diag-text"><div class="l1">Package Voltage</div><div class="l2">${fmt(voltage, 2)} V</div></div></div>
+          ${balanceCur !== undefined ? `<div class="diag-card"><div class="diag-icon"><i class="ti ti-scale" style="font-size:20px;color:#EF9F27;"></i></div><div class="diag-text"><div class="l1">Balance Current</div><div class="l2">${fmt(balanceCur, 2)} A</div></div></div>` : ""}
+          ${cycles !== undefined ? `<div class="diag-card"><div class="diag-icon"><i class="ti ti-refresh" style="font-size:20px;color:#1D9E75;"></i></div><div class="diag-text"><div class="l1">Package Cycles</div><div class="l2">${fmt(cycles, 0)}</div></div></div>` : ""}
+          <div class="diag-card"><div class="diag-icon"><i class="ti ti-battery" style="font-size:20px;color:#E24B4A;"></i></div><div class="diag-text"><div class="l1">Package Voltage</div><div class="l2">${fmt(voltage, 2)} V</div></div></div>
           <div class="diag-card"><div class="diag-icon"><i class="ti ti-wave-sine" style="font-size:20px;color:#4b9bf0;"></i></div><div class="diag-text"><div class="l1">Package Current</div><div class="l2">${fmt(current, 1)} A</div></div></div>
           <div class="diag-card"><div class="diag-icon"><i class="ti ti-chart-donut-3" style="font-size:20px;color:#4b9bf0;"></i></div><div class="diag-text"><div class="l1">Package SOC</div><div class="l2">${fmt(soc, 0)}%</div></div></div>
         </div>
@@ -1541,7 +1541,7 @@ class HaBmsBleCard extends HTMLElement {
         ha-card.bms-card, .bms-card {
           --bg:#050708; --card:#0d1218; --panel:#121922; --border:rgba(255,255,255,0.06);
           --text:#f2f4f7; --muted:#8b96a3; --muted-2:#5f6b78;
-          --green:#3ecf5e; --green-dim:#1f3d29; --amber:#f2a93b; --blue:#4b9bf0; --red:#e8544b;
+          --green:#1D9E75; --green-dim:#1f3d29; --amber:#EF9F27; --blue:#4b9bf0; --red:#E24B4A;
           background: var(--card) !important;
           color: var(--text);
           border-radius: 22px !important;
@@ -1603,7 +1603,7 @@ class HaBmsBleCard extends HTMLElement {
         .cell-name { width:22px; font-size:14px; color:var(--muted); flex-shrink:0; }
         .cell-track { flex:1; height:16px; background:#1a222c; border-radius:8px; overflow:hidden; }
         .cell-fill { height:100%; border-radius:8px; background:linear-gradient(90deg,#2fae4e,#57d976); }
-        .cell-fill.warn { background:linear-gradient(90deg,#c9860f,#f2a93b); }
+        .cell-fill.warn { background:linear-gradient(90deg,#bf8a1e,#EF9F27); }
         .cell-val { width:62px; text-align:right; font-size:14px; font-weight:600; flex-shrink:0; }
 
         .badges-row { display:flex; gap:10px; margin-top:2px; }
