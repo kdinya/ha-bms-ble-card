@@ -8,8 +8,19 @@ BMS-акумуляторів (LiFePO4), інтегрованих через
 підтримує ця інтеграція: Redodo, LiTime, PowerQueen, JBD/Jiabaida, Daly, JK,
 ANT, Seplos, Renogy та інші.
 
-> Скріни інтерфейсу додам після першого проходу тестування на реальному
-> дашборді — поки що дизайн описаний нижче в розділі "Можливості".
+## Скріншоти
+
+Дизайн-референси, за якими побудована картка (реальні скріни з живого
+дашборда додам після ширшого тестування — компактний layout з v1.2.0 трохи
+щільніший за ці макети, але секції та їхній зміст ті самі):
+
+| Widget-режим | Full-view (широкий) |
+|---|---|
+| ![Widget mockup](images/widget-mockup.png) | ![Full dashboard mockup](images/full-dashboard.png) |
+
+| SOC + комірки | Використана ємність |
+|---|---|
+| ![SOC and cells](images/soc-cells-mockup.png) | ![Capacity cards](images/capacity-cards.png) |
 
 ## Можливості
 
