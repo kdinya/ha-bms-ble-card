@@ -1203,13 +1203,9 @@ class HaBmsBleCard extends HTMLElement {
   }
 
   _cellColor(v, min, max, delta) {
-    const th = { ...DEFAULT_THRESHOLDS, ...((this._config && this._config.thresholds) || {}) };
-    if (delta >= th.cell_delta_critical) {
-      if (v === min || v === max) return "#E24B4A";
-    }
-    if (delta >= th.cell_delta_warning) {
-      if (v === min || v === max) return "#f59e0b";
-    }
+    // Як на mockup: мін комірка — бурштинова, решта зелені
+    if (Number.isFinite(min) && v === min && delta >= 0.005) return "#f59e0b";
+    if (Number.isFinite(max) && v === max && delta >= 0.03) return "#f59e0b";
     return "#22c55e";
   }
 
@@ -1311,9 +1307,13 @@ class HaBmsBleCard extends HTMLElement {
       return `<div class="bms-panel bms-cells-panel"><p class="bms-muted">Немає даних про комірки. Увімкніть Delta cell voltage у BMS_BLE-HA.</p></div>`;
     }
     let rows = "";
+    // Візуальний діапазон як на mockup: смужки ~55–95% довжини треку
+    const lo = Math.min(st.min - 0.05, 3.0);
+    const hi = Math.max(st.max + 0.02, 3.45);
     for (let i = 0; i < st.cells.length; i++) {
       const v = st.cells[i];
-      const frac = cellVoltageFraction(v);
+      let frac = Number.isFinite(v) ? (v - lo) / (hi - lo) : 0;
+      frac = Math.max(0.08, Math.min(0.98, frac));
       const color = this._cellColor(v, st.min, st.max, st.delta);
       const pct = Math.round(frac * 100);
       rows += `
@@ -1362,7 +1362,9 @@ class HaBmsBleCard extends HTMLElement {
       const on = state === "on" || state === "true";
       let tone = "neutral";
       if (label === "Проблеми") tone = on ? "danger" : "success";
-      else tone = (goodWhenOn ? on : !on) ? "success" : "warning";
+      else if (goodWhenOn && on) tone = "success";
+      else if (!goodWhenOn && on) tone = "warning";
+      // вимкнено / нормальний off → muted (як на mockup), не warning
       const c = this._statusColorVars(tone);
       html += `
         <div class="bms-diag-cell">
@@ -1651,36 +1653,36 @@ class HaBmsBleCard extends HTMLElement {
       <style>
         :host { display:block; max-width:100%; }
         * { box-sizing: border-box; }
-        .ti { font-size:15px; vertical-align:-2px; }
-        .bms-card {
-          --bms-bg: #0a0f16;
-          --bms-panel: #121820;
-          --bms-border: rgba(255,255,255,0.06);
-          --bms-text: #edf0f4;
-          --bms-muted: rgba(237,240,244,0.5);
+        ha-card.bms-card, .bms-card {
+          --bms-bg: #0c1118;
+          --bms-panel: #151b24;
+          --bms-border: rgba(255,255,255,0.07);
+          --bms-text: #eef2f6;
+          --bms-muted: rgba(238,242,246,0.48);
           --bms-cyan: #38bdf8;
           --bms-green: #22c55e;
           --bms-amber: #f59e0b;
-          background: #0a0f16;
-          border-radius: 20px;
-          padding: 16px 14px 12px;
+          background: var(--bms-bg) !important;
+          border-radius: 20px !important;
+          padding: 16px 14px 14px !important;
           color: var(--bms-text);
-          border: 1px solid var(--bms-border);
-          box-shadow: 0 12px 40px rgba(0,0,0,0.4);
+          border: 1px solid var(--bms-border) !important;
+          box-shadow: 0 8px 32px rgba(0,0,0,0.35);
           container-type: inline-size;
           container-name: bms;
           max-width: 100%;
           overflow: hidden;
           font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
         }
+        .ti { font-size:15px; vertical-align:-2px; }
         .bms-header {
           display:flex; align-items:flex-start; justify-content:space-between;
           margin-bottom: 14px;
         }
-        .bms-title { font-size:16px; font-weight:650; letter-spacing:-0.01em; }
+        .bms-title { font-size:16px; font-weight:650; letter-spacing:-0.01em; line-height:1.25; }
         .bms-conn {
           display:flex; align-items:center; gap:7px;
-          font-size:12px; color:var(--bms-muted); margin-top:5px;
+          font-size:12px; color:var(--bms-muted); margin-top:4px;
         }
         .bms-dot {
           width:7px; height:7px; border-radius:50%; display:inline-block;
@@ -1688,34 +1690,35 @@ class HaBmsBleCard extends HTMLElement {
         }
         .bms-bt {
           color: var(--bms-cyan); font-size:20px !important;
-          filter: drop-shadow(0 0 5px rgba(56,189,248,0.4));
+          filter: drop-shadow(0 0 6px rgba(56,189,248,0.45));
         }
+        /* === TOP GRID: battery | metrics | cells  (як на mockup) === */
         .bms-top {
           display: grid;
-          grid-template-columns: 140px 118px minmax(0, 1fr);
+          grid-template-columns: 148px 122px minmax(220px, 1fr);
           gap: 12px;
-          align-items: start;
+          align-items: stretch;
         }
         .bms-col-left, .bms-col-mid, .bms-col-right {
           min-width: 0; display: flex; flex-direction: column; gap: 10px;
         }
         .bms-battery-wrap {
           display:flex; flex-direction:column; align-items:center; gap:10px;
-          padding: 4px 0 2px;
+          flex: 1;
         }
         .bms-battery-shape { position:relative; display:flex; align-items:center; justify-content:center; }
         .bms-battery-label {
           position:absolute; inset:0; display:flex; flex-direction:column;
-          align-items:center; justify-content:center; pointer-events:none; padding-top:12px;
+          align-items:center; justify-content:center; pointer-events:none; padding-top:14px;
         }
         .bms-battery-pct {
-          font-size:28px; font-weight:800; line-height:1; color:#fff;
-          text-shadow: 0 2px 8px rgba(0,0,0,0.55);
+          font-size:30px; font-weight:800; line-height:1; color:#fff;
+          text-shadow: 0 2px 10px rgba(0,0,0,0.5);
         }
-        .bms-battery-shape-full .bms-battery-pct { font-size:32px; }
+        .bms-battery-shape-full .bms-battery-pct { font-size:34px; }
         .bms-battery-sub {
-          font-size:10px; font-weight:700; letter-spacing:0.14em;
-          color:rgba(255,255,255,0.78); margin-top:3px;
+          font-size:10px; font-weight:700; letter-spacing:0.16em;
+          color:rgba(255,255,255,0.8); margin-top:3px;
         }
         .bms-status-pill {
           font-size:12px; padding:6px 14px; border-radius:999px;
@@ -1726,12 +1729,12 @@ class HaBmsBleCard extends HTMLElement {
           background: var(--bms-panel);
           border: 1px solid var(--bms-border);
           border-radius: 14px;
-          padding: 11px 12px 9px;
+          padding: 10px 12px 8px;
         }
-        .bms-eta-row { display:flex; align-items:center; gap:9px; margin-bottom:9px; }
-        .bms-eta-row .ti { font-size:18px !important; color:var(--bms-muted); flex-shrink:0; }
-        .bms-eta-label { font-size:11px; color:var(--bms-muted); }
-        .bms-eta-value { font-size:16px; font-weight:700; margin-top:1px; }
+        .bms-eta-row { display:flex; align-items:center; gap:8px; margin-bottom:8px; }
+        .bms-eta-row .ti { font-size:17px !important; color:var(--bms-muted); flex-shrink:0; }
+        .bms-eta-label { font-size:11px; color:var(--bms-muted); white-space:nowrap; }
+        .bms-eta-value { font-size:15px; font-weight:700; margin-top:1px; white-space:nowrap; }
         .bms-soc-bar {
           height:6px; border-radius:999px; background:rgba(255,255,255,0.08); overflow:hidden;
         }
@@ -1739,18 +1742,20 @@ class HaBmsBleCard extends HTMLElement {
         .bms-soc-bar-lab {
           font-size:10px; color:var(--bms-muted); text-align:right; margin-top:4px;
         }
-        .bms-metric-stack { display:flex; flex-direction:column; gap:8px; }
+        .bms-metric-stack { display:flex; flex-direction:column; gap:8px; height:100%; }
         .bms-metric {
           background: var(--bms-panel);
           border: 1px solid var(--bms-border);
           border-radius: 12px;
-          padding: 10px 11px;
+          padding: 10px 12px;
+          flex: 1;
+          display:flex; flex-direction:column; justify-content:center;
         }
         .bms-metric-value {
-          font-size:15.5px; font-weight:700; letter-spacing:-0.02em;
+          font-size:16px; font-weight:700; letter-spacing:-0.02em;
           white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
         }
-        .bms-metric-label { font-size:10.5px; color:var(--bms-muted); margin-top:2px; }
+        .bms-metric-label { font-size:11px; color:var(--bms-muted); margin-top:2px; }
         .bms-panel {
           background: var(--bms-panel);
           border: 1px solid var(--bms-border);
@@ -1758,42 +1763,48 @@ class HaBmsBleCard extends HTMLElement {
           padding: 12px;
         }
         .bms-panel-title {
-          font-size:11.5px; font-weight:600; color:var(--bms-muted); margin-bottom:10px;
+          font-size:12px; font-weight:600; color:var(--bms-muted); margin-bottom:10px;
         }
+        .bms-cells-panel { flex: 1; }
         .bms-hbar-row {
-          display:grid; grid-template-columns: 24px minmax(0,1fr) 64px;
-          gap:8px; align-items:center; margin-bottom:8px;
+          display:grid; grid-template-columns: 26px minmax(0,1fr) 66px;
+          gap:8px; align-items:center; margin-bottom:9px;
         }
-        .bms-hbar-lab { font-size:11.5px; font-weight:650; color:var(--bms-muted); }
+        .bms-hbar-lab { font-size:12px; font-weight:650; color:var(--bms-muted); }
         .bms-hbar-track {
-          height:10px; border-radius:999px; background:rgba(255,255,255,0.07); overflow:hidden;
+          height:11px; border-radius:999px;
+          background: rgba(255,255,255,0.08);
+          overflow:hidden;
         }
-        .bms-hbar-fill { height:100%; border-radius:999px; min-width:2px; }
+        .bms-hbar-fill {
+          height:100%; border-radius:999px; min-width:4px;
+          box-shadow: 0 0 8px rgba(34,197,94,0.25);
+        }
         .bms-hbar-val {
-          font-size:11.5px; text-align:right; font-weight:650;
-          font-variant-numeric: tabular-nums;
+          font-size:12px; text-align:right; font-weight:650;
+          font-variant-numeric: tabular-nums; color: var(--bms-text);
         }
         .bms-cell-extremes {
-          display:grid; grid-template-columns:1fr 1fr 1fr; gap:7px; margin-top:10px;
+          display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; margin-top:12px;
         }
         .bms-extreme {
-          background: rgba(0,0,0,0.28); border-radius:10px; padding:8px 4px; text-align:center;
+          background: rgba(0,0,0,0.3); border-radius:11px; padding:9px 4px; text-align:center;
           border: 1px solid var(--bms-border);
         }
-        .bms-extreme-v { font-size:11px; font-weight:700; }
+        .bms-extreme-v { font-size:11.5px; font-weight:700; }
         .bms-extreme-s { font-size:10px; color:var(--bms-muted); margin-top:2px; }
         .bms-extreme-max .bms-extreme-v { color: var(--bms-green); }
         .bms-extreme-min .bms-extreme-v { color: var(--bms-amber); }
-        .bms-diag-panel { padding: 8px 4px; }
+        .bms-diag-panel { padding: 10px 6px; }
         .bms-diag-grid {
-          display:grid; grid-template-columns:1fr 1fr 1fr; gap:2px 0;
+          display:grid; grid-template-columns:1fr 1fr 1fr; gap:4px 0;
         }
-        .bms-diag-cell { text-align:center; padding:9px 3px; }
-        .bms-diag-cell .ti { font-size:17px !important; }
-        .bms-diag-lab { font-size:9.5px; color:var(--bms-muted); margin-top:4px; }
-        .bms-diag-val { font-size:11.5px; font-weight:650; margin-top:2px; }
+        .bms-diag-cell { text-align:center; padding:10px 4px; }
+        .bms-diag-cell .ti { font-size:18px !important; }
+        .bms-diag-lab { font-size:10px; color:var(--bms-muted); margin-top:5px; }
+        .bms-diag-val { font-size:12px; font-weight:650; margin-top:2px; }
         .bms-stats-strip {
-          display:grid; grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
+          display:grid; grid-template-columns: repeat(7, 1fr);
           margin-top: 12px;
           background: var(--bms-panel);
           border: 1px solid var(--bms-border);
@@ -1805,9 +1816,9 @@ class HaBmsBleCard extends HTMLElement {
           border-right: 1px solid var(--bms-border);
         }
         .bms-stat:last-child { border-right: none; }
-        .bms-stat-l { display:block; font-size:9.5px; color:var(--bms-muted); margin-bottom:4px; }
+        .bms-stat-l { display:block; font-size:10px; color:var(--bms-muted); margin-bottom:4px; }
         .bms-stat-v {
-          display:block; font-size:13.5px; font-weight:700;
+          display:block; font-size:14px; font-weight:700;
           font-variant-numeric: tabular-nums;
         }
         .bms-section { margin-top: 16px; }
@@ -1817,7 +1828,7 @@ class HaBmsBleCard extends HTMLElement {
         .bms-section-sub { font-weight:500; color:var(--bms-muted); font-size:12px; }
         .bms-muted { color:var(--bms-muted); font-size:12px; margin:0; }
         .bms-cap-grid {
-          display:grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap:10px;
+          display:grid; grid-template-columns: repeat(4, 1fr); gap:10px;
         }
         .bms-cap-card {
           background: var(--bms-panel); border:1px solid var(--bms-border);
@@ -1830,9 +1841,9 @@ class HaBmsBleCard extends HTMLElement {
         .bms-cap-value { font-size:18px; font-weight:750; }
         .bms-cap-unit { font-size:12px; font-weight:500; color:var(--bms-muted); }
         .bms-cap-pct { font-size:12px; font-weight:650; color: var(--bms-green); }
-        .bms-spark { display:block; opacity:0.85; }
+        .bms-spark { display:block; opacity:0.9; }
         .bms-forecast-grid {
-          display:grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+          display:grid; grid-template-columns: repeat(4, 1fr);
           background: var(--bms-panel); border:1px solid var(--bms-border);
           border-radius: 14px; overflow:hidden;
         }
@@ -1845,7 +1856,7 @@ class HaBmsBleCard extends HTMLElement {
         .bms-forecast-lab { font-size:10.5px; color:var(--bms-muted); line-height:1.25; }
         .bms-forecast-val { font-size:14px; font-weight:700; margin-top:2px; }
         .bms-diag-tiles {
-          display:grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap:10px;
+          display:grid; grid-template-columns: repeat(4, 1fr); gap:10px;
         }
         .bms-diag-tile {
           background: var(--bms-panel); border:1px solid var(--bms-border);
@@ -1880,16 +1891,17 @@ class HaBmsBleCard extends HTMLElement {
           color:var(--bms-text); font-size:18px; cursor:pointer; z-index:2;
           opacity:0.7; padding:4px 8px;
         }
-        @container bms (max-width: 560px) {
+        @container bms (max-width: 640px) {
           .bms-top { grid-template-columns: 1fr; }
           .bms-col-mid .bms-metric-stack {
             display:grid; grid-template-columns:1fr 1fr; gap:8px;
           }
           .bms-diag-grid { grid-template-columns:1fr 1fr; }
+          .bms-stats-strip { grid-template-columns: repeat(auto-fit, minmax(70px, 1fr)); }
+          .bms-cap-grid { grid-template-columns: 1fr 1fr; }
+          .bms-forecast-grid { grid-template-columns: 1fr 1fr; }
+          .bms-diag-tiles { grid-template-columns: 1fr 1fr; }
           .bms-forecast { border-right:none; border-bottom:1px solid var(--bms-border); }
-        }
-        @container bms (min-width: 700px) {
-          .bms-top { grid-template-columns: 150px 126px minmax(0, 1fr); gap:14px; }
         }
       </style>
       <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css">
