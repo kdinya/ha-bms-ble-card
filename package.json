@@ -1,6 +1,6 @@
 {
   "name": "ha-bms-ble-card",
-  "version": "2.1.1",
+  "version": "2.1.2",
   "description": "Lovelace card for BLE BMS batteries integrated via BMS_BLE-HA",
   "main": "dist/ha-bms-ble-card.js",
   "scripts": { "test": "node --test test/logic.test.js test/smoke-render.test.js" },

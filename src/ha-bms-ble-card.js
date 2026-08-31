@@ -51,6 +51,45 @@ function hexToRgba(hex, alpha) {
   return `rgba(${r},${g},${b},${alpha})`;
 }
 
+/**
+ * Картка раніше вантажила іконковий шрифт Tabler з зовнішнього CDN
+ * (cdn.jsdelivr.net) прямо в innerHTML. Якщо в інстансу Home Assistant
+ * немає виходу в інтернет (типово для HAOS у ізольованій мережі) —
+ * шрифт не вантажиться і ВСІ іконки на картці зникають, хоча решта
+ * дизайну виглядає нормально. Тому іконки тепер малює власний
+ * `<ha-icon>` Home Assistant (Material Design Icons, вже вбудовані у
+ * фронтенд, без жодних зовнішніх запитів).
+ */
+const TI_TO_MDI = {
+  "ti-alert-triangle": "mdi:alert",
+  "ti-battery": "mdi:battery",
+  "ti-battery-vertical-filled": "mdi:battery-high",
+  "ti-bluetooth": "mdi:bluetooth",
+  "ti-bolt": "mdi:lightning-bolt",
+  "ti-bolt-off": "mdi:flash-off",
+  "ti-chart-donut-3": "mdi:chart-donut",
+  "ti-clock-hour-4": "mdi:clock-outline",
+  "ti-flame": "mdi:fire",
+  "ti-pause": "mdi:pause",
+  "ti-plug-connected": "mdi:power-plug",
+  "ti-refresh": "mdi:refresh",
+  "ti-scale": "mdi:scale-balance",
+  "ti-topology-star-3": "mdi:sitemap",
+  "ti-wave-sine": "mdi:sine-wave",
+};
+
+function tiToMdi(tiClass) {
+  return TI_TO_MDI[tiClass] || "mdi:help-circle-outline";
+}
+
+function haIcon(tiClass, size, color) {
+  const style = [
+    color ? `color:${color}` : "",
+    size ? `--mdc-icon-size:${size}px;width:${size}px;height:${size}px` : "",
+  ].filter(Boolean).join(";");
+  return `<ha-icon icon="${tiToMdi(tiClass)}"${style ? ` style="${style}"` : ""}></ha-icon>`;
+}
+
 function batteryFillColor(percent) {
   if (percent <= 15) return "#E24B4A";
   if (percent <= 30) return "#EF9F27";
@@ -1379,7 +1418,7 @@ class HaBmsBleCard extends HTMLElement {
 
     const func = (icon, label, value, tone) => `
       <div class="func-box">
-        <div class="icon-circle"><i class="ti ${icon}" style="font-size:22px;color:${tone}"></i></div>
+        <div class="icon-circle">${haIcon(icon, 22, tone)}</div>
         <div class="func-text"><div class="l1">${label}</div><div class="l2" style="color:${tone}">${value}</div></div>
       </div>`;
 
@@ -1408,7 +1447,7 @@ class HaBmsBleCard extends HTMLElement {
       <div class="bms-full">
         <div class="header">
           <div>
-            <h1>${this._batteryName()} <i class="ti ti-bluetooth" style="color:#4b9bf0;font-size:18px;"></i></h1>
+            <h1>${this._batteryName()} ${haIcon("ti-bluetooth", 18, "#4b9bf0")}</h1>
             <div class="status"><span class="dot"></span> ${status.color === "danger" ? "Проблема" : "Підключено"}</div>
           </div>
         </div>
@@ -1417,14 +1456,12 @@ class HaBmsBleCard extends HTMLElement {
           <div class="battery-box">
             ${this._renderBatteryShape(soc, "full")}
             <div class="charge-badge">
-              <i class="ti ${status.icon}" style="font-size:16px;"></i> ${status.label}
+              ${haIcon(status.icon, 16)} ${status.label}
             </div>
           </div>
           <div class="stat-col">
             <div class="stat-box"><div class="val">${fmt(voltage, 2)} V</div><div class="lbl">Напруга</div></div>
             <div class="stat-box"><div class="val ${currentGreen ? "green" : ""}">${fmt(current, 1)} A</div><div class="lbl">Струм</div></div>
-          </div>
-          <div class="stat-col">
             <div class="stat-box"><div class="val ${currentGreen ? "green" : ""}">${fmt(power, 0)} W</div><div class="lbl">Потужність</div></div>
             <div class="stat-box"><div class="val">${fmt(temp, 1)} °C</div><div class="lbl">Температура</div></div>
           </div>
@@ -1433,7 +1470,7 @@ class HaBmsBleCard extends HTMLElement {
 
         <div class="discharge-box">
           <div class="discharge-top">
-            <div class="icon-circle"><i class="ti ti-clock-hour-4" style="font-size:20px;color:#c7d0da;"></i></div>
+            <div class="icon-circle">${haIcon("ti-clock-hour-4",20,"#c7d0da")}</div>
             <div class="discharge-text">
               <div class="l1">${eta.label}</div>
               <div class="l2">${eta.seconds !== undefined ? "~" + secondsToHuman(eta.seconds) : "—"}</div>
@@ -1470,25 +1507,25 @@ class HaBmsBleCard extends HTMLElement {
         <h2 class="section-title">Час роботи до розряду (прогноз)</h2>
         <div class="forecast-row">
           <div class="forecast-card">
-            <div class="icon-circle"><i class="ti ti-clock-hour-4" style="font-size:20px;color:#4b9bf0;"></i></div>
+            <div class="icon-circle">${haIcon("ti-clock-hour-4",20,"#4b9bf0")}</div>
             <div class="forecast-text"><div class="l1">При поточному навантаженні</div><div class="l2">${eta.seconds !== undefined ? secondsToHuman(eta.seconds) : "—"}</div></div>
           </div>
-          ${this._e("discharge_time_daily") ? `<div class="forecast-card"><div class="icon-circle"><i class="ti ti-clock-hour-4" style="font-size:20px;color:#4b9bf0;"></i></div><div class="forecast-text"><div class="l1">Сьогоднішній розряд</div><div class="l2">~${fmt(stateOf(this._hass, this._e("discharge_time_daily")), 1)} год</div></div></div>` : ""}
-          ${this._e("discharge_time_weekly") ? `<div class="forecast-card"><div class="icon-circle"><i class="ti ti-clock-hour-4" style="font-size:20px;color:#4b9bf0;"></i></div><div class="forecast-text"><div class="l1">Середній за тиждень</div><div class="l2">~${fmt(stateOf(this._hass, this._e("discharge_time_weekly")), 1)} год</div></div></div>` : ""}
-          ${this._e("discharge_time_monthly") ? `<div class="forecast-card"><div class="icon-circle"><i class="ti ti-clock-hour-4" style="font-size:20px;color:#4b9bf0;"></i></div><div class="forecast-text"><div class="l1">Середній за місяць</div><div class="l2">~${fmt(stateOf(this._hass, this._e("discharge_time_monthly")), 1)} год</div></div></div>` : ""}
+          ${this._e("discharge_time_daily") ? `<div class="forecast-card"><div class="icon-circle">${haIcon("ti-clock-hour-4",20,"#4b9bf0")}</div><div class="forecast-text"><div class="l1">Сьогоднішній розряд</div><div class="l2">~${fmt(stateOf(this._hass, this._e("discharge_time_daily")), 1)} год</div></div></div>` : ""}
+          ${this._e("discharge_time_weekly") ? `<div class="forecast-card"><div class="icon-circle">${haIcon("ti-clock-hour-4",20,"#4b9bf0")}</div><div class="forecast-text"><div class="l1">Середній за тиждень</div><div class="l2">~${fmt(stateOf(this._hass, this._e("discharge_time_weekly")), 1)} год</div></div></div>` : ""}
+          ${this._e("discharge_time_monthly") ? `<div class="forecast-card"><div class="icon-circle">${haIcon("ti-clock-hour-4",20,"#4b9bf0")}</div><div class="forecast-text"><div class="l1">Середній за місяць</div><div class="l2">~${fmt(stateOf(this._hass, this._e("discharge_time_monthly")), 1)} год</div></div></div>` : ""}
         </div>` : ""}
 
         ${this._renderHistoryBars()}
 
         <h2 class="section-title">Діагностика</h2>
         <div class="diag-grid">
-          ${stored !== undefined ? `<div class="diag-card"><div class="diag-icon"><i class="ti ti-battery-vertical-filled" style="font-size:20px;color:#1D9E75;"></i></div><div class="diag-text"><div class="l1">Stored Energy</div><div class="l2">${fmt(stored, 0)} Wh</div></div></div>` : ""}
-          ${stateOf(this._hass, this._e("runtime")) !== undefined ? `<div class="diag-card"><div class="diag-icon"><i class="ti ti-clock-hour-4" style="font-size:20px;color:#4b9bf0;"></i></div><div class="diag-text"><div class="l1">Runtime (BMS)</div><div class="l2">${fmt(stateOf(this._hass, this._e("runtime")), 0)} s / ~${secondsToHuman(Number(stateOf(this._hass, this._e("runtime"))))}</div></div></div>` : ""}
-          ${balanceCur !== undefined ? `<div class="diag-card"><div class="diag-icon"><i class="ti ti-scale" style="font-size:20px;color:#EF9F27;"></i></div><div class="diag-text"><div class="l1">Balance Current</div><div class="l2">${fmt(balanceCur, 2)} A</div></div></div>` : ""}
-          ${cycles !== undefined ? `<div class="diag-card"><div class="diag-icon"><i class="ti ti-refresh" style="font-size:20px;color:#1D9E75;"></i></div><div class="diag-text"><div class="l1">Package Cycles</div><div class="l2">${fmt(cycles, 0)}</div></div></div>` : ""}
-          <div class="diag-card"><div class="diag-icon"><i class="ti ti-battery" style="font-size:20px;color:#E24B4A;"></i></div><div class="diag-text"><div class="l1">Package Voltage</div><div class="l2">${fmt(voltage, 2)} V</div></div></div>
-          <div class="diag-card"><div class="diag-icon"><i class="ti ti-wave-sine" style="font-size:20px;color:#4b9bf0;"></i></div><div class="diag-text"><div class="l1">Package Current</div><div class="l2">${fmt(current, 1)} A</div></div></div>
-          <div class="diag-card"><div class="diag-icon"><i class="ti ti-chart-donut-3" style="font-size:20px;color:#4b9bf0;"></i></div><div class="diag-text"><div class="l1">Package SOC</div><div class="l2">${fmt(soc, 0)}%</div></div></div>
+          ${stored !== undefined ? `<div class="diag-card"><div class="diag-icon">${haIcon("ti-battery-vertical-filled",20,"#1D9E75")}</div><div class="diag-text"><div class="l1">Stored Energy</div><div class="l2">${fmt(stored, 0)} Wh</div></div></div>` : ""}
+          ${stateOf(this._hass, this._e("runtime")) !== undefined ? `<div class="diag-card"><div class="diag-icon">${haIcon("ti-clock-hour-4",20,"#4b9bf0")}</div><div class="diag-text"><div class="l1">Runtime (BMS)</div><div class="l2">${fmt(stateOf(this._hass, this._e("runtime")), 0)} s / ~${secondsToHuman(Number(stateOf(this._hass, this._e("runtime"))))}</div></div></div>` : ""}
+          ${balanceCur !== undefined ? `<div class="diag-card"><div class="diag-icon">${haIcon("ti-scale",20,"#EF9F27")}</div><div class="diag-text"><div class="l1">Balance Current</div><div class="l2">${fmt(balanceCur, 2)} A</div></div></div>` : ""}
+          ${cycles !== undefined ? `<div class="diag-card"><div class="diag-icon">${haIcon("ti-refresh",20,"#1D9E75")}</div><div class="diag-text"><div class="l1">Package Cycles</div><div class="l2">${fmt(cycles, 0)}</div></div></div>` : ""}
+          <div class="diag-card"><div class="diag-icon">${haIcon("ti-battery",20,"#E24B4A")}</div><div class="diag-text"><div class="l1">Package Voltage</div><div class="l2">${fmt(voltage, 2)} V</div></div></div>
+          <div class="diag-card"><div class="diag-icon">${haIcon("ti-wave-sine",20,"#4b9bf0")}</div><div class="diag-text"><div class="l1">Package Current</div><div class="l2">${fmt(current, 1)} A</div></div></div>
+          <div class="diag-card"><div class="diag-icon">${haIcon("ti-chart-donut-3",20,"#4b9bf0")}</div><div class="diag-text"><div class="l1">Package SOC</div><div class="l2">${fmt(soc, 0)}%</div></div></div>
         </div>
       </div>
     `;
@@ -1505,7 +1542,7 @@ class HaBmsBleCard extends HTMLElement {
       <div class="bms-mini" tabindex="0" role="button">
         <div class="header" style="margin-bottom:12px;">
           <div>
-            <h1 style="font-size:16px;">${this._batteryName()} <i class="ti ti-bluetooth" style="color:#4b9bf0;font-size:16px;"></i></h1>
+            <h1 style="font-size:16px;">${this._batteryName()} ${haIcon("ti-bluetooth",16,"#4b9bf0")}</h1>
             <div class="status"><span class="dot"></span> ${status.label}</div>
           </div>
         </div>
@@ -1539,7 +1576,7 @@ class HaBmsBleCard extends HTMLElement {
         :host { display:block; max-width:100%; }
         * { box-sizing: border-box; }
         ha-card.bms-card, .bms-card {
-          --bg:#050708; --card:#0d1218; --panel:#121922; --border:rgba(255,255,255,0.06);
+          --bg:#020608; --card:#050e14; --panel:#0a141c; --border:rgba(255,255,255,0.06);
           --text:#f2f4f7; --muted:#8b96a3; --muted-2:#5f6b78;
           --green:#1D9E75; --green-dim:#1f3d29; --amber:#EF9F27; --blue:#4b9bf0; --red:#E24B4A;
           background: var(--card) !important;
@@ -1552,7 +1589,7 @@ class HaBmsBleCard extends HTMLElement {
           max-width: 100%;
           overflow: hidden;
         }
-        .ti { vertical-align: -2px; }
+        ha-icon { --mdc-icon-size: 20px; }
         .header { display:flex; align-items:flex-start; justify-content:space-between; margin-bottom:18px; }
         .header h1 { font-size:22px; margin:0 0 6px 0; font-weight:700; display:flex; align-items:center; gap:8px; }
         .status { display:flex; align-items:center; gap:6px; color:var(--green); font-size:14px; font-weight:500; }
@@ -1606,12 +1643,12 @@ class HaBmsBleCard extends HTMLElement {
         .cell-fill.warn { background:linear-gradient(90deg,#bf8a1e,#EF9F27); }
         .cell-val { width:62px; text-align:right; font-size:14px; font-weight:600; flex-shrink:0; }
 
-        .badges-row { display:flex; gap:10px; margin-top:2px; }
+        .badges-row { display:flex; gap:8px; margin-top:2px; }
         .badge {
-          flex:1; background:#0f151d; border-radius:10px; padding:9px 10px; font-size:12.5px; color:var(--muted);
-          display:flex; flex-direction:column; gap:2px;
+          flex:1; min-width:0; background:#0f151d; border-radius:10px; padding:9px 8px; font-size:11.5px; color:var(--muted);
+          display:flex; flex-direction:column; gap:2px; white-space:nowrap; overflow:hidden;
         }
-        .badge b { font-size:14px; font-weight:700; }
+        .badge b { font-size:13px; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
         .badge.green b { color:var(--green); }
         .badge.amber b { color:var(--amber); }
         .badge.blue b { color:var(--blue); }
@@ -1724,7 +1761,6 @@ class HaBmsBleCard extends HTMLElement {
           .battery-box { width:100%; }
         }
       </style>
-      <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css">
     `;
   }
 
@@ -1736,13 +1772,12 @@ class HaBmsBleCard extends HTMLElement {
       this.innerHTML = `
         <ha-card style="padding:16px;border-radius:18px;">
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;font-weight:600;">
-            <i class="ti ti-bluetooth" style="font-size:16px;"></i>
+            ${haIcon("ti-bluetooth",16)}
             <span>${this._config.name && this._config.name.trim() ? this._config.name.trim() : "BMS Battery"}</span>
           </div>
           <p style="font-size:13px;opacity:0.75;margin:0;">
             Не вдалося знайти акумулятор BMS_BLE-HA. Перевірте інтеграцію або оберіть пристрій у редакторі картки.
           </p>
-          <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css">
         </ha-card>`;
       return;
     }
