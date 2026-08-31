@@ -7,7 +7,7 @@
  * https://github.com/kdinya/ha-bms-ble-card
  */
 
-const CARD_VERSION = "1.6.0";
+const CARD_VERSION = "1.7.0";
 
 console.info(
   `%c HA-BMS-BLE-CARD %c v${CARD_VERSION} `,
@@ -326,19 +326,41 @@ class SetupWizard {
       unit_of_measurement: unit,
       device_class: deviceClass,
       state_class: "measurement",
+      availability: `{{ has_value('${sourceEntity}') }}`,
     });
     if (result.type !== "create_entry") {
+      // Fallback: try without availability (older HA schemas)
+      if (result.type === "form" && result.errors) {
+        const retry = await this._submitStep(step.flow_id, {
+          name: title,
+          state: `{{ [ (states('${sourceEntity}') | float(0)), 0 ] | min | abs }}`,
+          unit_of_measurement: unit,
+          device_class: deviceClass,
+          state_class: "measurement",
+        });
+        if (retry.type === "create_entry") {
+          const entityId = await this._entityForEntry(retry.result.entry_id);
+          if (!entityId) throw new Error("template створено, але entity_id не знайдено в registry");
+          return { entityId, created: true };
+        }
+      }
       await this._abortFlow(flow.flow_id);
       throw new Error(result.errors ? JSON.stringify(result.errors) : "template flow не завершився");
     }
     const entityId = await this._entityForEntry(result.result.entry_id);
+    if (!entityId) throw new Error("template створено, але entity_id не знайдено в registry");
     return { entityId, created: true };
   }
 
-  async _entityForEntry(entryId) {
-    const regs = await this.hass.callWS({ type: "config/entity_registry/list" });
-    const match = regs.find((r) => r.config_entry_id === entryId);
-    return match ? match.entity_id : undefined;
+  async _entityForEntry(entryId, attempts = 8, delayMs = 400) {
+    for (let i = 0; i < attempts; i++) {
+      const regs = await this.hass.callWS({ type: "config/entity_registry/list" });
+      const match = regs.find((r) => r.config_entry_id === entryId);
+      if (match && match.entity_id) return match.entity_id;
+      // HA інколи реєструє entity з невеликою затримкою після create_entry
+      await new Promise((r) => setTimeout(r, delayMs));
+    }
+    return undefined;
   }
 
   /** Creates (or reuses) the lifetime Riemann-sum integral sensor for a source entity. */
@@ -362,6 +384,7 @@ class SetupWizard {
       throw new Error(result.errors ? JSON.stringify(result.errors) : "integration flow не завершився");
     }
     const entityId = await this._entityForEntry(result.result.entry_id);
+    if (!entityId) throw new Error("integration створено, але entity_id не знайдено в registry");
     return { entityId, created: true };
   }
 
@@ -394,6 +417,7 @@ class SetupWizard {
       throw new Error(result.errors ? JSON.stringify(result.errors) : "utility_meter flow не завершився");
     }
     const entityId = await this._entityForEntry(result.result.entry_id);
+    if (!entityId) throw new Error("utility_meter створено, але entity_id не знайдено в registry");
     return { entityId, created: true };
   }
 
@@ -421,6 +445,7 @@ class SetupWizard {
       throw new Error(result.errors ? JSON.stringify(result.errors) : "history_stats flow не завершився");
     }
     const entityId = await this._entityForEntry(result.result.entry_id);
+    if (!entityId) throw new Error("history_stats створено, але entity_id не знайдено в registry");
     return { entityId, created: true };
   }
 
@@ -1201,6 +1226,7 @@ class HaBmsBleCard extends HTMLElement {
 
     return `
       <div class="bms-cell-battery" title="Комірка ${idx + 1}: ${Number.isFinite(v) ? v.toFixed(3) : "—"} V">
+        <span class="bms-cell-battery-val">${Number.isFinite(v) ? v.toFixed(3) : "—"} V</span>
         <svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
           <defs>
             <clipPath id="${clipId}">
@@ -1214,29 +1240,33 @@ class HaBmsBleCard extends HTMLElement {
           <rect x="${bodyX + innerPad}" y="${fillY}" width="${bodyW - innerPad * 2}" height="${fillH}"
             fill="${color}" clip-path="url(#${clipId})"/>
         </svg>
-        <span class="bms-cell-battery-idx">${idx + 1}</span>
-        <span class="bms-cell-battery-val">${Number.isFinite(v) ? v.toFixed(3) : "—"}V</span>
+        <span class="bms-cell-battery-idx">C${idx + 1}</span>
       </div>
     `;
   }
 
-  _renderMetricCard(label, value) {
+  _renderMetricCard(label, value, icon = null, iconColor = null) {
+    const ic = icon
+      ? `<div class="bms-metric-icon" style="${iconColor ? `color:${iconColor};` : ""}"><i class="ti ${icon}"></i></div>`
+      : "";
     return `
       <div class="bms-metric">
-        <div class="bms-metric-label">${label}</div>
+        ${ic}
         <div class="bms-metric-value">${value}</div>
+        <div class="bms-metric-label">${label}</div>
       </div>
     `;
   }
 
-  _renderCapacityCard(label, entityId) {
+  _renderCapacityCard(label, entityId, icon = "ti-battery-2") {
     if (!entityId) return "";
     const val = stateOf(this._hass, entityId);
     const unit = attrOf(this._hass, entityId, "unit_of_measurement") || "Ah";
     return `
       <div class="bms-metric">
-        <div class="bms-metric-label">${label}</div>
+        <div class="bms-metric-icon"><i class="ti ${icon}"></i></div>
         <div class="bms-metric-value">${fmt(val, 1)} ${unit}</div>
+        <div class="bms-metric-label">${label}</div>
       </div>
     `;
   }
@@ -1247,8 +1277,9 @@ class HaBmsBleCard extends HTMLElement {
     // history_stats у режимі "time" повертає значення в годинах
     return `
       <div class="bms-metric">
+        <div class="bms-metric-icon"><i class="ti ti-clock-hour-4"></i></div>
+        <div class="bms-metric-value">${fmt(val, 1)} год</div>
         <div class="bms-metric-label">${label}</div>
-        <div class="bms-metric-value">${fmt(val, 1, " год")}</div>
       </div>
     `;
   }
@@ -1323,10 +1354,10 @@ class HaBmsBleCard extends HTMLElement {
             </span>
           </div>
           <div class="bms-metric-grid">
-            ${this._renderMetricCard("Напруга", fmt(voltage, 2, " V"))}
-            ${this._renderMetricCard("Струм", fmt(current, 1, " A"))}
-            ${this._renderMetricCard("Потужність", fmt(power, 0, " W"))}
-            ${this._renderMetricCard("Температура", fmt(temp, 1, " °C"))}
+            ${this._renderMetricCard("Напруга", fmt(voltage, 2, " V"), "ti-bolt", "#38BDF8")}
+            ${this._renderMetricCard("Струм", fmt(current, 1, " A"), "ti-arrows-exchange", "#A78BFA")}
+            ${this._renderMetricCard("Потужність", fmt(power, 0, " W"), "ti-flame", "#FBBF24")}
+            ${this._renderMetricCard("Температура", fmt(temp, 1, " °C"), "ti-temperature-celsius", "#F87171")}
           </div>
         </div>
 
@@ -1361,10 +1392,10 @@ class HaBmsBleCard extends HTMLElement {
             ${this._hasCapacityEntities() ? `
             <div class="bms-section-title"><span>Використано ємності</span></div>
             <div class="bms-diag-grid bms-capacity-grid">
-              ${this._renderCapacityCard("Сьогодні", this._e("capacity_daily"))}
-              ${this._renderCapacityCard("Тиждень", this._e("capacity_weekly"))}
-              ${this._renderCapacityCard("Місяць", this._e("capacity_monthly"))}
-              ${this._renderCapacityCard("Всього", this._e("capacity_total"))}
+              ${this._renderCapacityCard("Сьогодні", this._e("capacity_daily"), "ti-calendar-event")}
+              ${this._renderCapacityCard("Тиждень", this._e("capacity_weekly"), "ti-calendar-week")}
+              ${this._renderCapacityCard("Місяць", this._e("capacity_monthly"), "ti-calendar-month")}
+              ${this._renderCapacityCard("Всього", this._e("capacity_total"), "ti-sum")}
             </div>` : `
             <p class="bms-muted" style="font-size:12px;">
               Сенсори споживання не налаштовані. Відкрийте редактор картки —
@@ -1406,10 +1437,10 @@ class HaBmsBleCard extends HTMLElement {
           </div>
           <div class="bms-mini-right">
             <div class="bms-metric-grid bms-metric-grid-mini">
-              ${this._renderMetricCard("Напруга", fmt(voltage, 2, " V"))}
-              ${this._renderMetricCard("Струм", fmt(current, 1, " A"))}
-              ${this._renderMetricCard("Потужність", fmt(power, 0, " W"))}
-              ${this._renderMetricCard("Темп.", fmt(temp, 1, " °C"))}
+              ${this._renderMetricCard("Напруга", fmt(voltage, 2, " V"), "ti-bolt", "#38BDF8")}
+              ${this._renderMetricCard("Струм", fmt(current, 1, " A"), "ti-arrows-exchange", "#A78BFA")}
+              ${this._renderMetricCard("Потужність", fmt(power, 0, " W"), "ti-flame", "#FBBF24")}
+              ${this._renderMetricCard("Темп.", fmt(temp, 1, " °C"), "ti-temperature-celsius", "#F87171")}
             </div>
             <span class="bms-status-pill" style="background:${statusColors.bg}; color:${statusColors.fg};">
               <i class="ti ${status.icon}"></i> ${status.label}
@@ -1459,16 +1490,21 @@ class HaBmsBleCard extends HTMLElement {
         .ti { font-size:15px; vertical-align:-2px; }
         .bms-card {
           background: var(--ha-card-background, var(--card-background-color, #fff));
-          border-radius: var(--ha-card-border-radius, 12px);
-          padding: 12px; color: var(--primary-text-color);
+          border-radius: var(--ha-card-border-radius, 16px);
+          padding: 14px 14px 12px; color: var(--primary-text-color);
+          border: 1px solid color-mix(in srgb, var(--divider-color, #333) 40%, transparent);
+          box-shadow: 0 1px 2px rgba(0,0,0,0.04), 0 8px 24px rgba(0,0,0,0.06);
           /* Layout below reacts to the CARD's own width, not the viewport,
              so it stays compact no matter how wide the dashboard column is. */
           container-type: inline-size;
           container-name: bms;
         }
-        .bms-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; }
-        .bms-title { display:flex; align-items:center; gap:6px; font-size:14px; font-weight:500; }
-        .bms-status-pill { font-size:11px; padding:3px 8px; border-radius:7px; white-space:nowrap; }
+        .bms-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; }
+        .bms-title { display:flex; align-items:center; gap:6px; font-size:14px; font-weight:600; letter-spacing:-0.01em; }
+        .bms-status-pill {
+          font-size:11px; padding:5px 12px; border-radius:999px; white-space:nowrap;
+          display:inline-flex; align-items:center; gap:5px; font-weight:500;
+        }
         .bms-top-row { display:flex; align-items:flex-start; gap:14px; margin-bottom:10px; }
         .bms-battery-col { display:flex; flex-direction:column; align-items:center; gap:6px; flex-shrink:0; }
         .bms-battery-shape { position:relative; display:flex; align-items:center; justify-content:center; }
@@ -1477,24 +1513,37 @@ class HaBmsBleCard extends HTMLElement {
         .bms-battery-shape-full .bms-battery-pct { font-size:32px; }
         .bms-battery-shape-full .bms-battery-sub { font-size:12px; }
         .bms-battery-sub { font-size:8px; opacity:0.6; }
-        .bms-metric-grid { flex:1; display:grid; grid-template-columns:repeat(auto-fit, minmax(96px, 1fr)); gap:6px; min-width:0; max-width:320px; }
-        .bms-metric-grid-mini { grid-template-columns:repeat(2, minmax(80px, 1fr)); max-width:220px; }
-        .bms-metric { background: var(--secondary-background-color, rgba(127,127,127,0.08)); border-radius:7px; padding:6px 8px; min-width:0; max-width:170px; }
-        .bms-metric-label { font-size:10px; opacity:0.6; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-        .bms-metric-value { font-size:13px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+        .bms-metric-grid { flex:1; display:grid; grid-template-columns:repeat(auto-fit, minmax(96px, 1fr)); gap:8px; min-width:0; max-width:360px; }
+        .bms-metric-grid-mini { grid-template-columns:repeat(2, minmax(80px, 1fr)); max-width:240px; }
+        .bms-metric {
+          background: color-mix(in srgb, var(--secondary-background-color, rgba(127,127,127,0.12)) 85%, transparent);
+          border: 1px solid color-mix(in srgb, var(--divider-color, #333) 55%, transparent);
+          border-radius: 12px; padding: 10px 8px; min-width:0; max-width:180px;
+          display:flex; flex-direction:column; align-items:center; text-align:center; gap:2px;
+        }
+        .bms-metric-icon { font-size:16px; line-height:1; opacity:0.9; margin-bottom:2px; }
+        .bms-metric-icon .ti { font-size:18px; }
+        .bms-metric-label { font-size:10px; opacity:0.55; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; width:100%; }
+        .bms-metric-value { font-size:14px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; width:100%; letter-spacing:-0.01em; }
         .bms-runtime { display:flex; align-items:center; gap:8px; background: var(--secondary-background-color, rgba(127,127,127,0.08));
           border-radius:7px; padding:7px 10px; margin-bottom:10px; }
         .bms-body { display:block; }
         .bms-section { border-top:0.5px solid var(--divider-color,#333); padding-top:8px; margin-top:8px; }
         .bms-section-title { display:flex; justify-content:space-between; font-size:11px; opacity:0.75; margin-bottom:6px; }
         .bms-muted { opacity:0.6; }
-        .bms-cell-grid { display:flex; flex-wrap:wrap; gap:14px; }
-        .bms-cell-battery { display:flex; flex-direction:column; align-items:center; gap:2px; }
-        .bms-cell-battery-idx { font-size:12px; opacity:0.55; }
-        .bms-cell-battery-val { font-size:12px; }
-        .bms-diag-grid { display:grid; grid-template-columns:1fr 1fr; gap:6px; }
+        .bms-cell-grid { display:flex; flex-wrap:wrap; gap:12px; justify-content:flex-start; }
+        .bms-cell-battery {
+          display:flex; flex-direction:column; align-items:center; gap:3px;
+          background: color-mix(in srgb, var(--secondary-background-color, rgba(127,127,127,0.08)) 80%, transparent);
+          border: 1px solid color-mix(in srgb, var(--divider-color, #333) 40%, transparent);
+          border-radius: 12px; padding: 8px 6px 6px; min-width: 72px;
+        }
+        .bms-cell-battery-idx { font-size:11px; opacity:0.55; }
+        .bms-cell-battery-val { font-size:12px; font-weight:600; }
+        .bms-diag-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
         .bms-diag-grid-plain { grid-template-columns:1fr 1fr 1fr; margin-top:6px; }
-        .bms-diag-badge { border-radius:7px; padding:6px 8px; }
+        .bms-capacity-grid { grid-template-columns: repeat(auto-fit, minmax(90px, 1fr)); }
+        .bms-diag-badge { border-radius:10px; padding:8px 10px; }
         .bms-diag-badge-label { font-size:10px; opacity:0.85; }
         .bms-diag-badge-value { font-size:12px; font-weight:500; }
         .bms-plain-stat { display:flex; flex-direction:column; gap:1px; font-size:12px; }
