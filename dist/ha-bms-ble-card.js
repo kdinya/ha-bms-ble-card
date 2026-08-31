@@ -44,6 +44,13 @@ function attrOf(hass, entityId, attr) {
   return hass.states[entityId].attributes[attr];
 }
 
+function hexToRgba(hex, alpha) {
+  const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex || "");
+  if (!m) return `rgba(255,255,255,${alpha})`;
+  const r = parseInt(m[1], 16), g = parseInt(m[2], 16), b = parseInt(m[3], 16);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
 function batteryFillColor(percent) {
   if (percent <= 15) return "#ef4444";
   if (percent <= 30) return "#f59e0b";
@@ -1316,10 +1323,11 @@ class HaBmsBleCard extends HTMLElement {
       frac = Math.max(0.08, Math.min(0.98, frac));
       const color = this._cellColor(v, st.min, st.max, st.delta);
       const pct = Math.round(frac * 100);
+      const trackTint = hexToRgba(color, 0.16);
       rows += `
         <div class="bms-hbar-row">
           <span class="bms-hbar-lab">C${i + 1}</span>
-          <div class="bms-hbar-track">
+          <div class="bms-hbar-track" style="background:${trackTint};">
             <div class="bms-hbar-fill" style="width:${pct}%;background:${color};"></div>
           </div>
           <span class="bms-hbar-val">${Number.isFinite(v) ? v.toFixed(3) : "—"} V</span>
@@ -1654,8 +1662,8 @@ class HaBmsBleCard extends HTMLElement {
         :host { display:block; max-width:100%; }
         * { box-sizing: border-box; }
         ha-card.bms-card, .bms-card {
-          --bms-bg: #0c1118;
-          --bms-panel: #151b24;
+          --bms-bg: #060f16;
+          --bms-panel: #0f1922;
           --bms-border: rgba(255,255,255,0.07);
           --bms-text: #eef2f6;
           --bms-muted: rgba(238,242,246,0.48);
