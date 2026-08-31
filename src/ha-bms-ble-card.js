@@ -7,7 +7,7 @@
  * https://github.com/kdinya/ha-bms-ble-card
  */
 
-const CARD_VERSION = "2.0.0";
+const CARD_VERSION = "2.1.0";
 
 console.info(
   `%c HA-BMS-BLE-CARD %c v${CARD_VERSION} `,
@@ -66,10 +66,42 @@ function dischargeOnlyTemplate(value) {
 function secondsToHuman(seconds) {
   if (seconds === undefined || seconds === null || Number.isNaN(Number(seconds))) return "—";
   const s = Number(seconds);
+  if (s < 0) return "—";
   const h = Math.floor(s / 3600);
   const m = Math.round((s % 3600) / 60);
   if (h <= 0) return `${m} хв`;
   return `${h} год ${m} хв`;
+}
+
+/**
+ * Оцінка часу до повного / до порожнього.
+ * BMS runtime часто unavailable під час заряду — тоді рахуємо з SOC + струм + ємність.
+ */
+function estimateEtaSeconds({ soc, current, designAh, storedWh, packVoltage, charging }) {
+  const s = Number(soc);
+  const c = Number(current);
+  if (!Number.isFinite(s) || !Number.isFinite(c) || Math.abs(c) < 0.05) return undefined;
+
+  let capacityAh = Number(designAh);
+  if (!Number.isFinite(capacityAh) || capacityAh <= 0) {
+    const wh = Number(storedWh);
+    const v = Number(packVoltage);
+    if (Number.isFinite(wh) && Number.isFinite(v) && v > 1 && s > 1) {
+      // stored energy ≈ SOC% of full → full Wh = stored / (soc/100), Ah = Wh / V
+      capacityAh = (wh / (s / 100)) / v;
+    }
+  }
+  if (!Number.isFinite(capacityAh) || capacityAh <= 0) return undefined;
+
+  if (charging && c > 0) {
+    const remainAh = capacityAh * Math.max(0, (100 - s) / 100);
+    return (remainAh / c) * 3600;
+  }
+  if (!charging && c < 0) {
+    const remainAh = capacityAh * Math.max(0, s / 100);
+    return (remainAh / Math.abs(c)) * 3600;
+  }
+  return undefined;
 }
 
 /**
@@ -142,17 +174,51 @@ function deviceEntitiesInfo(hass, deviceId) {
 // device_class, щоб, наприклад, "max_cell_voltage" не забрав собі
 // device_class "voltage" раніше за основну напругу пакета).
 const KEYWORD_RULES = [
-  { key: "delta_cell_voltage", domain: "sensor", test: (o) => hasWord(o, "delta") },
-  { key: "max_cell_voltage", domain: "sensor", test: (o) => o.includes("max") && o.includes("volt") },
-  { key: "min_cell_voltage", domain: "sensor", test: (o) => o.includes("min") && o.includes("volt") },
-  { key: "runtime", domain: "sensor", test: (o) => hasWord(o, "runtime") },
+  { key: "delta_cell_voltage", domain: "sensor", test: (o) => o.includes("delta") },
+  { key: "max_cell_voltage", domain: "sensor", test: (o) => (o.includes("max") && o.includes("volt")) || o.includes("max_cell") },
+  { key: "min_cell_voltage", domain: "sensor", test: (o) => (o.includes("min") && o.includes("volt")) || o.includes("min_cell") },
+  { key: "runtime", domain: "sensor", test: (o) => o.includes("runtime") },
   { key: "link_quality", domain: "sensor", test: (o) => o.includes("link_quality") || o.includes("linkquality") },
-  { key: "charge_cycles", domain: "sensor", test: (o) => o.includes("cycle") },
+  { key: "charge_cycles", domain: "sensor", test: (o) => o.includes("cycle") && !o.includes("capacity") && !o.includes("charge") },
+  { key: "design_capacity", domain: "sensor", test: (o) => o.includes("design") && o.includes("cap") },
+  { key: "stored_energy", domain: "sensor", test: (o) => o.includes("stored") || (o.includes("cycle") && o.includes("cap")) },
   { key: "balancer", domain: "binary_sensor", test: (o) => o.includes("balanc") },
-  { key: "chrg_mosfet", domain: "binary_sensor", test: (o) => o.includes("mosfet") && !o.includes("dis") },
-  { key: "dischrg_mosfet", domain: "binary_sensor", test: (o) => o.includes("mosfet") && o.includes("dis") },
-  { key: "heater", domain: "binary_sensor", test: (o) => hasWord(o, "heater") || hasWord(o, "heating") },
+  { key: "chrg_mosfet", domain: "binary_sensor", test: (o) =>
+      (o.includes("mosfet") || o.includes("mos_fet") || o.includes("mos")) &&
+      (o.includes("chrg") || o.includes("charge") || o.includes("chg")) &&
+      !o.includes("dis")
+  },
+  { key: "dischrg_mosfet", domain: "binary_sensor", test: (o) =>
+      (o.includes("mosfet") || o.includes("mos_fet") || o.includes("mos")) &&
+      (o.includes("dischrg") || o.includes("discharge") || o.includes("dsg") || o.includes("dis"))
+  },
+  { key: "heater", domain: "binary_sensor", test: (o) => o.includes("heater") || o.includes("heating") },
 ];
+
+// Fallback MOSFET if only generic names exist
+function refineMosfetDiscovery(list, result, used) {
+  if (!result.chrg_mosfet) {
+    const m = list.find((e) => !used.has(e.entityId) && e.domain === "binary_sensor" &&
+      (e.objectId.includes("chrg_mosfet") || e.objectId.endsWith("_chrg_mosfet") || e.objectId.includes("charging_mosfet")));
+    if (m) { result.chrg_mosfet = m.entityId; used.add(m.entityId); }
+  }
+  if (!result.dischrg_mosfet) {
+    const m = list.find((e) => !used.has(e.entityId) && e.domain === "binary_sensor" &&
+      (e.objectId.includes("dischrg_mosfet") || e.objectId.includes("discharge_mosfet")));
+    if (m) { result.dischrg_mosfet = m.entityId; used.add(m.entityId); }
+  }
+  // last resort: any mosfet without dis = charge, with dis = discharge
+  if (!result.chrg_mosfet || !result.dischrg_mosfet) {
+    const mos = list.filter((e) => !used.has(e.entityId) && e.domain === "binary_sensor" && e.objectId.includes("mosfet"));
+    for (const e of mos) {
+      if (!result.dischrg_mosfet && e.objectId.includes("dis")) {
+        result.dischrg_mosfet = e.entityId; used.add(e.entityId);
+      } else if (!result.chrg_mosfet && !e.objectId.includes("dis")) {
+        result.chrg_mosfet = e.entityId; used.add(e.entityId);
+      }
+    }
+  }
+}
 
 // Загальні правила за device_class — застосовуються ДРУГИМ проходом,
 // лише до сутностей, які ще нічим не зайняті.
@@ -200,14 +266,27 @@ function autoDiscoverEntities(hass, deviceId) {
     }
   }
 
-  // rssi — fallback за назвою, якщо BMS не проставляє device_class
-  // "signal_strength" на своєму сенсорі RSSI.
+  // rssi — fallback за назвою
   if (!result.rssi) {
-    const match = list.find((e) => !used.has(e.entityId) && e.domain === "sensor" && hasWord(e.objectId, "rssi"));
+    const match = list.find((e) => !used.has(e.entityId) && e.domain === "sensor" && (hasWord(e.objectId, "rssi") || e.objectId.includes("rssi")));
     if (match) {
       result.rssi = match.entityId;
       used.add(match.entityId);
     }
+  }
+
+  refineMosfetDiscovery(list, result, used);
+
+  // max/min cell from friendly name if object_id didn't match
+  if (!result.max_cell_voltage) {
+    const m = list.find((e) => !used.has(e.entityId) && e.domain === "sensor" &&
+      /max/i.test(e.friendlyName + e.objectId) && /volt|cell/i.test(e.friendlyName + e.objectId));
+    if (m) { result.max_cell_voltage = m.entityId; used.add(m.entityId); }
+  }
+  if (!result.min_cell_voltage) {
+    const m = list.find((e) => !used.has(e.entityId) && e.domain === "sensor" &&
+      /min/i.test(e.friendlyName + e.objectId) && /volt|cell/i.test(e.friendlyName + e.objectId));
+    if (m) { result.min_cell_voltage = m.entityId; used.add(m.entityId); }
   }
 
   return result;
@@ -231,6 +310,22 @@ const DISCHARGE_CYCLES = [
   { key: "discharge_time_weekly", label: "Тиждень", days: 7 },
   { key: "discharge_time_monthly", label: "Місяць", days: 30 },
 ];
+
+const LAYOUT_BLOCKS = [
+  { id: "header", label: "Заголовок" },
+  { id: "battery", label: "Батарея + статус + час" },
+  { id: "metrics", label: "Метрики (V/A/W/°C)" },
+  { id: "cells_batteries", label: "Комірки — акумулятори" },
+  { id: "cells_bars", label: "Комірки — смужки" },
+  { id: "diagnostics", label: "Діагностика BMS" },
+  { id: "stats", label: "Смуга статистики" },
+  { id: "capacity", label: "Використано ємності" },
+  { id: "discharge_time", label: "Час розряду" },
+];
+
+function defaultLayout() {
+  return LAYOUT_BLOCKS.map((b) => ({ id: b.id, visible: true, scale: 1 }));
+}
 
 class SetupWizard {
   constructor(hass) {
@@ -675,19 +770,31 @@ class HaBmsBleCardEditor extends HTMLElement {
    *  версії HA, інакше — звичайний текстовий інпут з entity_id (fallback,
    *  щоб редактор не ламався на нетипових/старих фронтендах). */
   _renderEntityField(key, label, domain) {
-    const value = this._effectiveEntities()[key] || "";
+    const deviceId = this._autoDeviceId();
+    const autoMap = this._hass && deviceId ? autoDiscoverEntities(this._hass, deviceId) : {};
+    const manual = this._entities()[key] || "";
+    const auto = autoMap[key] || "";
+    const value = manual || auto || "";
+    const hint = auto
+      ? (manual
+          ? `<div class="bms-auto-hint">вручну (авто було: <code>${auto}</code>)</div>`
+          : `<div class="bms-auto-hint">✓ авто: <code>${auto}</code></div>`)
+      : `<div class="bms-auto-hint bms-auto-miss">не знайдено автоматично</div>`;
     if (this._hasEntityPicker()) {
       return `
         <div class="bms-field" data-key="${key}" data-domain="${domain}">
+          <div class="bms-field-label">${label}</div>
           <ha-entity-picker data-key="${key}"></ha-entity-picker>
+          ${hint}
         </div>
       `;
     }
     return `
       <div class="bms-field" data-key="${key}">
-        <label style="display:block; font-size:12px; opacity:0.75; margin-bottom:2px;">${label}</label>
+        <div class="bms-field-label">${label}</div>
         <input data-key="${key}" type="text" value="${value}" placeholder="entity_id"
           style="width:100%; box-sizing:border-box;" />
+        ${hint}
       </div>
     `;
   }
@@ -797,8 +904,34 @@ class HaBmsBleCardEditor extends HTMLElement {
         .bms-cell-row { display:flex; align-items:center; gap:6px; margin-bottom:6px; }
         .bms-cell-row .bms-field { flex:1; }
         ha-entity-picker { display:block; width:100%; }
+        .bms-field-label { font-size:12px; font-weight:500; opacity:0.85; margin-bottom:4px; }
+        .bms-auto-hint { font-size:11px; opacity:0.7; margin-top:4px; word-break:break-all; }
+        .bms-auto-hint code { font-size:10px; background:rgba(127,127,127,0.15); padding:1px 4px; border-radius:4px; }
+        .bms-auto-miss { opacity:0.45; }
+        .bms-tabs { display:flex; gap:4px; margin-bottom:12px; flex-wrap:wrap; }
+        .bms-tab {
+          flex:1; min-width:90px; padding:8px 10px; border-radius:8px; border:1px solid var(--divider-color,#333);
+          background:transparent; color:var(--primary-text-color); cursor:pointer; font-size:12px; font-weight:500;
+        }
+        .bms-tab.active { background:var(--primary-color,#0F6E56); color:#fff; border-color:transparent; }
+        .bms-layout-row {
+          display:flex; align-items:center; gap:8px; padding:8px; margin-bottom:6px;
+          border:1px solid var(--divider-color,#333); border-radius:8px; background:rgba(127,127,127,0.06);
+          cursor:grab;
+        }
+        .bms-layout-row.dragging { opacity:0.5; }
+        .bms-layout-row .bms-layout-name { flex:1; font-size:13px; font-weight:500; min-width:0; }
+        .bms-layout-row input[type=range] { width:90px; flex-shrink:0; }
+        .bms-layout-row button { border:none; background:transparent; cursor:pointer; font-size:14px; padding:4px; color:var(--primary-text-color); opacity:0.7; }
+
       </style>
       <div class="bms-editor" style="padding:12px;display:flex;flex-direction:column;gap:12px;max-width:100%;overflow-x:hidden;">
+        <div class="bms-tabs">
+          <button type="button" class="bms-tab ${this._tab === "main" ? "active" : ""}" data-tab="main">Основне</button>
+          <button type="button" class="bms-tab ${this._tab === "entities" ? "active" : ""}" data-tab="entities">Сутності</button>
+          <button type="button" class="bms-tab ${this._tab === "layout" ? "active" : ""}" data-tab="layout">Розкладка</button>
+        </div>
+        ${this._tab === "main" ? `
         <div>
           <label style="display:block; font-size:13px; margin-bottom:4px;">Назва (порожньо = автоматично з пристрою)</label>
           <input id="name" type="text" value="${c.name || ""}" placeholder="Автоматично"
@@ -815,23 +948,33 @@ class HaBmsBleCardEditor extends HTMLElement {
           <div class="bms-editor-group-title">Акумулятор</div>
           ${this._renderDevicePicker()}
         </div>
-        <div>
-          <div class="bms-editor-group-title">Ручне перевизначення (не обовʼязково)</div>
-          <p style="font-size:12px; opacity:0.65; margin:0 0 8px; line-height:1.4;">
-            Після вибору акумулятора вище всі сенсори підтягуються самі.
-            Розкривайте групи лише якщо треба замінити окрему сутність.
-          </p>
-          ${this._renderEntityGroups()}
-          ${this._renderCellVoltagesGroup()}
-        </div>
         <div style="border-top:1px solid var(--divider-color,#333); padding-top:12px;">
           <div style="font-size:13px; font-weight:500; margin-bottom:8px;">Сенсори споживання / часу розряду</div>
           ${this._renderWizard()}
-        </div>
+        </div>` : ""}
+        ${this._tab === "entities" ? `
+        <div>
+          <div class="bms-editor-group-title">Сутності (авто + ручне перевизначення)</div>
+          <p style="font-size:12px; opacity:0.65; margin:0 0 8px; line-height:1.4;">
+            Під кожним полем видно, який entity підтягнуто автоматично.
+            Змінюйте лише якщо авто-вибір помилковий.
+          </p>
+          ${this._renderEntityGroups()}
+          ${this._renderCellVoltagesGroup()}
+        </div>` : ""}
+        ${this._tab === "layout" ? this._renderLayoutEditor() : ""}
       </div>
     `;
-    this.querySelector("#name").addEventListener("change", (e) => this._update("name", e.target.value));
-    this.querySelector("#display_mode").addEventListener("change", (e) => this._update("display_mode", e.target.value));
+    this.querySelectorAll(".bms-tab").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        this._tab = btn.dataset.tab;
+        this._render();
+      });
+    });
+    const nameEl = this.querySelector("#name");
+    if (nameEl) nameEl.addEventListener("change", (e) => this._update("name", e.target.value));
+    const modeEl = this.querySelector("#display_mode");
+    if (modeEl) modeEl.addEventListener("change", (e) => this._update("display_mode", e.target.value));
     const devSel = this.querySelector("#bms-device-select");
     if (devSel) {
       devSel.addEventListener("change", (e) => {
@@ -843,9 +986,123 @@ class HaBmsBleCardEditor extends HTMLElement {
     }
     const wizardBtn = this.querySelector("#wizard-btn");
     if (wizardBtn) wizardBtn.addEventListener("click", () => this._runWizard());
-
+    this._wireLayoutEditor();
     this._wireEntityFields();
     this._mounted = true;
+  }
+
+  _layoutConfig() {
+    const raw = (this._config && this._config.layout) || [];
+    const byId = Object.fromEntries((Array.isArray(raw) ? raw : []).map((b) => [b.id, b]));
+    return LAYOUT_BLOCKS.map((b) => {
+      const cur = byId[b.id];
+      return {
+        id: b.id,
+        label: b.label,
+        visible: cur && cur.visible === false ? false : true,
+        scale: cur && Number(cur.scale) > 0 ? Number(cur.scale) : 1,
+      };
+    }).sort((a, b) => {
+      const rawArr = Array.isArray(raw) ? raw : [];
+      const ia = rawArr.findIndex((x) => x.id === a.id);
+      const ib = rawArr.findIndex((x) => x.id === b.id);
+      return (ia < 0 ? 999 : ia) - (ib < 0 ? 999 : ib);
+    });
+  }
+
+  _renderLayoutEditor() {
+    const rows = this._layoutConfig()
+      .map(
+        (b, idx) => `
+      <div class="bms-layout-row" draggable="true" data-layout-id="${b.id}" data-idx="${idx}">
+        <button type="button" data-layout-up title="Вгору">↑</button>
+        <button type="button" data-layout-down title="Вниз">↓</button>
+        <label style="display:flex;align-items:center;gap:6px;margin:0;">
+          <input type="checkbox" data-layout-vis ${b.visible ? "checked" : ""} />
+        </label>
+        <span class="bms-layout-name">${b.label}</span>
+        <span style="font-size:11px;opacity:0.55;">×${b.scale.toFixed(1)}</span>
+        <input type="range" min="0.6" max="1.6" step="0.1" value="${b.scale}" data-layout-scale />
+      </div>`
+      )
+      .join("");
+    return `
+      <div>
+        <p style="font-size:12px; opacity:0.7; margin:0 0 10px; line-height:1.4;">
+          Порядок блоків (↑↓ або перетягування), видимість і відносний масштаб.
+          Масштаб зберігається в конфізі і застосовується пропорційно.
+        </p>
+        ${rows}
+        <button type="button" id="layout-reset"
+          style="margin-top:8px;width:100%;padding:8px;border-radius:8px;border:1px solid var(--divider-color,#333);background:transparent;color:var(--primary-text-color);cursor:pointer;font-size:12px;">
+          Скинути розкладку
+        </button>
+      </div>`;
+  }
+
+  _wireLayoutEditor() {
+    const save = (blocks) => {
+      this._update(
+        "layout",
+        blocks.map(({ id, visible, scale }) => ({ id, visible, scale }))
+      );
+    };
+    const rows = [...this.querySelectorAll(".bms-layout-row")];
+    if (!rows.length) return;
+
+    rows.forEach((row) => {
+      const id = row.dataset.layoutId;
+      row.querySelector("[data-layout-up]")?.addEventListener("click", () => {
+        const list = this._layoutConfig();
+        const i = list.findIndex((b) => b.id === id);
+        if (i > 0) {
+          [list[i - 1], list[i]] = [list[i], list[i - 1]];
+          save(list);
+        }
+      });
+      row.querySelector("[data-layout-down]")?.addEventListener("click", () => {
+        const list = this._layoutConfig();
+        const i = list.findIndex((b) => b.id === id);
+        if (i >= 0 && i < list.length - 1) {
+          [list[i + 1], list[i]] = [list[i], list[i + 1]];
+          save(list);
+        }
+      });
+      row.querySelector("[data-layout-vis]")?.addEventListener("change", (e) => {
+        const list = this._layoutConfig();
+        const b = list.find((x) => x.id === id);
+        if (b) b.visible = e.target.checked;
+        save(list);
+      });
+      row.querySelector("[data-layout-scale]")?.addEventListener("change", (e) => {
+        const list = this._layoutConfig();
+        const b = list.find((x) => x.id === id);
+        if (b) b.scale = Number(e.target.value);
+        save(list);
+      });
+      row.addEventListener("dragstart", (e) => {
+        row.classList.add("dragging");
+        e.dataTransfer.setData("text/plain", id);
+      });
+      row.addEventListener("dragend", () => row.classList.remove("dragging"));
+      row.addEventListener("dragover", (e) => e.preventDefault());
+      row.addEventListener("drop", (e) => {
+        e.preventDefault();
+        const fromId = e.dataTransfer.getData("text/plain");
+        const toId = id;
+        if (!fromId || fromId === toId) return;
+        const list = this._layoutConfig();
+        const fi = list.findIndex((b) => b.id === fromId);
+        const ti = list.findIndex((b) => b.id === toId);
+        if (fi < 0 || ti < 0) return;
+        const [item] = list.splice(fi, 1);
+        list.splice(ti, 0, item);
+        save(list);
+      });
+    });
+    this.querySelector("#layout-reset")?.addEventListener("click", () => {
+      this._update("layout", defaultLayout());
+    });
   }
 
   /** Підключає ha-entity-picker (або текстові fallback-інпути) до значень
@@ -1212,21 +1469,40 @@ class HaBmsBleCard extends HTMLElement {
     return !!(this._e("discharge_time_daily") || this._e("discharge_time_weekly") || this._e("discharge_time_monthly"));
   }
 
-  _renderCellSection() {
+  _cellStats() {
     const cells = this._cellVoltages();
-    if (!cells.length) {
-      return `<div class="bms-panel"><p class="bms-muted">Немає даних про комірки. Увімкніть diagnostic-сенсор Delta cell voltage в BMS_BLE-HA — масив cell_voltages підтягнеться сам.</p></div>`;
-    }
+    if (!cells.length) return null;
     const finite = cells.filter(Number.isFinite);
     const min = Math.min(...finite);
     const max = Math.max(...finite);
     const delta = max - min;
-    const minIdx = cells.indexOf(min);
-    const maxIdx = cells.indexOf(max);
-    const batts = cells.map((v, i) => this._renderCellBatteryMini(v, i, this._cellColor(v, min, max, delta))).join("");
-    const rows = cells.map((v, i) => {
+    return { cells, min, max, delta, minIdx: cells.indexOf(min), maxIdx: cells.indexOf(max) };
+  }
+
+  _renderCellBatteries() {
+    const st = this._cellStats();
+    if (!st) {
+      return `<div class="bms-panel"><p class="bms-muted">Немає даних про комірки. Увімкніть Delta cell voltage (diagnostic) у BMS_BLE-HA.</p></div>`;
+    }
+    const batts = st.cells.map((v, i) => this._renderCellBatteryMini(v, i, this._cellColor(v, st.min, st.max, st.delta))).join("");
+    return `
+      <div class="bms-panel bms-cells-panel">
+        <div class="bms-section-title"><span>Комірки — акумулятори (Δ ${st.delta.toFixed(3)}V)</span></div>
+        <div class="bms-cell-batts">${batts}</div>
+        <div class="bms-cell-extremes">
+          <div class="bms-extreme" style="color:#1D9E75">Макс ${st.max.toFixed(3)} V<br><span class="bms-muted">C${st.maxIdx + 1}</span></div>
+          <div class="bms-extreme" style="color:#EF9F27">Мін ${st.min.toFixed(3)} V<br><span class="bms-muted">C${st.minIdx + 1}</span></div>
+          <div class="bms-extreme">Δ ${st.delta.toFixed(3)} V<br><span class="bms-muted">Різниця</span></div>
+        </div>
+      </div>`;
+  }
+
+  _renderCellBars() {
+    const st = this._cellStats();
+    if (!st) return "";
+    const rows = st.cells.map((v, i) => {
       const frac = cellVoltageFraction(v);
-      const color = this._cellColor(v, min, max, delta);
+      const color = this._cellColor(v, st.min, st.max, st.delta);
       return `
         <div class="bms-hbar-row">
           <span class="bms-hbar-lab">C${i + 1}</span>
@@ -1238,14 +1514,8 @@ class HaBmsBleCard extends HTMLElement {
     }).join("");
     return `
       <div class="bms-panel bms-cells-panel">
-        <div class="bms-section-title"><span>Комірки (Δ ${delta.toFixed(3)}V)</span></div>
-        <div class="bms-cell-batts">${batts}</div>
+        <div class="bms-section-title"><span>Комірки — смужки</span></div>
         <div class="bms-cell-bars">${rows}</div>
-        <div class="bms-cell-extremes">
-          <div class="bms-extreme" style="color:#1D9E75">Макс ${max.toFixed(3)} V<br><span class="bms-muted">C${maxIdx + 1}</span></div>
-          <div class="bms-extreme" style="color:#EF9F27">Мін ${min.toFixed(3)} V<br><span class="bms-muted">C${minIdx + 1}</span></div>
-          <div class="bms-extreme">Δ ${delta.toFixed(3)} V<br><span class="bms-muted">Різниця</span></div>
-        </div>
       </div>`;
   }
 
@@ -1290,24 +1560,83 @@ class HaBmsBleCard extends HTMLElement {
     return `<div class="bms-diag-grid">${cells}${mode}</div>`;
   }
 
+  _layoutBlocks() {
+    const raw = (this._config && this._config.layout) || [];
+    const byId = Object.fromEntries((Array.isArray(raw) ? raw : []).map((b) => [b.id, b]));
+    const ordered = [];
+    if (Array.isArray(raw) && raw.length) {
+      for (const b of raw) {
+        const meta = LAYOUT_BLOCKS.find((x) => x.id === b.id);
+        if (!meta) continue;
+        ordered.push({
+          id: b.id,
+          visible: b.visible !== false,
+          scale: Number(b.scale) > 0 ? Number(b.scale) : 1,
+        });
+      }
+    }
+    for (const meta of LAYOUT_BLOCKS) {
+      if (!ordered.find((x) => x.id === meta.id)) {
+        ordered.push({ id: meta.id, visible: true, scale: 1 });
+      }
+    }
+    return ordered;
+  }
+
+  _wrapBlock(id, scale, html) {
+    if (!html) return "";
+    const s = scale && scale !== 1 ? `style="zoom:${scale};"` : "";
+    return `<div class="bms-block bms-block-${id}" data-block="${id}" ${s}>${html}</div>`;
+  }
+
+  _etaInfo() {
+    const status = this._statusInfo();
+    const runtimeRaw = stateOf(this._hass, this._e("runtime"));
+    const runtimeNum = Number(runtimeRaw);
+    const soc = Number(stateOf(this._hass, this._e("soc")));
+    const current = Number(stateOf(this._hass, this._e("current")));
+    const design = stateOf(this._hass, this._e("design_capacity"));
+    const stored = stateOf(this._hass, this._e("stored_energy"));
+    const voltage = stateOf(this._hass, this._e("voltage"));
+
+    let seconds = Number.isFinite(runtimeNum) && runtimeNum > 0 ? runtimeNum : undefined;
+    // Під час заряду runtime BMS часто unavailable — оцінюємо
+    if (seconds === undefined || (status.color === "success" && !(Number.isFinite(runtimeNum) && runtimeNum > 0))) {
+      const est = estimateEtaSeconds({
+        soc,
+        current,
+        designAh: design,
+        storedWh: stored,
+        packVoltage: voltage,
+        charging: status.color === "success",
+      });
+      if (est && est > 0) seconds = est;
+    }
+
+    let label = "Залишок (оцінка)";
+    if (status.color === "success") label = "До повного заряду";
+    else if (status.color === "warning") label = "До розряду";
+
+    return { seconds, label, socPct: Number.isFinite(soc) ? Math.max(0, Math.min(100, soc)) : 0 };
+  }
+
   _renderFullView() {
     const soc = Number(stateOf(this._hass, this._e("soc")));
     const voltage = stateOf(this._hass, this._e("voltage"));
     const current = stateOf(this._hass, this._e("current"));
     const power = stateOf(this._hass, this._e("power"));
     const temp = stateOf(this._hass, this._e("temperature"));
-    const runtime = stateOf(this._hass, this._e("runtime"));
     const cycles = stateOf(this._hass, this._e("charge_cycles"));
     const link = stateOf(this._hass, this._e("link_quality"));
     const rssi = stateOf(this._hass, this._e("rssi"));
     const stored = stateOf(this._hass, this._e("stored_energy"));
     const status = this._statusInfo();
     const sc = this._statusColorVars(status.color);
-    const socPct = Number.isFinite(soc) ? Math.max(0, Math.min(100, soc)) : 0;
+    const eta = this._etaInfo();
     const capDaily = this._e("capacity_daily");
 
-    return `
-      <div class="bms-full">
+    const parts = {
+      header: `
         <div class="bms-header">
           <div class="bms-title-block">
             <div class="bms-title">${this._batteryName()}</div>
@@ -1315,51 +1644,44 @@ class HaBmsBleCard extends HTMLElement {
               ${status.color === "danger" ? "Проблема" : "Підключено"}</div>
           </div>
           <i class="ti ti-bluetooth" style="color:#38BDF8;font-size:20px;"></i>
-        </div>
-
-        <div class="bms-main-grid">
-          <div class="bms-left-col">
-            <div class="bms-panel bms-battery-panel">
-              ${this._renderBatteryShape(soc, "full")}
-              <span class="bms-status-pill" style="background:${sc.bg};color:${sc.fg};">
-                <i class="ti ${status.icon}"></i> ${status.label}
-              </span>
-            </div>
-            ${runtime !== undefined ? `
-            <div class="bms-panel bms-runtime-panel">
-              <div class="bms-runtime-head"><i class="ti ti-clock-hour-4"></i><span>${
-                status.color === "success" ? "До повного заряду" :
-                status.color === "warning" ? "До розряду" : "Залишок (оцінка)"
-              }</span></div>
-              <div class="bms-runtime-val">~${secondsToHuman(Number(runtime))}</div>
-              <div class="bms-soc-bar"><div class="bms-soc-fill" style="width:${socPct}%;background:${batteryFillColor(socPct)};"></div></div>
-              <div class="bms-soc-bar-lab">${socPct.toFixed(0)}%</div>
-            </div>` : ""}
-          </div>
-
-          <div class="bms-mid-col">
-            <div class="bms-metric-stack">
-              ${this._renderMetric("Напруга", fmt(voltage, 2, " V"))}
-              ${this._renderMetric("Струм", fmt(current, 1, " A"))}
-              ${this._renderMetric("Потужність", fmt(power, 0, " W"))}
-              ${this._renderMetric("Температура", fmt(temp, 1, " °C"))}
-            </div>
-          </div>
-
-          <div class="bms-right-col">
-            ${this._renderCellSection()}
-            <div class="bms-panel" style="margin-top:10px;">${this._renderDiagGrid()}</div>
-          </div>
-        </div>
-
+        </div>`,
+      battery: `
+        <div class="bms-panel bms-battery-panel">
+          ${this._renderBatteryShape(soc, "full")}
+          <span class="bms-status-pill" style="background:${sc.bg};color:${sc.fg};">
+            <i class="ti ${status.icon}"></i> ${status.label}
+          </span>
+          ${eta.seconds !== undefined ? `
+          <div class="bms-runtime-inline">
+            <div class="bms-runtime-head"><i class="ti ti-clock-hour-4"></i><span>${eta.label}</span></div>
+            <div class="bms-runtime-val">~${secondsToHuman(eta.seconds)}</div>
+            <div class="bms-soc-bar"><div class="bms-soc-fill" style="width:${eta.socPct}%;background:${batteryFillColor(eta.socPct)};"></div></div>
+          </div>` : `
+          <div class="bms-runtime-inline">
+            <div class="bms-runtime-head"><i class="ti ti-clock-hour-4"></i><span>${eta.label}</span></div>
+            <div class="bms-runtime-val">—</div>
+            <p class="bms-muted" style="margin-top:4px;font-size:11px;">Немає runtime / недостатньо даних для оцінки (потрібні SOC, струм і ємність)</p>
+          </div>`}
+        </div>`,
+      metrics: `
+        <div class="bms-metric-stack">
+          ${this._renderMetric("Напруга", fmt(voltage, 2, " V"))}
+          ${this._renderMetric("Струм", fmt(current, 1, " A"))}
+          ${this._renderMetric("Потужність", fmt(power, 0, " W"))}
+          ${this._renderMetric("Температура", fmt(temp, 1, " °C"))}
+        </div>`,
+      cells_batteries: this._renderCellBatteries(),
+      cells_bars: this._renderCellBars(),
+      diagnostics: `<div class="bms-panel">${this._renderDiagGrid()}</div>`,
+      stats: `
         <div class="bms-stats-strip">
           ${stored !== undefined ? `<div class="bms-stat"><span class="bms-stat-l">Stored</span><span class="bms-stat-v">${fmt(stored, 1)}</span></div>` : ""}
           ${capDaily ? `<div class="bms-stat"><span class="bms-stat-l">Сьогодні</span><span class="bms-stat-v">${fmt(stateOf(this._hass, capDaily), 1)} ${attrOf(this._hass, capDaily, "unit_of_measurement") || "Ah"}</span></div>` : ""}
           ${cycles !== undefined ? `<div class="bms-stat"><span class="bms-stat-l">Цикли</span><span class="bms-stat-v">${fmt(cycles, 0)}</span></div>` : ""}
           ${link !== undefined ? `<div class="bms-stat"><span class="bms-stat-l">Link</span><span class="bms-stat-v">${fmt(link, 0)}%</span></div>` : ""}
           ${rssi !== undefined ? `<div class="bms-stat"><span class="bms-stat-l">RSSI</span><span class="bms-stat-v">${fmt(rssi, 0)} dBm</span></div>` : ""}
-        </div>
-
+        </div>`,
+      capacity: `
         <div class="bms-section">
           <div class="bms-section-title"><span>Використано ємності</span></div>
           ${this._hasCapacityEntities() ? `
@@ -1368,10 +1690,9 @@ class HaBmsBleCard extends HTMLElement {
             ${this._renderCapacityCard("Тиждень", this._e("capacity_weekly"), "ti-calendar-week")}
             ${this._renderCapacityCard("Місяць", this._e("capacity_monthly"), "ti-calendar-month")}
             ${this._renderCapacityCard("Всього", this._e("capacity_total"), "ti-sum")}
-          </div>` : `<p class="bms-muted">Сенсори споживання не налаштовані — кнопка в редакторі картки.</p>`}
-        </div>
-
-        ${this._hasDischargeEntities() ? `
+          </div>` : `<p class="bms-muted">Сенсори споживання не налаштовані — кнопка в редакторі.</p>`}
+        </div>`,
+      discharge_time: this._hasDischargeEntities() ? `
         <div class="bms-section">
           <div class="bms-section-title"><span>Час розряду</span></div>
           <div class="bms-capacity-grid">
@@ -1379,9 +1700,25 @@ class HaBmsBleCard extends HTMLElement {
             ${this._renderDischargeCard("Тиждень", this._e("discharge_time_weekly"))}
             ${this._renderDischargeCard("Місяць", this._e("discharge_time_monthly"))}
           </div>
-        </div>` : ""}
-      </div>
-    `;
+        </div>` : "",
+    };
+
+    // Default visual: header, then grid of battery|metrics|cells, then rest
+    const blocks = this._layoutBlocks().filter((b) => b.visible !== false);
+    const topIds = ["battery", "metrics", "cells_batteries"];
+    const top = blocks.filter((b) => topIds.includes(b.id));
+    const rest = blocks.filter((b) => !topIds.includes(b.id));
+
+    const topHtml = top.length
+      ? `<div class="bms-main-grid">${top.map((b) => this._wrapBlock(b.id, b.scale, parts[b.id])).join("")}</div>`
+      : "";
+    const restHtml = rest.map((b) => this._wrapBlock(b.id, b.scale, parts[b.id])).join("");
+
+    // Always include header first if visible
+    const headerBlock = blocks.find((b) => b.id === "header");
+    const headerHtml = headerBlock ? this._wrapBlock("header", headerBlock.scale, parts.header) : "";
+
+    return `<div class="bms-full">${headerHtml}${topHtml}${restHtml}</div>`;
   }
 
   _renderMiniView() {
@@ -1474,7 +1811,11 @@ class HaBmsBleCard extends HTMLElement {
         .bms-metric-icon { font-size:14px; line-height:1; }
         .bms-metric-value { font-size:16px; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; letter-spacing:-0.02em; }
         .bms-metric-label { font-size:10px; opacity:0.55; }
-        .bms-runtime-panel { margin-top:10px; }
+        .bms-runtime-panel, .bms-runtime-inline { margin-top:10px; width:100%; }
+        .bms-runtime-inline { text-align:center; }
+        .bms-block { margin-bottom: 10px; }
+        .bms-block-header { margin-bottom: 12px; }
+        .bms-main-grid > .bms-block { margin-bottom: 0; }
         .bms-runtime-head { display:flex; align-items:center; gap:6px; font-size:12px; opacity:0.8; }
         .bms-runtime-val { font-size:18px; font-weight:700; margin:6px 0 8px; }
         .bms-soc-bar { height:8px; border-radius:999px; background:rgba(255,255,255,0.08); overflow:hidden; }
@@ -1623,6 +1964,7 @@ if (typeof module !== "undefined" && module.exports) {
   module.exports = {
     fmt,
     secondsToHuman,
+    estimateEtaSeconds,
     batteryFillColor,
     dischargeOnlyTemplate,
     cellVoltageFraction,
@@ -1631,5 +1973,7 @@ if (typeof module !== "undefined" && module.exports) {
     BMS_BLE_DOMAIN,
     findBmsBleDeviceIds,
     autoDiscoverEntities,
+    LAYOUT_BLOCKS,
+    defaultLayout,
   };
 }
