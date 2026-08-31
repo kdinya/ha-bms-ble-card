@@ -45,9 +45,9 @@ function attrOf(hass, entityId, attr) {
 }
 
 function batteryFillColor(percent) {
-  if (percent <= 15) return "#E24B4A";
-  if (percent <= 30) return "#EF9F27";
-  return "#1D9E75";
+  if (percent <= 15) return "#ef4444";
+  if (percent <= 30) return "#f59e0b";
+  return "#22c55e";
 }
 
 /**
@@ -181,6 +181,7 @@ const KEYWORD_RULES = [
   { key: "link_quality", domain: "sensor", test: (o) => o.includes("link_quality") || o.includes("linkquality") },
   { key: "charge_cycles", domain: "sensor", test: (o) => o.includes("cycle") && !o.includes("capacity") && !o.includes("charge") },
   { key: "design_capacity", domain: "sensor", test: (o) => o.includes("design") && o.includes("cap") },
+  { key: "soh", domain: "sensor", test: (o) => hasWord(o, "soh") || o.includes("battery_health") || (o.includes("health") && !o.includes("unhealthy")) },
   { key: "stored_energy", domain: "sensor", test: (o) => o.includes("stored") || (o.includes("cycle") && o.includes("cap")) },
   { key: "balancer", domain: "binary_sensor", test: (o) => o.includes("balanc") },
   { key: "chrg_mosfet", domain: "binary_sensor", test: (o) =>
@@ -1195,10 +1196,10 @@ class HaBmsBleCard extends HTMLElement {
   }
 
   _statusColorVars(color) {
-    if (color === "success") return { bg: "rgba(29,158,117,0.18)", fg: "#1D9E75" };
-    if (color === "warning") return { bg: "rgba(239,159,39,0.18)", fg: "#EF9F27" };
-    if (color === "danger") return { bg: "rgba(226,75,74,0.18)", fg: "#E24B4A" };
-    return { bg: "rgba(127,127,127,0.12)", fg: "var(--secondary-text-color,#888)" };
+    if (color === "success") return { bg: "rgba(34,197,94,0.16)", fg: "#22c55e" };
+    if (color === "warning") return { bg: "rgba(245,158,11,0.16)", fg: "#f59e0b" };
+    if (color === "danger") return { bg: "rgba(239,68,68,0.16)", fg: "#ef4444" };
+    return { bg: "rgba(148,163,184,0.12)", fg: "#94a3b8" };
   }
 
   _cellColor(v, min, max, delta) {
@@ -1207,25 +1208,26 @@ class HaBmsBleCard extends HTMLElement {
       if (v === min || v === max) return "#E24B4A";
     }
     if (delta >= th.cell_delta_warning) {
-      if (v === min || v === max) return "#EF9F27";
+      if (v === min || v === max) return "#f59e0b";
     }
-    return "#1D9E75";
+    return "#22c55e";
   }
 
-  /* ===== Battery shape (mockup: filled body + % inside) ===== */
+  /* ===== Battery shape matching mockup ===== */
   _renderBatteryShape(percent, variant) {
     const p = Math.max(0, Math.min(100, Number(percent) || 0));
     const color = batteryFillColor(p);
     const clipId = `bms-fill-clip-${this._uid}-${variant}`;
     const isMini = variant === "mini";
-    const w = isMini ? 72 : 120;
-    const h = isMini ? 120 : 180;
-    const wall = isMini ? 3 : 4;
-    const bodyX = 8, bodyY = 14, bodyW = w - 16, bodyH = h - 22, radius = 14;
-    const termW = w * 0.38, termH = 8, termX = (w - termW) / 2;
-    const pad = 5;
+    const w = isMini ? 70 : 112;
+    const h = isMini ? 112 : 168;
+    const wall = isMini ? 3.5 : 4.5;
+    const bodyX = 10, bodyY = 16, bodyW = w - 20, bodyH = h - 24, radius = 18;
+    const termW = w * 0.34, termH = 9, termX = (w - termW) / 2;
+    const pad = 6;
     const fillH = Math.max(0, (bodyH - pad * 2) * (p / 100));
     const fillY = bodyY + pad + (bodyH - pad * 2 - fillH);
+    const stroke = "rgba(180,190,200,0.85)";
 
     return `
       <div class="bms-battery-shape bms-battery-shape-${variant}">
@@ -1233,18 +1235,26 @@ class HaBmsBleCard extends HTMLElement {
           <defs>
             <linearGradient id="bms-grad-${this._uid}-${variant}" x1="0" y1="1" x2="0" y2="0">
               <stop offset="0%" stop-color="${color}" stop-opacity="1"/>
-              <stop offset="100%" stop-color="${color}" stop-opacity="0.75"/>
+              <stop offset="55%" stop-color="${color}" stop-opacity="0.95"/>
+              <stop offset="100%" stop-color="${color}" stop-opacity="0.7"/>
             </linearGradient>
+            <filter id="bms-glow-${this._uid}-${variant}">
+              <feGaussianBlur stdDeviation="2.5" result="b"/>
+              <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+            </filter>
             <clipPath id="${clipId}">
               <rect x="${bodyX + 2}" y="${bodyY + 2}" width="${bodyW - 4}" height="${bodyH - 4}" rx="${radius - 2}"/>
             </clipPath>
           </defs>
-          <rect x="${termX}" y="${bodyY - termH}" width="${termW}" height="${termH + 3}" rx="3"
-            fill="none" stroke="rgba(160,170,180,0.7)" stroke-width="${wall}"/>
+          <rect x="${termX}" y="${bodyY - termH}" width="${termW}" height="${termH + 4}" rx="4"
+            fill="${stroke}" opacity="0.35"/>
+          <rect x="${termX}" y="${bodyY - termH}" width="${termW}" height="${termH + 4}" rx="4"
+            fill="none" stroke="${stroke}" stroke-width="${wall}"/>
           <rect x="${bodyX}" y="${bodyY}" width="${bodyW}" height="${bodyH}" rx="${radius}"
-            fill="rgba(20,24,28,0.35)" stroke="rgba(160,170,180,0.7)" stroke-width="${wall}"/>
+            fill="rgba(12,16,22,0.65)" stroke="${stroke}" stroke-width="${wall}"/>
           <rect x="${bodyX + pad}" y="${fillY}" width="${bodyW - pad * 2}" height="${fillH}"
-            fill="url(#bms-grad-${this._uid}-${variant})" clip-path="url(#${clipId})" rx="6"/>
+            fill="url(#bms-grad-${this._uid}-${variant})" clip-path="url(#${clipId})" rx="10"
+            filter="url(#bms-glow-${this._uid}-${variant})"/>
         </svg>
         <div class="bms-battery-label">
           <span class="bms-battery-pct">${p.toFixed(0)}%</span>
@@ -1342,7 +1352,7 @@ class HaBmsBleCard extends HTMLElement {
 
   _renderDiagGrid() {
     const items = [
-      ["Балансир", this._e("balancer"), true, "ti-circles-relation", (on) => on ? "Активний" : "Вимкнено"],
+      ["Балансир", this._e("balancer"), true, "ti-topology-star-3", (on) => on ? "Активний" : "Вимкнено"],
       ["MOSFET заряд", this._e("chrg_mosfet"), true, "ti-plug-connected", (on) => on ? "Увімкнено" : "Вимкнено"],
       ["MOSFET розряд", this._e("dischrg_mosfet"), true, "ti-plug-connected", (on) => on ? "Увімкнено" : "Вимкнено"],
       ["Нагрівач", this._e("heater"), true, "ti-flame", (on) => on ? "Увімкнено" : "Вимкнено"],
@@ -1384,14 +1394,42 @@ class HaBmsBleCard extends HTMLElement {
       </div>`;
   }
 
-  _renderCapacityCard(label, entityId) {
+  _renderSparkline(seed, color) {
+    // Декоративний sparkline (не real history) — форма як на mockup
+    const pts = [];
+    let x = 0;
+    const w = 120, h = 28;
+    let y = h * 0.55;
+    const n = 18;
+    for (let i = 0; i < n; i++) {
+      const t = (seed * 17 + i * 13) % 11;
+      y = Math.max(4, Math.min(h - 4, y + (t - 5) * 1.6));
+      pts.push(`${x},${y.toFixed(1)}`);
+      x += w / (n - 1);
+    }
+    return `<svg class="bms-spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" width="100%" height="28">
+      <polyline fill="none" stroke="${color}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" points="${pts.join(" ")}"/>
+    </svg>`;
+  }
+
+  _renderCapacityCard(label, entityId, designAh) {
     if (!entityId) return "";
-    const val = stateOf(this._hass, entityId);
+    const val = Number(stateOf(this._hass, entityId));
     const unit = attrOf(this._hass, entityId, "unit_of_measurement") || "Ah";
+    let pctHtml = "";
+    if (Number.isFinite(val) && Number.isFinite(designAh) && designAh > 0) {
+      const pct = (val / designAh) * 100;
+      pctHtml = `<span class="bms-cap-pct">${pct.toFixed(1)}%</span>`;
+    }
+    const seed = (entityId || label).length + (Number.isFinite(val) ? Math.round(val * 10) : 0);
     return `
       <div class="bms-cap-card">
         <div class="bms-cap-label">${label}</div>
-        <div class="bms-cap-value">${fmt(val, 1)} <span class="bms-cap-unit">${unit}</span></div>
+        <div class="bms-cap-row">
+          <div class="bms-cap-value">${fmt(val, 1)} <span class="bms-cap-unit">${unit}</span></div>
+          ${pctHtml}
+        </div>
+        ${this._renderSparkline(seed, "#22c55e")}
       </div>`;
   }
 
@@ -1402,6 +1440,7 @@ class HaBmsBleCard extends HTMLElement {
     const power = stateOf(this._hass, this._e("power"));
     const temp = stateOf(this._hass, this._e("temperature"));
     const cycles = stateOf(this._hass, this._e("charge_cycles"));
+    const soh = stateOf(this._hass, this._e("soh"));
     const link = stateOf(this._hass, this._e("link_quality"));
     const rssi = stateOf(this._hass, this._e("rssi"));
     const stored = stateOf(this._hass, this._e("stored_energy"));
@@ -1477,6 +1516,7 @@ class HaBmsBleCard extends HTMLElement {
           ${Number.isFinite(usedToday) ? `<div class="bms-stat"><span class="bms-stat-l">Використано</span><span class="bms-stat-v">${fmt(usedToday, 1)} Ah</span></div>` : ""}
           ${remainingAh !== undefined ? `<div class="bms-stat"><span class="bms-stat-l">Залишилось</span><span class="bms-stat-v">${fmt(remainingAh, 1)} Ah</span></div>` : ""}
           ${cycles !== undefined ? `<div class="bms-stat"><span class="bms-stat-l">Цикли</span><span class="bms-stat-v">${fmt(cycles, 0)}</span></div>` : ""}
+          ${soh !== undefined ? `<div class="bms-stat"><span class="bms-stat-l">SOH</span><span class="bms-stat-v">${fmt(soh, 0)}%</span></div>` : ""}
           ${link !== undefined ? `<div class="bms-stat"><span class="bms-stat-l">Link Quality</span><span class="bms-stat-v">${fmt(link, 0)}%</span></div>` : ""}
           ${rssi !== undefined ? `<div class="bms-stat"><span class="bms-stat-l">RSSI</span><span class="bms-stat-v">${fmt(rssi, 0)} dBm</span></div>` : ""}
         </div>
@@ -1485,10 +1525,10 @@ class HaBmsBleCard extends HTMLElement {
           <div class="bms-section-title">Використано ємності</div>
           ${this._hasCapacityEntities() ? `
           <div class="bms-cap-grid">
-            ${this._renderCapacityCard("Сьогодні", this._e("capacity_daily"))}
-            ${this._renderCapacityCard("Тиждень", this._e("capacity_weekly"))}
-            ${this._renderCapacityCard("Місяць", this._e("capacity_monthly"))}
-            ${this._renderCapacityCard("Всього", this._e("capacity_total"))}
+            ${this._renderCapacityCard("Сьогодні", this._e("capacity_daily"), designN)}
+            ${this._renderCapacityCard("Тиждень", this._e("capacity_weekly"), designN)}
+            ${this._renderCapacityCard("Місяць", this._e("capacity_monthly"), designN)}
+            ${this._renderCapacityCard("Всього", this._e("capacity_total"), designN)}
           </div>` : `<p class="bms-muted">Сенсори споживання не налаштовані — кнопка в редакторі картки.</p>`}
         </div>
 
@@ -1618,39 +1658,42 @@ class HaBmsBleCard extends HTMLElement {
         * { box-sizing: border-box; }
         .ti { font-size:15px; vertical-align:-2px; }
         .bms-card {
-          --bms-bg: #0e1218;
-          --bms-panel: #171c24;
-          --bms-panel2: #1c222c;
-          --bms-border: rgba(255,255,255,0.06);
-          --bms-text: #e8eaed;
-          --bms-muted: rgba(232,234,237,0.55);
-          --bms-cyan: #38BDF8;
+          --bms-bg: #0b1017;
+          --bms-panel: #141a22;
+          --bms-panel-hi: #1a222d;
+          --bms-border: rgba(255,255,255,0.055);
+          --bms-text: #eef1f5;
+          --bms-muted: rgba(238,241,245,0.52);
+          --bms-cyan: #38bdf8;
           --bms-green: #22c55e;
-          background: var(--bms-bg);
-          border-radius: 20px;
-          padding: 16px;
+          --bms-amber: #f59e0b;
+          background: linear-gradient(180deg, #0d131b 0%, #0a0e14 100%);
+          border-radius: 22px;
+          padding: 18px 16px 14px;
           color: var(--bms-text);
           border: 1px solid var(--bms-border);
-          box-shadow: 0 12px 40px rgba(0,0,0,0.35);
+          box-shadow: 0 16px 48px rgba(0,0,0,0.45);
           container-type: inline-size;
           container-name: bms;
           max-width: 100%;
           overflow: hidden;
-          font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+          font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
         }
         .bms-header {
           display:flex; align-items:flex-start; justify-content:space-between;
-          gap:10px; margin-bottom:14px;
+          gap:10px; margin-bottom:16px;
         }
-        .bms-title { font-size:16px; font-weight:650; letter-spacing:-0.01em; }
+        .bms-title { font-size:17px; font-weight:650; letter-spacing:-0.015em; }
         .bms-conn {
-          font-size:12px; color:var(--bms-muted); display:flex; align-items:center; gap:6px; margin-top:4px;
+          font-size:12.5px; color:var(--bms-muted); display:flex; align-items:center; gap:7px; margin-top:5px;
         }
-        .bms-dot { width:7px; height:7px; border-radius:50%; flex-shrink:0; display:inline-block; }
-        .bms-bt { color: var(--bms-cyan); font-size:20px !important; }
+        .bms-dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; display:inline-block;
+          box-shadow: 0 0 8px currentColor; }
+        .bms-header-right { display:flex; align-items:center; gap:10px; }
+        .bms-bt { color: var(--bms-cyan); font-size:22px !important; filter: drop-shadow(0 0 6px rgba(56,189,248,0.45)); }
         .bms-top {
           display:grid;
-          grid-template-columns: 150px 120px minmax(0, 1fr);
+          grid-template-columns: 148px 128px minmax(0, 1fr);
           gap: 12px;
           align-items: start;
         }
@@ -1662,118 +1705,134 @@ class HaBmsBleCard extends HTMLElement {
           padding: 12px;
         }
         .bms-panel-title {
-          font-size:12px; font-weight:600; color:var(--bms-muted); margin-bottom:10px;
+          font-size:12px; font-weight:600; color:var(--bms-muted); margin-bottom:12px;
         }
         .bms-battery-panel {
-          display:flex; flex-direction:column; align-items:center; gap:10px;
-          padding: 14px 12px;
+          display:flex; flex-direction:column; align-items:center; gap:12px;
+          padding: 14px 10px 12px;
+          background: transparent; border: none;
         }
         .bms-battery-shape { position:relative; display:flex; align-items:center; justify-content:center; }
         .bms-battery-label {
           position:absolute; inset:0; display:flex; flex-direction:column;
-          align-items:center; justify-content:center; pointer-events:none; padding-top:8px;
+          align-items:center; justify-content:center; pointer-events:none; padding-top:10px;
         }
         .bms-battery-pct {
-          font-size:28px; font-weight:750; line-height:1.05;
-          text-shadow:0 1px 8px rgba(0,0,0,0.45); color:#fff;
+          font-size:30px; font-weight:800; line-height:1; color:#fff;
+          text-shadow: 0 2px 10px rgba(0,0,0,0.5);
         }
-        .bms-battery-shape-full .bms-battery-pct { font-size:32px; }
-        .bms-battery-sub { font-size:10px; opacity:0.7; letter-spacing:0.08em; color:#fff; }
+        .bms-battery-shape-full .bms-battery-pct { font-size:34px; }
+        .bms-battery-sub {
+          font-size:11px; font-weight:600; letter-spacing:0.12em; color:rgba(255,255,255,0.75); margin-top:2px;
+        }
         .bms-status-pill {
-          font-size:12px; padding:6px 14px; border-radius:999px; white-space:nowrap;
-          display:inline-flex; align-items:center; gap:6px; font-weight:600;
+          font-size:12.5px; padding:7px 16px; border-radius:999px; white-space:nowrap;
+          display:inline-flex; align-items:center; gap:6px; font-weight:650;
         }
-        .bms-eta-panel { padding: 12px 14px; }
+        .bms-eta-panel {
+          padding: 12px 14px 10px;
+          background: var(--bms-panel);
+          border-radius: 16px;
+          border: 1px solid var(--bms-border);
+        }
         .bms-eta-row { display:flex; align-items:center; gap:10px; margin-bottom:10px; }
         .bms-eta-row .ti { font-size:20px !important; color:var(--bms-muted); }
         .bms-eta-label { font-size:12px; color:var(--bms-muted); }
-        .bms-eta-value { font-size:18px; font-weight:700; margin-top:2px; }
+        .bms-eta-value { font-size:17px; font-weight:700; margin-top:1px; }
         .bms-soc-bar {
-          height:8px; border-radius:999px; background:rgba(255,255,255,0.08); overflow:hidden;
+          height:7px; border-radius:999px; background:rgba(255,255,255,0.08); overflow:hidden;
         }
-        .bms-soc-fill { height:100%; border-radius:999px; }
-        .bms-soc-bar-lab { font-size:11px; color:var(--bms-muted); text-align:right; margin-top:4px; }
+        .bms-soc-fill { height:100%; border-radius:999px; box-shadow: 0 0 10px rgba(34,197,94,0.35); }
+        .bms-soc-bar-lab { font-size:11px; color:var(--bms-muted); text-align:right; margin-top:5px; }
         .bms-metric-stack { display:flex; flex-direction:column; gap:8px; }
         .bms-metric {
           background: var(--bms-panel);
           border: 1px solid var(--bms-border);
           border-radius: 14px;
-          padding: 12px 14px;
-          text-align: left;
+          padding: 11px 12px;
         }
         .bms-metric-value {
-          font-size:17px; font-weight:700; letter-spacing:-0.02em;
+          font-size:16.5px; font-weight:700; letter-spacing:-0.02em;
           white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
         }
-        .bms-metric-label { font-size:11px; color:var(--bms-muted); margin-top:2px; }
+        .bms-metric-label { font-size:11px; color:var(--bms-muted); margin-top:3px; }
         .bms-hbar-row {
-          display:grid; grid-template-columns: 28px minmax(0,1fr) 70px;
-          gap:8px; align-items:center; margin-bottom:8px;
+          display:grid; grid-template-columns: 26px minmax(0,1fr) 68px;
+          gap:8px; align-items:center; margin-bottom:9px;
         }
-        .bms-hbar-lab { font-size:12px; font-weight:600; color:var(--bms-muted); }
+        .bms-hbar-lab { font-size:12px; font-weight:650; color:var(--bms-muted); }
         .bms-hbar-track {
-          height:12px; border-radius:999px; background:rgba(255,255,255,0.07);
-          overflow:hidden; display:flex;
+          height:11px; border-radius:999px; background:rgba(255,255,255,0.07);
+          overflow:hidden;
         }
-        .bms-hbar-fill { height:100%; border-radius:999px 0 0 999px; }
-        .bms-hbar-val { font-size:12px; text-align:right; font-weight:600; }
+        .bms-hbar-fill {
+          height:100%; border-radius:999px;
+          box-shadow: 0 0 8px rgba(34,197,94,0.25);
+        }
+        .bms-hbar-val { font-size:12px; text-align:right; font-weight:650; font-variant-numeric: tabular-nums; }
         .bms-cell-extremes {
           display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; margin-top:12px;
         }
         .bms-extreme {
-          background: rgba(0,0,0,0.22); border-radius:12px; padding:10px 6px; text-align:center;
+          background: rgba(0,0,0,0.28); border-radius:12px; padding:9px 6px; text-align:center;
+          border: 1px solid var(--bms-border);
         }
-        .bms-extreme-v { font-size:12px; font-weight:700; }
-        .bms-extreme-s { font-size:11px; color:var(--bms-muted); margin-top:2px; }
+        .bms-extreme-v { font-size:11.5px; font-weight:700; }
+        .bms-extreme-s { font-size:10.5px; color:var(--bms-muted); margin-top:2px; }
         .bms-extreme-max .bms-extreme-v { color: var(--bms-green); }
-        .bms-extreme-min .bms-extreme-v { color: #f59e0b; }
-        .bms-diag-panel { padding: 10px 8px; }
+        .bms-extreme-min .bms-extreme-v { color: var(--bms-amber); }
+        .bms-diag-panel { padding: 8px 6px; }
         .bms-diag-grid {
-          display:grid; grid-template-columns:1fr 1fr 1fr; gap:6px 4px;
+          display:grid; grid-template-columns:1fr 1fr 1fr; gap:2px 0;
         }
-        .bms-diag-cell { text-align:center; padding:8px 4px; }
+        .bms-diag-cell { text-align:center; padding:10px 4px; }
         .bms-diag-cell .ti { font-size:18px !important; }
-        .bms-diag-lab { font-size:10px; color:var(--bms-muted); margin-top:4px; }
+        .bms-diag-lab { font-size:10px; color:var(--bms-muted); margin-top:5px; }
         .bms-diag-val { font-size:12px; font-weight:650; margin-top:2px; }
         .bms-stats-strip {
-          display:grid; grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
-          gap:0; margin-top:12px;
+          display:grid; grid-template-columns: repeat(auto-fit, minmax(88px, 1fr));
+          gap:0; margin-top:14px;
           background: var(--bms-panel); border:1px solid var(--bms-border);
-          border-radius:16px; overflow:hidden;
+          border-radius:14px; overflow:hidden;
         }
         .bms-stat {
-          padding:12px 8px; text-align:center;
+          padding:12px 6px; text-align:center;
           border-right:1px solid var(--bms-border);
         }
         .bms-stat:last-child { border-right:none; }
-        .bms-stat-l { display:block; font-size:10px; color:var(--bms-muted); margin-bottom:4px; }
-        .bms-stat-v { display:block; font-size:15px; font-weight:700; }
-        .bms-section { margin-top:16px; }
+        .bms-stat-l { display:block; font-size:10px; color:var(--bms-muted); margin-bottom:5px; }
+        .bms-stat-v { display:block; font-size:14.5px; font-weight:700; font-variant-numeric: tabular-nums; }
+        .bms-section { margin-top:18px; }
         .bms-section-title {
-          font-size:13px; font-weight:600; margin-bottom:10px; color:var(--bms-text);
+          font-size:13.5px; font-weight:650; margin-bottom:11px; color:var(--bms-text);
         }
         .bms-muted { color:var(--bms-muted); font-size:12px; margin:0; }
         .bms-cap-grid {
-          display:grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap:10px;
+          display:grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap:10px;
         }
         .bms-cap-card {
           background: var(--bms-panel); border:1px solid var(--bms-border);
-          border-radius:16px; padding:14px;
+          border-radius:16px; padding:14px 14px 10px;
         }
         .bms-cap-label { font-size:12px; color:var(--bms-muted); margin-bottom:6px; }
-        .bms-cap-value { font-size:20px; font-weight:700; }
+        .bms-cap-row { display:flex; align-items:baseline; justify-content:space-between; gap:8px; margin-bottom:6px; }
+        .bms-cap-value { font-size:20px; font-weight:750; }
         .bms-cap-unit { font-size:13px; font-weight:500; color:var(--bms-muted); }
+        .bms-cap-pct { font-size:13px; font-weight:650; color: var(--bms-green); }
+        .bms-spark { display:block; opacity:0.9; margin-top:2px; }
         .bms-forecast-grid {
-          display:grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap:10px;
+          display:grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap:0;
           background: var(--bms-panel); border:1px solid var(--bms-border);
-          border-radius:16px; padding:4px;
+          border-radius:16px; overflow:hidden;
         }
         .bms-forecast {
-          display:flex; align-items:center; gap:10px; padding:12px;
+          display:flex; align-items:center; gap:10px; padding:14px 12px;
+          border-right:1px solid var(--bms-border);
         }
+        .bms-forecast:last-child { border-right:none; }
         .bms-forecast .ti { font-size:22px !important; color: var(--bms-cyan); }
-        .bms-forecast-lab { font-size:11px; color:var(--bms-muted); }
-        .bms-forecast-val { font-size:15px; font-weight:700; margin-top:2px; }
+        .bms-forecast-lab { font-size:11px; color:var(--bms-muted); line-height:1.3; }
+        .bms-forecast-val { font-size:15px; font-weight:700; margin-top:3px; }
         .bms-diag-tiles {
           display:grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap:10px;
         }
@@ -1783,7 +1842,7 @@ class HaBmsBleCard extends HTMLElement {
         }
         .bms-diag-tile .ti { font-size:20px !important; color: var(--bms-cyan); }
         .bms-diag-tile-lab { font-size:11px; color:var(--bms-muted); margin-top:8px; }
-        .bms-diag-tile-val { font-size:16px; font-weight:700; margin-top:4px; }
+        .bms-diag-tile-val { font-size:16px; font-weight:700; margin-top:4px; font-variant-numeric: tabular-nums; }
         .bms-diag-tile-sub { font-size:11px; color:var(--bms-muted); margin-top:2px; }
         .bms-mini { cursor:pointer; outline:none; }
         .bms-mini-header { display:flex; align-items:center; gap:8px; margin-bottom:12px; }
@@ -1791,16 +1850,16 @@ class HaBmsBleCard extends HTMLElement {
         .bms-mini-body { display:flex; gap:14px; align-items:flex-start; }
         .bms-battery-col { display:flex; flex-direction:column; align-items:center; gap:8px; flex-shrink:0; }
         .bms-overlay {
-          position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:1000;
+          position:fixed; inset:0; background:rgba(0,0,0,0.62); z-index:1000;
           display:flex; align-items:center; justify-content:center; padding:12px;
-          backdrop-filter: blur(6px);
+          backdrop-filter: blur(8px);
         }
         .bms-overlay-inner {
           background: var(--bms-bg);
-          border-radius:20px; max-width:min(960px, 100%); width:100%; max-height:94vh;
-          overflow:auto; padding:16px; position:relative;
+          border-radius:22px; max-width:min(980px, 100%); width:100%; max-height:94vh;
+          overflow:auto; padding:18px; position:relative;
           border:1px solid var(--bms-border);
-          box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+          box-shadow: 0 24px 64px rgba(0,0,0,0.55);
         }
         .bms-overlay-close {
           position:absolute; top:10px; right:12px; border:none; background:transparent;
@@ -1813,14 +1872,16 @@ class HaBmsBleCard extends HTMLElement {
             display:grid; grid-template-columns:1fr 1fr; gap:8px;
           }
           .bms-diag-grid { grid-template-columns:1fr 1fr; }
+          .bms-forecast { border-right:none; border-bottom:1px solid var(--bms-border); }
         }
         @container bms (min-width: 720px) {
-          .bms-top { grid-template-columns: 160px 130px minmax(0, 1fr); gap:14px; }
+          .bms-top { grid-template-columns: 156px 132px minmax(0, 1fr); gap:14px; }
         }
       </style>
       <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css">
     `;
   }
+
 
   _render() {
     if (!this._config || !this._hass) return;
