@@ -321,9 +321,11 @@ class HaBmsBleCardEditor extends HTMLElement {
     this._wizardStatus = { ok: true, text: "Запускаю…", lines: [] };
     this._render();
 
+    const progressLines = [];
     try {
       const { entities, log } = await new SetupWizard(this._hass).run(source, e.charging, batteryName, (msg) => {
-        this._wizardStatus = { ok: true, text: "Створення…", lines: [...log, msg] };
+        progressLines.push(msg);
+        this._wizardStatus = { ok: true, text: "Створення…", lines: [...progressLines] };
         this._render();
       });
       this._update("entities", { ...e, ...entities });
