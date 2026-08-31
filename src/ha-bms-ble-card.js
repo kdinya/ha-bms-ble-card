@@ -7,7 +7,7 @@
  * https://github.com/kdinya/ha-bms-ble-card
  */
 
-const CARD_VERSION = "1.8.0";
+const CARD_VERSION = "1.9.0";
 
 console.info(
   `%c HA-BMS-BLE-CARD %c v${CARD_VERSION} `,
@@ -398,19 +398,16 @@ class SetupWizard {
     if (step.type === "form" && step.step_id === "state") {
       step = await this._submitStep(step.flow_id, { state: states });
     }
-    if (step.type === "form" && (step.step_id === "options" || step.step_id === "user")) {
-      step = await this._submitStep(step.flow_id, {
-        duration: { days, hours: 0, minutes: 0, seconds: 0 },
-      });
+    // HA requires EXACTLY two of {start, end, duration} → duration + end
+    const period = {
+      duration: { days: Number(days) || 1, hours: 0, minutes: 0, seconds: 0 },
+      end: "{{ now() }}",
+    };
+    if (step.type === "form") {
+      step = await this._submitStep(step.flow_id, period);
     }
-    // Some HA versions finish earlier; accept create_entry from any step
-    if (step.type !== "create_entry") {
-      // last attempt: resubmit duration if still form
-      if (step.type === "form") {
-        step = await this._submitStep(step.flow_id, {
-          duration: { days, hours: 0, minutes: 0, seconds: 0 },
-        });
-      }
+    if (step.type !== "create_entry" && step.type === "form") {
+      step = await this._submitStep(step.flow_id, period);
     }
     if (step.type !== "create_entry") {
       await this._abortFlow(flow.flow_id);
@@ -459,9 +456,13 @@ class SetupWizard {
       for (const { key, label, days } of DISCHARGE_CYCLES) {
         const title = `${batteryName} — час розряду (${label.toLowerCase()})`;
         report(`Створюю "${title}"…`);
-        const hs = await this.ensureHistoryStats(chargingEntity, title, ["off"], days);
-        report(hs.created ? `✓ ${hs.entityId}` : `↺ вже є: ${hs.entityId}`);
-        entities[key] = hs.entityId;
+        try {
+          const hs = await this.ensureHistoryStats(chargingEntity, title, ["off"], days);
+          report(hs.created ? `✓ ${hs.entityId}` : `↺ вже є: ${hs.entityId}`);
+          entities[key] = hs.entityId;
+        } catch (err) {
+          report(`⚠ ${title}: ${err.message || err}`);
+        }
       }
     } else {
       report("⏱ Час розряду пропущено (немає entities.charging)");
@@ -788,7 +789,7 @@ class HaBmsBleCardEditor extends HTMLElement {
         .bms-cell-row .bms-field { flex:1; }
         ha-entity-picker { display:block; width:100%; }
       </style>
-      <div style="padding: 12px; display: flex; flex-direction: column; gap: 12px;">
+      <div class="bms-editor" style="padding:12px;display:flex;flex-direction:column;gap:12px;max-width:100%;overflow-x:hidden;">
         <div>
           <label style="display:block; font-size:13px; margin-bottom:4px;">Назва (порожньо = автоматично з пристрою)</label>
           <input id="name" type="text" value="${c.name || ""}" placeholder="Автоматично"
@@ -1182,23 +1183,81 @@ class HaBmsBleCard extends HTMLElement {
   _renderCellSection() {
     const cells = this._cellVoltages();
     if (!cells.length) {
-      return `<p class="bms-muted">Немає даних про комірки</p>`;
+      return `<div class="bms-panel"><p class="bms-muted">Немає даних про комірки</p></div>`;
     }
-    const min = Math.min(...cells.filter(Number.isFinite));
-    const max = Math.max(...cells.filter(Number.isFinite));
+    const finite = cells.filter(Number.isFinite);
+    const min = Math.min(...finite);
+    const max = Math.max(...finite);
     const delta = max - min;
-    const tiles = cells.map((v, i) => this._renderCellTile(v, i, this._cellColor(v, min, max, delta))).join("");
+    const minIdx = cells.indexOf(min);
+    const maxIdx = cells.indexOf(max);
+    const rows = cells.map((v, i) => {
+      const frac = cellVoltageFraction(v);
+      const color = this._cellColor(v, min, max, delta);
+      return `
+        <div class="bms-hbar-row">
+          <span class="bms-hbar-lab">C${i + 1}</span>
+          <div class="bms-hbar-track">
+            <div class="bms-hbar-fill" style="width:${Math.round(frac * 100)}%;background:${color};"></div>
+          </div>
+          <span class="bms-hbar-val">${Number.isFinite(v) ? v.toFixed(3) : "—"} V</span>
+        </div>`;
+    }).join("");
     return `
-      <div class="bms-section-title">
-        <span>Комірки</span>
-        <span class="bms-muted">Δ ${delta.toFixed(3)} V</span>
-      </div>
-      <div class="bms-cell-grid">${tiles}</div>
-    `;
+      <div class="bms-panel bms-cells-panel">
+        <div class="bms-section-title"><span>Комірки (Δ ${delta.toFixed(3)}V)</span></div>
+        ${rows}
+        <div class="bms-cell-extremes">
+          <div class="bms-extreme" style="color:#1D9E75">Макс ${max.toFixed(3)} V<br><span class="bms-muted">C${maxIdx + 1}</span></div>
+          <div class="bms-extreme" style="color:#EF9F27">Мін ${min.toFixed(3)} V<br><span class="bms-muted">C${minIdx + 1}</span></div>
+          <div class="bms-extreme">Δ ${delta.toFixed(3)} V<br><span class="bms-muted">Різниця</span></div>
+        </div>
+      </div>`;
+  }
+
+  _renderDiagGrid() {
+    const items = [
+      ["Балансир", this._e("balancer"), true, "ti-circles-relation"],
+      ["MOSFET заряд", this._e("chrg_mosfet"), true, "ti-plug-connected"],
+      ["MOSFET розряд", this._e("dischrg_mosfet"), true, "ti-plug-connected"],
+      ["Нагрівач", this._e("heater"), true, "ti-flame"],
+      ["Проблеми", this._e("problem"), false, "ti-alert-triangle"],
+    ];
+    const status = this._statusInfo();
+    const cells = items.map(([label, id, goodWhenOn, icon]) => {
+      const state = stateOf(this._hass, id);
+      if (state === undefined) return "";
+      const on = state === "on" || state === "true";
+      const good = goodWhenOn ? on : !on;
+      let tone = "neutral";
+      if (label === "Проблеми") tone = on ? "danger" : "success";
+      else tone = good ? "success" : "warning";
+      const c = this._statusColorVars(tone);
+      let value;
+      if (label === "Проблеми") value = on ? "Є" : "Немає";
+      else if (label === "Балансир") value = on ? "Активний" : "Вимкнено";
+      else value = on ? "Увімкнено" : "Вимкнено";
+      return `
+        <div class="bms-diag-cell">
+          <i class="ti ${icon}" style="color:${c.fg}"></i>
+          <div class="bms-diag-badge-label">${label}</div>
+          <div class="bms-diag-badge-value" style="color:${c.fg}">${value}</div>
+        </div>`;
+    }).filter(Boolean).join("");
+    const sc = this._statusColorVars(status.color);
+    const modeLabel = status.label === "Заряджається" ? "Заряд"
+      : status.label === "Розряджається" ? "Розряд" : status.label;
+    const mode = `
+      <div class="bms-diag-cell">
+        <i class="ti ti-activity" style="color:${sc.fg}"></i>
+        <div class="bms-diag-badge-label">Режим</div>
+        <div class="bms-diag-badge-value" style="color:${sc.fg}">${modeLabel}</div>
+      </div>`;
+    return `<div class="bms-diag-grid">${cells}${mode}</div>`;
   }
 
   _renderFullView() {
-    const soc = stateOf(this._hass, this._e("soc"));
+    const soc = Number(stateOf(this._hass, this._e("soc")));
     const voltage = stateOf(this._hass, this._e("voltage"));
     const current = stateOf(this._hass, this._e("current"));
     const power = stateOf(this._hass, this._e("power"));
@@ -1207,80 +1266,83 @@ class HaBmsBleCard extends HTMLElement {
     const cycles = stateOf(this._hass, this._e("charge_cycles"));
     const link = stateOf(this._hass, this._e("link_quality"));
     const rssi = stateOf(this._hass, this._e("rssi"));
+    const stored = stateOf(this._hass, this._e("stored_energy"));
     const status = this._statusInfo();
     const sc = this._statusColorVars(status.color);
+    const socPct = Number.isFinite(soc) ? Math.max(0, Math.min(100, soc)) : 0;
+    const capDaily = this._e("capacity_daily");
 
     return `
       <div class="bms-full">
         <div class="bms-header">
-          <div class="bms-title">
-            <span class="bms-dot" style="background:${sc.fg}"></span>
-            <span>${this._batteryName()}</span>
+          <div class="bms-title-block">
+            <div class="bms-title">${this._batteryName()}</div>
+            <div class="bms-conn"><span class="bms-dot" style="background:${sc.fg}"></span>
+              ${status.color === "danger" ? "Проблема" : "Підключено"}</div>
           </div>
-          <i class="ti ti-bluetooth" style="color:#38BDF8;font-size:18px;"></i>
+          <i class="ti ti-bluetooth" style="color:#38BDF8;font-size:20px;"></i>
         </div>
 
-        <div class="bms-top-row">
-          <div class="bms-battery-col">
-            ${this._renderBatteryShape(soc, "full")}
-            <span class="bms-status-pill" style="background:${sc.bg};color:${sc.fg};">
-              <i class="ti ${status.icon}"></i> ${status.label}
-            </span>
+        <div class="bms-main-grid">
+          <div class="bms-left-col">
+            <div class="bms-panel bms-battery-panel">
+              ${this._renderBatteryShape(soc, "full")}
+              <span class="bms-status-pill" style="background:${sc.bg};color:${sc.fg};">
+                <i class="ti ${status.icon}"></i> ${status.label}
+              </span>
+            </div>
+            ${runtime !== undefined ? `
+            <div class="bms-panel bms-runtime-panel">
+              <div class="bms-runtime-head"><i class="ti ti-clock-hour-4"></i><span>До розряду</span></div>
+              <div class="bms-runtime-val">~${secondsToHuman(Number(runtime))}</div>
+              <div class="bms-soc-bar"><div class="bms-soc-fill" style="width:${socPct}%;background:${batteryFillColor(socPct)};"></div></div>
+              <div class="bms-soc-bar-lab">${socPct.toFixed(0)}%</div>
+            </div>` : ""}
           </div>
-          <div class="bms-metric-grid">
-            ${this._renderMetric("Напруга", fmt(voltage, 2, " V"), "ti-bolt", "#38BDF8")}
-            ${this._renderMetric("Струм", fmt(current, 1, " A"), "ti-arrows-exchange", "#A78BFA")}
-            ${this._renderMetric("Потужність", fmt(power, 0, " W"), "ti-flame", "#FBBF24")}
-            ${this._renderMetric("Температура", fmt(temp, 1, " °C"), "ti-temperature-celsius", "#F87171")}
+
+          <div class="bms-mid-col">
+            <div class="bms-metric-stack">
+              ${this._renderMetric("Напруга", fmt(voltage, 2, " V"))}
+              ${this._renderMetric("Струм", fmt(current, 1, " A"))}
+              ${this._renderMetric("Потужність", fmt(power, 0, " W"))}
+              ${this._renderMetric("Температура", fmt(temp, 1, " °C"))}
+            </div>
+          </div>
+
+          <div class="bms-right-col">
+            ${this._renderCellSection()}
+            <div class="bms-panel" style="margin-top:10px;">${this._renderDiagGrid()}</div>
           </div>
         </div>
 
-        ${runtime !== undefined ? `
-        <div class="bms-runtime">
-          <i class="ti ti-clock-hour-4"></i>
-          <span>До розряду: <strong>${secondsToHuman(Number(runtime))}</strong></span>
+        <div class="bms-stats-strip">
+          ${stored !== undefined ? `<div class="bms-stat"><span class="bms-stat-l">Stored</span><span class="bms-stat-v">${fmt(stored, 1)}</span></div>` : ""}
+          ${capDaily ? `<div class="bms-stat"><span class="bms-stat-l">Сьогодні</span><span class="bms-stat-v">${fmt(stateOf(this._hass, capDaily), 1)} ${attrOf(this._hass, capDaily, "unit_of_measurement") || "Ah"}</span></div>` : ""}
+          ${cycles !== undefined ? `<div class="bms-stat"><span class="bms-stat-l">Цикли</span><span class="bms-stat-v">${fmt(cycles, 0)}</span></div>` : ""}
+          ${link !== undefined ? `<div class="bms-stat"><span class="bms-stat-l">Link</span><span class="bms-stat-v">${fmt(link, 0)}%</span></div>` : ""}
+          ${rssi !== undefined ? `<div class="bms-stat"><span class="bms-stat-l">RSSI</span><span class="bms-stat-v">${fmt(rssi, 0)} dBm</span></div>` : ""}
+        </div>
+
+        <div class="bms-section">
+          <div class="bms-section-title"><span>Використано ємності</span></div>
+          ${this._hasCapacityEntities() ? `
+          <div class="bms-capacity-grid">
+            ${this._renderCapacityCard("Сьогодні", this._e("capacity_daily"), "ti-calendar-event")}
+            ${this._renderCapacityCard("Тиждень", this._e("capacity_weekly"), "ti-calendar-week")}
+            ${this._renderCapacityCard("Місяць", this._e("capacity_monthly"), "ti-calendar-month")}
+            ${this._renderCapacityCard("Всього", this._e("capacity_total"), "ti-sum")}
+          </div>` : `<p class="bms-muted">Сенсори споживання не налаштовані — кнопка в редакторі картки.</p>`}
+        </div>
+
+        ${this._hasDischargeEntities() ? `
+        <div class="bms-section">
+          <div class="bms-section-title"><span>Час розряду</span></div>
+          <div class="bms-capacity-grid">
+            ${this._renderDischargeCard("Сьогодні", this._e("discharge_time_daily"))}
+            ${this._renderDischargeCard("Тиждень", this._e("discharge_time_weekly"))}
+            ${this._renderDischargeCard("Місяць", this._e("discharge_time_monthly"))}
+          </div>
         </div>` : ""}
-
-        <div class="bms-body">
-          <div class="bms-section">${this._renderCellSection()}</div>
-
-          <div class="bms-section">
-            <div class="bms-section-title"><span>Діагностика</span></div>
-            <div class="bms-diag-grid">
-              ${this._renderDiagBadge("Балансир", this._e("balancer"), true)}
-              ${this._renderDiagBadge("MOSFET заряд", this._e("chrg_mosfet"), true)}
-              ${this._renderDiagBadge("MOSFET розряд", this._e("dischrg_mosfet"), true)}
-              ${this._renderDiagBadge("Нагрівач", this._e("heater"), true)}
-            </div>
-            <div class="bms-stat-row">
-              ${cycles !== undefined ? `<div class="bms-stat"><span class="bms-stat-l">Цикли</span><span class="bms-stat-v">${fmt(cycles, 0)}</span></div>` : ""}
-              ${link !== undefined ? `<div class="bms-stat"><span class="bms-stat-l">Link Quality</span><span class="bms-stat-v">${fmt(link, 0)}%</span></div>` : ""}
-              ${rssi !== undefined ? `<div class="bms-stat"><span class="bms-stat-l">RSSI</span><span class="bms-stat-v">${fmt(rssi, 0)} dBm</span></div>` : ""}
-            </div>
-          </div>
-
-          <div class="bms-section">
-            <div class="bms-section-title"><span>Використано ємності</span></div>
-            ${this._hasCapacityEntities() ? `
-            <div class="bms-metric-grid bms-capacity-grid">
-              ${this._renderCapacityCard("Сьогодні", this._e("capacity_daily"), "ti-calendar-event")}
-              ${this._renderCapacityCard("Тиждень", this._e("capacity_weekly"), "ti-calendar-week")}
-              ${this._renderCapacityCard("Місяць", this._e("capacity_monthly"), "ti-calendar-month")}
-              ${this._renderCapacityCard("Всього", this._e("capacity_total"), "ti-sum")}
-            </div>` : `
-            <p class="bms-muted">Сенсори споживання не налаштовані. Відкрийте редактор картки — кнопка автоматичного створення.</p>`}
-          </div>
-
-          ${this._hasDischargeEntities() ? `
-          <div class="bms-section">
-            <div class="bms-section-title"><span>Час розряду</span></div>
-            <div class="bms-metric-grid bms-capacity-grid">
-              ${this._renderDischargeCard("Сьогодні", this._e("discharge_time_daily"))}
-              ${this._renderDischargeCard("Тиждень", this._e("discharge_time_weekly"))}
-              ${this._renderDischargeCard("Місяць", this._e("discharge_time_monthly"))}
-            </div>
-          </div>` : ""}
-        </div>
       </div>
     `;
   }
@@ -1308,10 +1370,10 @@ class HaBmsBleCard extends HTMLElement {
             </span>
           </div>
           <div class="bms-metric-stack">
-            ${this._renderMetric("Voltage", fmt(voltage, 2, " V"))}
-            ${this._renderMetric("Current", fmt(current, 1, " A"))}
-            ${this._renderMetric("Power", fmt(power, 0, " W"))}
-            ${this._renderMetric("Temperature", fmt(temp, 1, " °C"))}
+            ${this._renderMetric("Напруга", fmt(voltage, 2, " V"))}
+            ${this._renderMetric("Струм", fmt(current, 1, " A"))}
+            ${this._renderMetric("Потужність", fmt(power, 0, " W"))}
+            ${this._renderMetric("Температура", fmt(temp, 1, " °C"))}
           </div>
         </div>
       </div>
@@ -1326,153 +1388,114 @@ class HaBmsBleCard extends HTMLElement {
   _styles() {
     return `
       <style>
-        :host { display:block; }
+        :host { display:block; max-width:100%; }
+        * { box-sizing: border-box; }
         .ti { font-size:15px; vertical-align:-2px; }
         .bms-card {
-          --bms-surface: color-mix(in srgb, var(--ha-card-background, var(--card-background-color, #1a1d23)) 100%, #0d1117);
-          --bms-panel: color-mix(in srgb, var(--secondary-background-color, #252a33) 90%, transparent);
-          --bms-border: color-mix(in srgb, var(--divider-color, #3a4050) 70%, transparent);
-          background: var(--ha-card-background, var(--card-background-color, #14181f));
-          border-radius: 18px;
-          padding: 14px;
+          --bms-panel: color-mix(in srgb, var(--secondary-background-color, #1e2430) 92%, #0b0f14);
+          --bms-border: color-mix(in srgb, var(--divider-color, #2a3140) 80%, transparent);
+          background: var(--ha-card-background, var(--card-background-color, #12161e));
+          border-radius: 18px; padding: 14px;
           color: var(--primary-text-color, #e8eaed);
           border: 1px solid var(--bms-border);
-          box-shadow: 0 4px 24px rgba(0,0,0,0.18);
-          container-type: inline-size;
-          container-name: bms;
+          box-shadow: 0 8px 28px rgba(0,0,0,0.22);
+          container-type: inline-size; container-name: bms;
+          max-width: 100%; overflow: hidden;
         }
-        .bms-header, .bms-mini-header {
-          display:flex; align-items:center; gap:8px; margin-bottom:12px;
+        .bms-header { display:flex; align-items:flex-start; justify-content:space-between; gap:10px; margin-bottom:12px; }
+        .bms-title { font-size:15px; font-weight:650; letter-spacing:-0.01em; }
+        .bms-conn { font-size:11px; opacity:0.7; display:flex; align-items:center; gap:6px; margin-top:2px; }
+        .bms-dot { width:7px; height:7px; border-radius:50%; flex-shrink:0; display:inline-block; }
+        .bms-main-grid {
+          display:grid; grid-template-columns: auto minmax(100px, 140px) minmax(0, 1fr);
+          gap: 10px; align-items: start;
         }
-        .bms-title, .bms-mini-name { font-size:14px; font-weight:600; letter-spacing:-0.01em; }
-        .bms-dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
-        .bms-top-row, .bms-mini-body {
-          display:flex; gap:14px; align-items:flex-start;
+        .bms-left-col, .bms-mid-col, .bms-right-col { min-width: 0; }
+        .bms-panel {
+          background: var(--bms-panel); border: 1px solid var(--bms-border);
+          border-radius: 14px; padding: 12px;
         }
-        .bms-battery-col {
-          display:flex; flex-direction:column; align-items:center; gap:10px; flex-shrink:0;
-        }
+        .bms-battery-panel { display:flex; flex-direction:column; align-items:center; gap:10px; }
         .bms-battery-shape { position:relative; display:flex; align-items:center; justify-content:center; }
         .bms-battery-label {
           position:absolute; inset:0; display:flex; flex-direction:column;
-          align-items:center; justify-content:center; pointer-events:none;
-          padding-top:8px;
+          align-items:center; justify-content:center; pointer-events:none; padding-top:6px;
         }
-        .bms-battery-pct { font-size:22px; font-weight:700; line-height:1.1; text-shadow:0 1px 4px rgba(0,0,0,0.35); }
-        .bms-battery-shape-full .bms-battery-pct { font-size:28px; }
-        .bms-battery-sub { font-size:10px; opacity:0.65; letter-spacing:0.04em; }
+        .bms-battery-pct { font-size:26px; font-weight:750; line-height:1.05; text-shadow:0 1px 6px rgba(0,0,0,0.4); }
+        .bms-battery-shape-full .bms-battery-pct { font-size:30px; }
+        .bms-battery-sub { font-size:10px; opacity:0.65; letter-spacing:0.05em; }
         .bms-status-pill {
           font-size:11px; padding:5px 12px; border-radius:999px; white-space:nowrap;
           display:inline-flex; align-items:center; gap:5px; font-weight:600;
         }
-        .bms-metric-grid {
-          flex:1; display:grid; grid-template-columns:1fr 1fr; gap:8px; min-width:0;
-        }
-        .bms-metric-stack {
-          flex:1; display:flex; flex-direction:column; gap:6px; min-width:0;
-        }
+        .bms-metric-stack { display:flex; flex-direction:column; gap:8px; }
         .bms-metric {
-          background: var(--bms-panel);
-          border: 1px solid var(--bms-border);
-          border-radius: 12px;
-          padding: 10px 12px;
-          display:flex; flex-direction:column; align-items:center; text-align:center; gap:2px;
-          min-width:0;
+          background: var(--bms-panel); border: 1px solid var(--bms-border);
+          border-radius: 12px; padding: 10px 12px;
+          display:flex; flex-direction:column; gap:2px; min-width:0;
         }
-        .bms-metric-stack .bms-metric {
-          flex-direction: column; align-items: flex-start; text-align:left;
-          padding: 8px 12px;
-        }
-        .bms-metric-icon { font-size:16px; line-height:1; margin-bottom:2px; }
-        .bms-metric-icon .ti { font-size:18px; }
-        .bms-metric-value {
-          font-size:15px; font-weight:650; white-space:nowrap; overflow:hidden;
-          text-overflow:ellipsis; width:100%; letter-spacing:-0.02em;
-        }
-        .bms-metric-stack .bms-metric-value { font-size:16px; }
-        .bms-metric-label {
-          font-size:10px; opacity:0.55; white-space:nowrap; overflow:hidden;
-          text-overflow:ellipsis; width:100%;
-        }
-        .bms-runtime {
-          display:flex; align-items:center; gap:8px; margin:12px 0 4px;
-          background: var(--bms-panel); border:1px solid var(--bms-border);
-          border-radius:12px; padding:10px 14px; font-size:13px;
-        }
-        .bms-section {
-          border-top: 1px solid var(--bms-border);
-          margin-top: 12px; padding-top: 12px;
-        }
-        .bms-section-title {
-          display:flex; justify-content:space-between; align-items:center;
-          font-size:12px; font-weight:600; opacity:0.85; margin-bottom:10px;
-        }
+        .bms-metric-icon { font-size:14px; line-height:1; }
+        .bms-metric-value { font-size:16px; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; letter-spacing:-0.02em; }
+        .bms-metric-label { font-size:10px; opacity:0.55; }
+        .bms-runtime-panel { margin-top:10px; }
+        .bms-runtime-head { display:flex; align-items:center; gap:6px; font-size:12px; opacity:0.8; }
+        .bms-runtime-val { font-size:18px; font-weight:700; margin:6px 0 8px; }
+        .bms-soc-bar { height:8px; border-radius:999px; background:rgba(255,255,255,0.08); overflow:hidden; }
+        .bms-soc-fill { height:100%; border-radius:999px; }
+        .bms-soc-bar-lab { font-size:11px; opacity:0.6; text-align:right; margin-top:4px; }
+        .bms-section-title { display:flex; justify-content:space-between; align-items:center; font-size:12px; font-weight:600; opacity:0.9; margin-bottom:10px; }
         .bms-muted { opacity:0.55; font-size:12px; margin:0; }
-        .bms-cell-grid {
-          display:grid; grid-template-columns: repeat(auto-fill, minmax(64px, 1fr)); gap:10px;
+        .bms-hbar-row { display:grid; grid-template-columns: 28px minmax(0,1fr) 64px; gap:8px; align-items:center; margin-bottom:7px; }
+        .bms-hbar-lab { font-size:11px; opacity:0.7; font-weight:600; }
+        .bms-hbar-track { height:10px; border-radius:999px; background:rgba(255,255,255,0.08); overflow:hidden; }
+        .bms-hbar-fill { height:100%; border-radius:999px; }
+        .bms-hbar-val { font-size:11px; text-align:right; font-weight:600; opacity:0.9; }
+        .bms-cell-extremes { display:grid; grid-template-columns:1fr 1fr 1fr; gap:6px; margin-top:10px; }
+        .bms-extreme { background: rgba(0,0,0,0.18); border-radius:10px; padding:8px 6px; text-align:center; font-size:12px; font-weight:650; line-height:1.35; }
+        .bms-diag-grid { display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; }
+        .bms-diag-cell { text-align:center; padding:6px 4px; }
+        .bms-diag-badge-label { font-size:10px; opacity:0.65; margin-top:2px; }
+        .bms-diag-badge-value { font-size:12px; font-weight:650; }
+        .bms-stats-strip {
+          display:grid; grid-template-columns: repeat(auto-fit, minmax(88px, 1fr));
+          gap:0; margin-top:12px; background: var(--bms-panel); border:1px solid var(--bms-border);
+          border-radius:14px; overflow:hidden;
         }
-        .bms-cell-tile {
-          display:flex; flex-direction:column; align-items:center; gap:6px;
-          background: var(--bms-panel); border:1px solid var(--bms-border);
-          border-radius:12px; padding:8px 6px;
-        }
-        .bms-cell-v { font-size:12px; font-weight:650; }
-        .bms-cell-bar {
-          width: 36px; height: 48px; border-radius: 8px;
-          background: rgba(0,0,0,0.25); overflow:hidden; position:relative;
-          border: 1px solid rgba(255,255,255,0.06);
-          display:flex; align-items:flex-end;
-        }
-        .bms-cell-fill {
-          width:100%; border-radius: 0 0 6px 6px;
-          transition: height 0.4s ease;
-        }
-        .bms-cell-name { font-size:11px; opacity:0.55; }
-        .bms-diag-grid {
-          display:grid; grid-template-columns:1fr 1fr; gap:8px;
-        }
-        .bms-diag-badge {
-          border-radius:10px; padding:8px 10px;
-        }
-        .bms-diag-badge-label { font-size:10px; opacity:0.8; }
-        .bms-diag-badge-value { font-size:13px; font-weight:600; }
-        .bms-stat-row {
-          display:grid; grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
-          gap:8px; margin-top:8px;
-        }
-        .bms-stat {
-          background: var(--bms-panel); border:1px solid var(--bms-border);
-          border-radius:10px; padding:8px 10px; text-align:center;
-        }
-        .bms-stat-l { display:block; font-size:10px; opacity:0.55; }
-        .bms-stat-v { display:block; font-size:14px; font-weight:650; color:#38BDF8; }
-        .bms-capacity-grid { grid-template-columns: repeat(auto-fit, minmax(90px, 1fr)); }
+        .bms-stat { padding:10px 8px; text-align:center; border-right:1px solid var(--bms-border); }
+        .bms-stat:last-child { border-right:none; }
+        .bms-stat-l { display:block; font-size:10px; opacity:0.55; margin-bottom:2px; }
+        .bms-stat-v { display:block; font-size:14px; font-weight:700; }
+        .bms-section { margin-top:14px; }
+        .bms-capacity-grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap:8px; }
+        .bms-capacity-grid .bms-metric { align-items:center; text-align:center; }
         .bms-mini { cursor:pointer; outline:none; }
-        .bms-mini:focus-visible { box-shadow: 0 0 0 2px var(--primary-color); border-radius:12px; }
+        .bms-mini-header { display:flex; align-items:center; gap:8px; margin-bottom:10px; }
+        .bms-mini-name { font-size:14px; font-weight:600; }
+        .bms-mini-body { display:flex; gap:12px; align-items:flex-start; }
+        .bms-battery-col { display:flex; flex-direction:column; align-items:center; gap:8px; flex-shrink:0; }
         .bms-overlay {
           position:fixed; inset:0; background:rgba(0,0,0,0.55); z-index:1000;
-          display:flex; align-items:center; justify-content:center; padding:16px;
+          display:flex; align-items:center; justify-content:center; padding:12px;
           backdrop-filter: blur(4px);
         }
         .bms-overlay-inner {
-          background: var(--ha-card-background, var(--card-background-color, #14181f));
-          border-radius:18px; max-width:560px; width:100%; max-height:92vh;
-          overflow:auto; padding:16px; position:relative;
-          border:1px solid var(--bms-border);
-          box-shadow: 0 16px 48px rgba(0,0,0,0.4);
+          background: var(--ha-card-background, var(--card-background-color, #12161e));
+          border-radius:18px; max-width:min(920px, 100%); width:100%; max-height:94vh;
+          overflow:auto; padding:14px; position:relative;
+          border:1px solid var(--bms-border); box-shadow: 0 16px 48px rgba(0,0,0,0.45);
         }
-        .bms-overlay.landscape .bms-overlay-inner { max-width:780px; }
         .bms-overlay-close {
-          position:absolute; top:10px; right:12px; border:none; background:transparent;
+          position:absolute; top:8px; right:10px; border:none; background:transparent;
           color:var(--primary-text-color); font-size:18px; cursor:pointer; z-index:2;
           opacity:0.7; padding:4px 8px;
         }
-        @container bms (min-width: 420px) {
-          .bms-metric-grid { grid-template-columns: 1fr 1fr; }
+        @container bms (max-width: 520px) {
+          .bms-main-grid { grid-template-columns: 1fr; }
+          .bms-mid-col .bms-metric-stack { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+          .bms-diag-grid { grid-template-columns:1fr 1fr; }
         }
-        @container bms (min-width: 560px) {
-          .bms-metric-grid { grid-template-columns: repeat(4, 1fr); max-width:none; }
-          .bms-diag-grid { grid-template-columns: repeat(4, 1fr); }
+        @container bms (min-width: 700px) {
+          .bms-main-grid { grid-template-columns: 150px 130px minmax(0, 1fr); gap:12px; }
         }
       </style>
       <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css">
