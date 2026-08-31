@@ -1219,42 +1219,36 @@ class HaBmsBleCard extends HTMLElement {
     const color = batteryFillColor(p);
     const clipId = `bms-fill-clip-${this._uid}-${variant}`;
     const isMini = variant === "mini";
-    const w = isMini ? 70 : 112;
-    const h = isMini ? 112 : 168;
-    const wall = isMini ? 3.5 : 4.5;
-    const bodyX = 10, bodyY = 16, bodyW = w - 20, bodyH = h - 24, radius = 18;
-    const termW = w * 0.34, termH = 9, termX = (w - termW) / 2;
-    const pad = 6;
+    // Proportions closer to mockup: tall rounded body, short terminal
+    const w = isMini ? 68 : 108;
+    const h = isMini ? 108 : 158;
+    const wall = isMini ? 3.2 : 4;
+    const bodyX = 12, bodyY = 18, bodyW = w - 24, bodyH = h - 26, radius = 20;
+    const termW = w * 0.32, termH = 10, termX = (w - termW) / 2;
+    const pad = 7;
     const fillH = Math.max(0, (bodyH - pad * 2) * (p / 100));
     const fillY = bodyY + pad + (bodyH - pad * 2 - fillH);
-    const stroke = "rgba(180,190,200,0.85)";
+    const stroke = "#9aa3ad";
 
     return `
       <div class="bms-battery-shape bms-battery-shape-${variant}">
-        <svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
+        <svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" aria-hidden="true">
           <defs>
             <linearGradient id="bms-grad-${this._uid}-${variant}" x1="0" y1="1" x2="0" y2="0">
-              <stop offset="0%" stop-color="${color}" stop-opacity="1"/>
-              <stop offset="55%" stop-color="${color}" stop-opacity="0.95"/>
-              <stop offset="100%" stop-color="${color}" stop-opacity="0.7"/>
+              <stop offset="0%" stop-color="${color}"/>
+              <stop offset="70%" stop-color="${color}" stop-opacity="0.92"/>
+              <stop offset="100%" stop-color="${color}" stop-opacity="0.72"/>
             </linearGradient>
-            <filter id="bms-glow-${this._uid}-${variant}">
-              <feGaussianBlur stdDeviation="2.5" result="b"/>
-              <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
-            </filter>
             <clipPath id="${clipId}">
-              <rect x="${bodyX + 2}" y="${bodyY + 2}" width="${bodyW - 4}" height="${bodyH - 4}" rx="${radius - 2}"/>
+              <rect x="${bodyX + 2.5}" y="${bodyY + 2.5}" width="${bodyW - 5}" height="${bodyH - 5}" rx="${radius - 3}"/>
             </clipPath>
           </defs>
-          <rect x="${termX}" y="${bodyY - termH}" width="${termW}" height="${termH + 4}" rx="4"
-            fill="${stroke}" opacity="0.35"/>
-          <rect x="${termX}" y="${bodyY - termH}" width="${termW}" height="${termH + 4}" rx="4"
-            fill="none" stroke="${stroke}" stroke-width="${wall}"/>
+          <rect x="${termX}" y="${bodyY - termH + 1}" width="${termW}" height="${termH + 2}" rx="5"
+            fill="#b8c0c8" opacity="0.9"/>
           <rect x="${bodyX}" y="${bodyY}" width="${bodyW}" height="${bodyH}" rx="${radius}"
-            fill="rgba(12,16,22,0.65)" stroke="${stroke}" stroke-width="${wall}"/>
+            fill="#0c1118" stroke="${stroke}" stroke-width="${wall}"/>
           <rect x="${bodyX + pad}" y="${fillY}" width="${bodyW - pad * 2}" height="${fillH}"
-            fill="url(#bms-grad-${this._uid}-${variant})" clip-path="url(#${clipId})" rx="10"
-            filter="url(#bms-glow-${this._uid}-${variant})"/>
+            fill="url(#bms-grad-${this._uid}-${variant})" clip-path="url(#${clipId})" rx="12"/>
         </svg>
         <div class="bms-battery-label">
           <span class="bms-battery-pct">${p.toFixed(0)}%</span>
@@ -1314,21 +1308,23 @@ class HaBmsBleCard extends HTMLElement {
   _renderCellsPanel() {
     const st = this._cellStats();
     if (!st) {
-      return `<div class="bms-panel"><p class="bms-muted">Немає даних про комірки. Увімкніть Delta cell voltage у BMS_BLE-HA.</p></div>`;
+      return `<div class="bms-panel bms-cells-panel"><p class="bms-muted">Немає даних про комірки. Увімкніть Delta cell voltage у BMS_BLE-HA.</p></div>`;
     }
-    const rows = st.cells.map((v, i) => {
+    let rows = "";
+    for (let i = 0; i < st.cells.length; i++) {
+      const v = st.cells[i];
       const frac = cellVoltageFraction(v);
       const color = this._cellColor(v, st.min, st.max, st.delta);
-      return `
+      const pct = Math.round(frac * 100);
+      rows += `
         <div class="bms-hbar-row">
           <span class="bms-hbar-lab">C${i + 1}</span>
           <div class="bms-hbar-track">
-            <div class="bms-hbar-fill" style="width:${Math.round(frac * 100)}%;background:${color};"></div>
-            <div class="bms-hbar-rest"></div>
+            <div class="bms-hbar-fill" style="width:${pct}%;background:${color};"></div>
           </div>
           <span class="bms-hbar-val">${Number.isFinite(v) ? v.toFixed(3) : "—"} V</span>
         </div>`;
-    }).join("");
+    }
     return `
       <div class="bms-panel bms-cells-panel">
         <div class="bms-panel-title">Комірки (Δ ${st.delta.toFixed(3)}V)</div>
@@ -1352,38 +1348,40 @@ class HaBmsBleCard extends HTMLElement {
 
   _renderDiagGrid() {
     const items = [
-      ["Балансир", this._e("balancer"), true, "ti-topology-star-3", (on) => on ? "Активний" : "Вимкнено"],
-      ["MOSFET заряд", this._e("chrg_mosfet"), true, "ti-plug-connected", (on) => on ? "Увімкнено" : "Вимкнено"],
-      ["MOSFET розряд", this._e("dischrg_mosfet"), true, "ti-plug-connected", (on) => on ? "Увімкнено" : "Вимкнено"],
-      ["Нагрівач", this._e("heater"), true, "ti-flame", (on) => on ? "Увімкнено" : "Вимкнено"],
-      ["Проблеми", this._e("problem"), false, "ti-alert-triangle", (on) => on ? "Є" : "Немає"],
+      ["Балансир", this._e("balancer"), true, "ti-topology-star-3", (on) => (on ? "Активний" : "Вимкнено")],
+      ["MOSFET заряд", this._e("chrg_mosfet"), true, "ti-plug-connected", (on) => (on ? "Увімкнено" : "Вимкнено")],
+      ["MOSFET розряд", this._e("dischrg_mosfet"), true, "ti-plug-connected", (on) => (on ? "Увімкнено" : "Вимкнено")],
+      ["Нагрівач", this._e("heater"), true, "ti-flame", (on) => (on ? "Увімкнено" : "Вимкнено")],
+      ["Проблеми", this._e("problem"), false, "ti-alert-triangle", (on) => (on ? "Є" : "Немає")],
     ];
     const status = this._statusInfo();
-    let cells = items.map(([label, id, goodWhenOn, icon, fmtVal]) => {
+    let html = "";
+    for (const [label, id, goodWhenOn, icon, fmtVal] of items) {
       const state = stateOf(this._hass, id);
-      if (state === undefined) return "";
+      if (state === undefined) continue;
       const on = state === "on" || state === "true";
       let tone = "neutral";
       if (label === "Проблеми") tone = on ? "danger" : "success";
       else tone = (goodWhenOn ? on : !on) ? "success" : "warning";
       const c = this._statusColorVars(tone);
-      return `
+      html += `
         <div class="bms-diag-cell">
           <i class="ti ${icon}" style="color:${c.fg}"></i>
           <div class="bms-diag-lab">${label}</div>
           <div class="bms-diag-val" style="color:${c.fg}">${fmtVal(on)}</div>
         </div>`;
-    }).filter(Boolean).join("");
+    }
     const sc = this._statusColorVars(status.color);
-    const modeLabel = status.label === "Заряджається" ? "Заряд"
-      : status.label === "Розряджається" ? "Розряд" : status.label;
-    cells += `
+    const modeLabel =
+      status.label === "Заряджається" ? "Заряд" :
+      status.label === "Розряджається" ? "Розряд" : status.label;
+    html += `
       <div class="bms-diag-cell">
         <i class="ti ti-activity" style="color:${sc.fg}"></i>
         <div class="bms-diag-lab">Режим</div>
         <div class="bms-diag-val" style="color:${sc.fg}">${modeLabel}</div>
       </div>`;
-    return `<div class="bms-panel bms-diag-panel"><div class="bms-diag-grid">${cells}</div></div>`;
+    return `<div class="bms-panel bms-diag-panel"><div class="bms-diag-grid">${html}</div></div>`;
   }
 
   _renderMetric(label, value) {
@@ -1395,20 +1393,19 @@ class HaBmsBleCard extends HTMLElement {
   }
 
   _renderSparkline(seed, color) {
-    // Декоративний sparkline (не real history) — форма як на mockup
     const pts = [];
     let x = 0;
-    const w = 120, h = 28;
+    const w = 140, h = 32;
     let y = h * 0.55;
-    const n = 18;
+    const n = 20;
     for (let i = 0; i < n; i++) {
       const t = (seed * 17 + i * 13) % 11;
-      y = Math.max(4, Math.min(h - 4, y + (t - 5) * 1.6));
-      pts.push(`${x},${y.toFixed(1)}`);
+      y = Math.max(4, Math.min(h - 4, y + (t - 5) * 1.5));
+      pts.push(`${x.toFixed(1)},${y.toFixed(1)}`);
       x += w / (n - 1);
     }
-    return `<svg class="bms-spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" width="100%" height="28">
-      <polyline fill="none" stroke="${color}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" points="${pts.join(" ")}"/>
+    return `<svg class="bms-spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" width="100%" height="32" aria-hidden="true">
+      <polyline fill="none" stroke="${color}" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" points="${pts.join(" ")}"/>
     </svg>`;
   }
 
@@ -1449,8 +1446,6 @@ class HaBmsBleCard extends HTMLElement {
     const sc = this._statusColorVars(status.color);
     const eta = this._etaInfo();
     const socPct = Number.isFinite(soc) ? Math.max(0, Math.min(100, soc)) : 0;
-
-    // Used / remaining Ah if we have design + daily capacity
     const designN = Number(design);
     const usedToday = this._e("capacity_daily") ? Number(stateOf(this._hass, this._e("capacity_daily"))) : undefined;
     let remainingAh;
@@ -1464,7 +1459,7 @@ class HaBmsBleCard extends HTMLElement {
           <div class="bms-title-block">
             <div class="bms-title">${this._batteryName()}</div>
             <div class="bms-conn">
-              <span class="bms-dot" style="background:${sc.fg}"></span>
+              <span class="bms-dot" style="background:${status.color === "danger" ? "#ef4444" : "#22c55e"}"></span>
               ${status.color === "danger" ? "Проблема" : "Підключено"}
             </div>
           </div>
@@ -1475,16 +1470,16 @@ class HaBmsBleCard extends HTMLElement {
 
         <div class="bms-top">
           <div class="bms-col-left">
-            <div class="bms-panel bms-battery-panel">
+            <div class="bms-battery-wrap">
               ${this._renderBatteryShape(soc, "full")}
               <span class="bms-status-pill" style="background:${sc.bg};color:${sc.fg};">
                 <i class="ti ${status.icon}"></i> ${status.label}
               </span>
             </div>
-            <div class="bms-panel bms-eta-panel">
+            <div class="bms-eta-panel">
               <div class="bms-eta-row">
                 <i class="ti ti-clock-hour-4"></i>
-                <div>
+                <div class="bms-eta-text">
                   <div class="bms-eta-label">${eta.label}</div>
                   <div class="bms-eta-value">${eta.seconds !== undefined ? "~" + secondsToHuman(eta.seconds) : "—"}</div>
                 </div>
@@ -1534,7 +1529,7 @@ class HaBmsBleCard extends HTMLElement {
 
         ${this._hasDischargeEntities() || eta.seconds !== undefined ? `
         <div class="bms-section">
-          <div class="bms-section-title">Час роботи до розряду (прогноз)</div>
+          <div class="bms-section-title">Час роботи до розряду <span class="bms-section-sub">(прогноз)</span></div>
           <div class="bms-forecast-grid">
             <div class="bms-forecast">
               <i class="ti ti-clock-hour-4"></i>
@@ -1575,7 +1570,7 @@ class HaBmsBleCard extends HTMLElement {
           <div class="bms-diag-tiles">
             ${stored !== undefined ? `
             <div class="bms-diag-tile">
-              <i class="ti ti-battery-vertical"></i>
+              <i class="ti ti-battery-vertical-filled" style="color:#22c55e"></i>
               <div class="bms-diag-tile-lab">Stored Energy</div>
               <div class="bms-diag-tile-val">${fmt(stored, 0)} Wh</div>
             </div>` : ""}
@@ -1603,7 +1598,7 @@ class HaBmsBleCard extends HTMLElement {
               <div class="bms-diag-tile-val">${fmt(current, 1)} A</div>
             </div>
             <div class="bms-diag-tile">
-              <i class="ti ti-chart-donut"></i>
+              <i class="ti ti-chart-donut-3"></i>
               <div class="bms-diag-tile-lab">Package SOC</div>
               <div class="bms-diag-tile-val">${fmt(soc, 0)}%</div>
             </div>
@@ -1624,7 +1619,7 @@ class HaBmsBleCard extends HTMLElement {
     return `
       <div class="bms-mini" tabindex="0" role="button" aria-label="Відкрити деталі батареї">
         <div class="bms-mini-header">
-          <span class="bms-dot" style="background:${sc.fg}"></span>
+          <span class="bms-dot" style="background:${status.color === "danger" ? "#ef4444" : "#22c55e"}"></span>
           <span class="bms-mini-name">${this._batteryName()}</span>
           <i class="ti ti-bluetooth bms-bt" style="margin-left:auto;"></i>
         </div>
@@ -1658,21 +1653,20 @@ class HaBmsBleCard extends HTMLElement {
         * { box-sizing: border-box; }
         .ti { font-size:15px; vertical-align:-2px; }
         .bms-card {
-          --bms-bg: #0b1017;
-          --bms-panel: #141a22;
-          --bms-panel-hi: #1a222d;
-          --bms-border: rgba(255,255,255,0.055);
-          --bms-text: #eef1f5;
-          --bms-muted: rgba(238,241,245,0.52);
+          --bms-bg: #0a0f16;
+          --bms-panel: #121820;
+          --bms-border: rgba(255,255,255,0.06);
+          --bms-text: #edf0f4;
+          --bms-muted: rgba(237,240,244,0.5);
           --bms-cyan: #38bdf8;
           --bms-green: #22c55e;
           --bms-amber: #f59e0b;
-          background: linear-gradient(180deg, #0d131b 0%, #0a0e14 100%);
-          border-radius: 22px;
-          padding: 18px 16px 14px;
+          background: #0a0f16;
+          border-radius: 20px;
+          padding: 16px 14px 12px;
           color: var(--bms-text);
           border: 1px solid var(--bms-border);
-          box-shadow: 0 16px 48px rgba(0,0,0,0.45);
+          box-shadow: 0 12px 40px rgba(0,0,0,0.4);
           container-type: inline-size;
           container-name: bms;
           max-width: 100%;
@@ -1681,185 +1675,205 @@ class HaBmsBleCard extends HTMLElement {
         }
         .bms-header {
           display:flex; align-items:flex-start; justify-content:space-between;
-          gap:10px; margin-bottom:16px;
+          margin-bottom: 14px;
         }
-        .bms-title { font-size:17px; font-weight:650; letter-spacing:-0.015em; }
+        .bms-title { font-size:16px; font-weight:650; letter-spacing:-0.01em; }
         .bms-conn {
-          font-size:12.5px; color:var(--bms-muted); display:flex; align-items:center; gap:7px; margin-top:5px;
+          display:flex; align-items:center; gap:7px;
+          font-size:12px; color:var(--bms-muted); margin-top:5px;
         }
-        .bms-dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; display:inline-block;
-          box-shadow: 0 0 8px currentColor; }
-        .bms-header-right { display:flex; align-items:center; gap:10px; }
-        .bms-bt { color: var(--bms-cyan); font-size:22px !important; filter: drop-shadow(0 0 6px rgba(56,189,248,0.45)); }
+        .bms-dot {
+          width:7px; height:7px; border-radius:50%; display:inline-block;
+          box-shadow: 0 0 6px currentColor;
+        }
+        .bms-bt {
+          color: var(--bms-cyan); font-size:20px !important;
+          filter: drop-shadow(0 0 5px rgba(56,189,248,0.4));
+        }
         .bms-top {
-          display:grid;
-          grid-template-columns: 148px 128px minmax(0, 1fr);
+          display: grid;
+          grid-template-columns: 140px 118px minmax(0, 1fr);
           gap: 12px;
           align-items: start;
         }
-        .bms-col-left, .bms-col-mid, .bms-col-right { min-width:0; display:flex; flex-direction:column; gap:10px; }
-        .bms-panel {
-          background: var(--bms-panel);
-          border: 1px solid var(--bms-border);
-          border-radius: 16px;
-          padding: 12px;
+        .bms-col-left, .bms-col-mid, .bms-col-right {
+          min-width: 0; display: flex; flex-direction: column; gap: 10px;
         }
-        .bms-panel-title {
-          font-size:12px; font-weight:600; color:var(--bms-muted); margin-bottom:12px;
-        }
-        .bms-battery-panel {
-          display:flex; flex-direction:column; align-items:center; gap:12px;
-          padding: 14px 10px 12px;
-          background: transparent; border: none;
+        .bms-battery-wrap {
+          display:flex; flex-direction:column; align-items:center; gap:10px;
+          padding: 4px 0 2px;
         }
         .bms-battery-shape { position:relative; display:flex; align-items:center; justify-content:center; }
         .bms-battery-label {
           position:absolute; inset:0; display:flex; flex-direction:column;
-          align-items:center; justify-content:center; pointer-events:none; padding-top:10px;
+          align-items:center; justify-content:center; pointer-events:none; padding-top:12px;
         }
         .bms-battery-pct {
-          font-size:30px; font-weight:800; line-height:1; color:#fff;
-          text-shadow: 0 2px 10px rgba(0,0,0,0.5);
+          font-size:28px; font-weight:800; line-height:1; color:#fff;
+          text-shadow: 0 2px 8px rgba(0,0,0,0.55);
         }
-        .bms-battery-shape-full .bms-battery-pct { font-size:34px; }
+        .bms-battery-shape-full .bms-battery-pct { font-size:32px; }
         .bms-battery-sub {
-          font-size:11px; font-weight:600; letter-spacing:0.12em; color:rgba(255,255,255,0.75); margin-top:2px;
+          font-size:10px; font-weight:700; letter-spacing:0.14em;
+          color:rgba(255,255,255,0.78); margin-top:3px;
         }
         .bms-status-pill {
-          font-size:12.5px; padding:7px 16px; border-radius:999px; white-space:nowrap;
-          display:inline-flex; align-items:center; gap:6px; font-weight:650;
+          font-size:12px; padding:6px 14px; border-radius:999px;
+          display:inline-flex; align-items:center; gap:5px; font-weight:650;
+          white-space:nowrap;
         }
         .bms-eta-panel {
-          padding: 12px 14px 10px;
           background: var(--bms-panel);
-          border-radius: 16px;
           border: 1px solid var(--bms-border);
+          border-radius: 14px;
+          padding: 11px 12px 9px;
         }
-        .bms-eta-row { display:flex; align-items:center; gap:10px; margin-bottom:10px; }
-        .bms-eta-row .ti { font-size:20px !important; color:var(--bms-muted); }
-        .bms-eta-label { font-size:12px; color:var(--bms-muted); }
-        .bms-eta-value { font-size:17px; font-weight:700; margin-top:1px; }
+        .bms-eta-row { display:flex; align-items:center; gap:9px; margin-bottom:9px; }
+        .bms-eta-row .ti { font-size:18px !important; color:var(--bms-muted); flex-shrink:0; }
+        .bms-eta-label { font-size:11px; color:var(--bms-muted); }
+        .bms-eta-value { font-size:16px; font-weight:700; margin-top:1px; }
         .bms-soc-bar {
-          height:7px; border-radius:999px; background:rgba(255,255,255,0.08); overflow:hidden;
+          height:6px; border-radius:999px; background:rgba(255,255,255,0.08); overflow:hidden;
         }
-        .bms-soc-fill { height:100%; border-radius:999px; box-shadow: 0 0 10px rgba(34,197,94,0.35); }
-        .bms-soc-bar-lab { font-size:11px; color:var(--bms-muted); text-align:right; margin-top:5px; }
+        .bms-soc-fill { height:100%; border-radius:999px; }
+        .bms-soc-bar-lab {
+          font-size:10px; color:var(--bms-muted); text-align:right; margin-top:4px;
+        }
         .bms-metric-stack { display:flex; flex-direction:column; gap:8px; }
         .bms-metric {
           background: var(--bms-panel);
           border: 1px solid var(--bms-border);
-          border-radius: 14px;
-          padding: 11px 12px;
+          border-radius: 12px;
+          padding: 10px 11px;
         }
         .bms-metric-value {
-          font-size:16.5px; font-weight:700; letter-spacing:-0.02em;
+          font-size:15.5px; font-weight:700; letter-spacing:-0.02em;
           white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
         }
-        .bms-metric-label { font-size:11px; color:var(--bms-muted); margin-top:3px; }
+        .bms-metric-label { font-size:10.5px; color:var(--bms-muted); margin-top:2px; }
+        .bms-panel {
+          background: var(--bms-panel);
+          border: 1px solid var(--bms-border);
+          border-radius: 14px;
+          padding: 12px;
+        }
+        .bms-panel-title {
+          font-size:11.5px; font-weight:600; color:var(--bms-muted); margin-bottom:10px;
+        }
         .bms-hbar-row {
-          display:grid; grid-template-columns: 26px minmax(0,1fr) 68px;
-          gap:8px; align-items:center; margin-bottom:9px;
+          display:grid; grid-template-columns: 24px minmax(0,1fr) 64px;
+          gap:8px; align-items:center; margin-bottom:8px;
         }
-        .bms-hbar-lab { font-size:12px; font-weight:650; color:var(--bms-muted); }
+        .bms-hbar-lab { font-size:11.5px; font-weight:650; color:var(--bms-muted); }
         .bms-hbar-track {
-          height:11px; border-radius:999px; background:rgba(255,255,255,0.07);
-          overflow:hidden;
+          height:10px; border-radius:999px; background:rgba(255,255,255,0.07); overflow:hidden;
         }
-        .bms-hbar-fill {
-          height:100%; border-radius:999px;
-          box-shadow: 0 0 8px rgba(34,197,94,0.25);
+        .bms-hbar-fill { height:100%; border-radius:999px; min-width:2px; }
+        .bms-hbar-val {
+          font-size:11.5px; text-align:right; font-weight:650;
+          font-variant-numeric: tabular-nums;
         }
-        .bms-hbar-val { font-size:12px; text-align:right; font-weight:650; font-variant-numeric: tabular-nums; }
         .bms-cell-extremes {
-          display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; margin-top:12px;
+          display:grid; grid-template-columns:1fr 1fr 1fr; gap:7px; margin-top:10px;
         }
         .bms-extreme {
-          background: rgba(0,0,0,0.28); border-radius:12px; padding:9px 6px; text-align:center;
+          background: rgba(0,0,0,0.28); border-radius:10px; padding:8px 4px; text-align:center;
           border: 1px solid var(--bms-border);
         }
-        .bms-extreme-v { font-size:11.5px; font-weight:700; }
-        .bms-extreme-s { font-size:10.5px; color:var(--bms-muted); margin-top:2px; }
+        .bms-extreme-v { font-size:11px; font-weight:700; }
+        .bms-extreme-s { font-size:10px; color:var(--bms-muted); margin-top:2px; }
         .bms-extreme-max .bms-extreme-v { color: var(--bms-green); }
         .bms-extreme-min .bms-extreme-v { color: var(--bms-amber); }
-        .bms-diag-panel { padding: 8px 6px; }
+        .bms-diag-panel { padding: 8px 4px; }
         .bms-diag-grid {
           display:grid; grid-template-columns:1fr 1fr 1fr; gap:2px 0;
         }
-        .bms-diag-cell { text-align:center; padding:10px 4px; }
-        .bms-diag-cell .ti { font-size:18px !important; }
-        .bms-diag-lab { font-size:10px; color:var(--bms-muted); margin-top:5px; }
-        .bms-diag-val { font-size:12px; font-weight:650; margin-top:2px; }
+        .bms-diag-cell { text-align:center; padding:9px 3px; }
+        .bms-diag-cell .ti { font-size:17px !important; }
+        .bms-diag-lab { font-size:9.5px; color:var(--bms-muted); margin-top:4px; }
+        .bms-diag-val { font-size:11.5px; font-weight:650; margin-top:2px; }
         .bms-stats-strip {
-          display:grid; grid-template-columns: repeat(auto-fit, minmax(88px, 1fr));
-          gap:0; margin-top:14px;
-          background: var(--bms-panel); border:1px solid var(--bms-border);
-          border-radius:14px; overflow:hidden;
+          display:grid; grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
+          margin-top: 12px;
+          background: var(--bms-panel);
+          border: 1px solid var(--bms-border);
+          border-radius: 12px;
+          overflow: hidden;
         }
         .bms-stat {
-          padding:12px 6px; text-align:center;
-          border-right:1px solid var(--bms-border);
+          padding: 11px 4px; text-align:center;
+          border-right: 1px solid var(--bms-border);
         }
-        .bms-stat:last-child { border-right:none; }
-        .bms-stat-l { display:block; font-size:10px; color:var(--bms-muted); margin-bottom:5px; }
-        .bms-stat-v { display:block; font-size:14.5px; font-weight:700; font-variant-numeric: tabular-nums; }
-        .bms-section { margin-top:18px; }
+        .bms-stat:last-child { border-right: none; }
+        .bms-stat-l { display:block; font-size:9.5px; color:var(--bms-muted); margin-bottom:4px; }
+        .bms-stat-v {
+          display:block; font-size:13.5px; font-weight:700;
+          font-variant-numeric: tabular-nums;
+        }
+        .bms-section { margin-top: 16px; }
         .bms-section-title {
-          font-size:13.5px; font-weight:650; margin-bottom:11px; color:var(--bms-text);
+          font-size:13px; font-weight:650; margin-bottom:10px; color:var(--bms-text);
         }
+        .bms-section-sub { font-weight:500; color:var(--bms-muted); font-size:12px; }
         .bms-muted { color:var(--bms-muted); font-size:12px; margin:0; }
         .bms-cap-grid {
           display:grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap:10px;
         }
         .bms-cap-card {
           background: var(--bms-panel); border:1px solid var(--bms-border);
-          border-radius:16px; padding:14px 14px 10px;
+          border-radius: 14px; padding: 12px 12px 8px;
         }
-        .bms-cap-label { font-size:12px; color:var(--bms-muted); margin-bottom:6px; }
-        .bms-cap-row { display:flex; align-items:baseline; justify-content:space-between; gap:8px; margin-bottom:6px; }
-        .bms-cap-value { font-size:20px; font-weight:750; }
-        .bms-cap-unit { font-size:13px; font-weight:500; color:var(--bms-muted); }
-        .bms-cap-pct { font-size:13px; font-weight:650; color: var(--bms-green); }
-        .bms-spark { display:block; opacity:0.9; margin-top:2px; }
+        .bms-cap-label { font-size:11.5px; color:var(--bms-muted); margin-bottom:5px; }
+        .bms-cap-row {
+          display:flex; align-items:baseline; justify-content:space-between; gap:6px; margin-bottom:4px;
+        }
+        .bms-cap-value { font-size:18px; font-weight:750; }
+        .bms-cap-unit { font-size:12px; font-weight:500; color:var(--bms-muted); }
+        .bms-cap-pct { font-size:12px; font-weight:650; color: var(--bms-green); }
+        .bms-spark { display:block; opacity:0.85; }
         .bms-forecast-grid {
-          display:grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap:0;
+          display:grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
           background: var(--bms-panel); border:1px solid var(--bms-border);
-          border-radius:16px; overflow:hidden;
+          border-radius: 14px; overflow:hidden;
         }
         .bms-forecast {
-          display:flex; align-items:center; gap:10px; padding:14px 12px;
-          border-right:1px solid var(--bms-border);
+          display:flex; align-items:center; gap:10px; padding: 13px 12px;
+          border-right: 1px solid var(--bms-border);
         }
-        .bms-forecast:last-child { border-right:none; }
-        .bms-forecast .ti { font-size:22px !important; color: var(--bms-cyan); }
-        .bms-forecast-lab { font-size:11px; color:var(--bms-muted); line-height:1.3; }
-        .bms-forecast-val { font-size:15px; font-weight:700; margin-top:3px; }
+        .bms-forecast:last-child { border-right: none; }
+        .bms-forecast .ti { font-size:20px !important; color: var(--bms-cyan); flex-shrink:0; }
+        .bms-forecast-lab { font-size:10.5px; color:var(--bms-muted); line-height:1.25; }
+        .bms-forecast-val { font-size:14px; font-weight:700; margin-top:2px; }
         .bms-diag-tiles {
           display:grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap:10px;
         }
         .bms-diag-tile {
           background: var(--bms-panel); border:1px solid var(--bms-border);
-          border-radius:16px; padding:14px;
+          border-radius: 14px; padding: 13px;
         }
-        .bms-diag-tile .ti { font-size:20px !important; color: var(--bms-cyan); }
-        .bms-diag-tile-lab { font-size:11px; color:var(--bms-muted); margin-top:8px; }
-        .bms-diag-tile-val { font-size:16px; font-weight:700; margin-top:4px; font-variant-numeric: tabular-nums; }
-        .bms-diag-tile-sub { font-size:11px; color:var(--bms-muted); margin-top:2px; }
+        .bms-diag-tile .ti { font-size:19px !important; color: var(--bms-cyan); }
+        .bms-diag-tile-lab { font-size:10.5px; color:var(--bms-muted); margin-top:7px; }
+        .bms-diag-tile-val {
+          font-size:15px; font-weight:700; margin-top:3px;
+          font-variant-numeric: tabular-nums;
+        }
+        .bms-diag-tile-sub { font-size:10.5px; color:var(--bms-muted); margin-top:2px; }
         .bms-mini { cursor:pointer; outline:none; }
         .bms-mini-header { display:flex; align-items:center; gap:8px; margin-bottom:12px; }
         .bms-mini-name { font-size:14px; font-weight:600; }
-        .bms-mini-body { display:flex; gap:14px; align-items:flex-start; }
+        .bms-mini-body { display:flex; gap:12px; align-items:flex-start; }
         .bms-battery-col { display:flex; flex-direction:column; align-items:center; gap:8px; flex-shrink:0; }
         .bms-overlay {
-          position:fixed; inset:0; background:rgba(0,0,0,0.62); z-index:1000;
+          position:fixed; inset:0; background:rgba(0,0,0,0.65); z-index:1000;
           display:flex; align-items:center; justify-content:center; padding:12px;
           backdrop-filter: blur(8px);
         }
         .bms-overlay-inner {
           background: var(--bms-bg);
-          border-radius:22px; max-width:min(980px, 100%); width:100%; max-height:94vh;
-          overflow:auto; padding:18px; position:relative;
+          border-radius:20px; max-width:min(960px, 100%); width:100%; max-height:94vh;
+          overflow:auto; padding:16px; position:relative;
           border:1px solid var(--bms-border);
-          box-shadow: 0 24px 64px rgba(0,0,0,0.55);
+          box-shadow: 0 20px 60px rgba(0,0,0,0.55);
         }
         .bms-overlay-close {
           position:absolute; top:10px; right:12px; border:none; background:transparent;
@@ -1874,14 +1888,13 @@ class HaBmsBleCard extends HTMLElement {
           .bms-diag-grid { grid-template-columns:1fr 1fr; }
           .bms-forecast { border-right:none; border-bottom:1px solid var(--bms-border); }
         }
-        @container bms (min-width: 720px) {
-          .bms-top { grid-template-columns: 156px 132px minmax(0, 1fr); gap:14px; }
+        @container bms (min-width: 700px) {
+          .bms-top { grid-template-columns: 150px 126px minmax(0, 1fr); gap:14px; }
         }
       </style>
       <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css">
     `;
   }
-
 
   _render() {
     if (!this._config || !this._hass) return;
