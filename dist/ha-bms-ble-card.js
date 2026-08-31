@@ -7,7 +7,7 @@
  * https://github.com/kdinya/ha-bms-ble-card
  */
 
-const CARD_VERSION = "1.2.0";
+const CARD_VERSION = "1.3.0";
 
 console.info(
   `%c HA-BMS-BLE-CARD %c v${CARD_VERSION} `,
@@ -19,6 +19,11 @@ const DEFAULT_THRESHOLDS = {
   cell_delta_warning: 0.02,
   cell_delta_critical: 0.05,
 };
+
+// Типовий робочий діапазон напруги комірки LiFePO4, використовується лише
+// для візуального заповнення міні-іконки комірки (0% = lo, 100% = hi).
+// Це НЕ SOC, а суто орієнтир по напрузі клітинки.
+const CELL_VOLTAGE_RANGE = { lo: 2.5, hi: 3.65 };
 
 function fmt(value, digits = 2, unit = "") {
   if (value === undefined || value === null || value === "unknown" || value === "unavailable") {
@@ -54,24 +59,50 @@ function secondsToHuman(seconds) {
   return `${h} год ${m} хв`;
 }
 
+/**
+ * Частка заповнення міні-іконки комірки на основі її абсолютної напруги
+ * в типовому робочому діапазоні LiFePO4 (2.50–3.65 В). Клемп 0..1.
+ */
+function cellVoltageFraction(v) {
+  const { lo, hi } = CELL_VOLTAGE_RANGE;
+  if (v === undefined || v === null || Number.isNaN(Number(v))) return 0;
+  return Math.max(0, Math.min(1, (Number(v) - lo) / (hi - lo)));
+}
+
 /* ----------------------------------------------------------------------
  * Setup Wizard: creates the helper entities needed for consumption /
- * runtime tracking (Riemann-sum integral + Utility Meter cycles) through
- * HA's own config-entries "helper" flows — the same mechanism used by
- * Settings → Devices & services → Helpers → + Add helper.
+ * runtime tracking through HA's own config-entries "helper" flows — the
+ * same mechanism used by Settings → Devices & services → Helpers →
+ * + Add helper. Two families of helpers are created:
  *
- * This talks to internal-but-stable HA REST endpoints exposed on `hass`
- * via hass.callApi(). Field names follow the `integration` and
- * `utility_meter` helper config flows as of HA 2024–2026. If a future core
- * release renames a field, creation will fail gracefully and the card
- * falls back to pointing the user at the manual YAML instructions in the
- * README — nothing here is required for the card to keep working with
- * entities configured by hand.
+ *  1) Використана ємність (Riemann-sum integral over `power`, Ah/Wh,
+ *     lifetime) + 3x Utility Meter (daily/weekly/monthly reset) —
+ *     "скільки ємності ми взяли з акумулятора".
+ *  2) Час розряду (History Stats over the `charging` binary_sensor,
+ *     rolling window per cycle) — "скільки АКБ пропрацював, віддаючи
+ *     енергію". Це наближення: рахується час, коли сенсор заряду має
+ *     стан "off" в межах вікна (доба/тиждень/місяць), тобто включає й час
+ *     простою без навантаження, не лише активний розряд — точний час
+ *     "під навантаженням" BMS_BLE-HA не публікує як окрему сутність.
+ *
+ * This talks to internal-but-stable HA REST/WS endpoints exposed on
+ * `hass` via hass.callApi()/callWS(). Field names follow the
+ * `integration`, `utility_meter` and `history_stats` helper config flows
+ * as of HA 2024–2026. If a future core release renames a field, creation
+ * fails gracefully and the card points the user at the manual YAML
+ * instructions in the README — nothing here is required for the card to
+ * keep working with entities configured by hand.
  * -------------------------------------------------------------------- */
-const WIZARD_CYCLES = [
+const CAPACITY_CYCLES = [
   { key: "capacity_daily", label: "Сьогодні", cycle: "daily" },
   { key: "capacity_weekly", label: "Тиждень", cycle: "weekly" },
   { key: "capacity_monthly", label: "Місяць", cycle: "monthly" },
+];
+
+const DISCHARGE_CYCLES = [
+  { key: "discharge_time_daily", label: "Сьогодні", days: 1 },
+  { key: "discharge_time_weekly", label: "Тиждень", days: 7 },
+  { key: "discharge_time_monthly", label: "Місяць", days: 30 },
 ];
 
 class SetupWizard {
@@ -105,7 +136,9 @@ class SetupWizard {
   async _existingEntry(title) {
     const entries = await this.hass.callWS({ type: "config_entries/get" });
     return entries.find(
-      (e) => (e.domain === "integration" || e.domain === "utility_meter") && e.title === title
+      (e) =>
+        (e.domain === "integration" || e.domain === "utility_meter" || e.domain === "history_stats") &&
+        e.title === title
     );
   }
 
@@ -115,10 +148,7 @@ class SetupWizard {
     return match ? match.entity_id : undefined;
   }
 
-  /**
-   * Creates (or reuses, if already created earlier) the lifetime
-   * Riemann-sum integral sensor for a source entity, in Ah or Wh.
-   */
+  /** Creates (or reuses) the lifetime Riemann-sum integral sensor for a source entity. */
   async ensureIntegral(sourceEntity, title, unitTime = "h") {
     const existing = await this._existingEntry(title);
     if (existing) {
@@ -142,10 +172,7 @@ class SetupWizard {
     return { entityId, created: true };
   }
 
-  /**
-   * Creates (or reuses) a Utility Meter helper on top of an existing
-   * integral sensor, for a given reset cycle (daily/weekly/monthly).
-   */
+  /** Creates (or reuses) a Utility Meter helper on top of an existing integral sensor. */
   async ensureUtilityMeter(sourceEntity, title, cycle) {
     const existing = await this._existingEntry(title);
     if (existing) {
@@ -170,12 +197,40 @@ class SetupWizard {
   }
 
   /**
-   * Full run: 1 lifetime integral (capacity_total) + 3 utility meters
-   * (capacity_daily/weekly/monthly) wired to it. Returns the resulting
-   * entity map plus a human-readable log of what happened, so the caller
-   * can show progress and merge it into the card config.
+   * Creates (or reuses) a History Stats helper that measures how long a
+   * binary source entity spent in a given state within a rolling window
+   * (e.g. останні 24 год). Used to approximate "час розряду".
    */
-  async run(sourceEntity, batteryName, onProgress) {
+  async ensureHistoryStats(sourceEntity, title, states, days) {
+    const existing = await this._existingEntry(title);
+    if (existing) {
+      const entityId = await this._entityForEntry(existing.entry_id);
+      if (entityId) return { entityId, created: false };
+    }
+    const flow = await this._initFlow("history_stats");
+    const result = await this._submitStep(flow.flow_id, {
+      name: title,
+      entity_id: sourceEntity,
+      state: states,
+      type: "time",
+      duration: { days, hours: 0, minutes: 0, seconds: 0 },
+    });
+    if (result.type !== "create_entry") {
+      await this._abortFlow(flow.flow_id);
+      throw new Error(result.errors ? JSON.stringify(result.errors) : "history_stats flow не завершився");
+    }
+    const entityId = await this._entityForEntry(result.result.entry_id);
+    return { entityId, created: true };
+  }
+
+  /**
+   * Full run: 1 lifetime integral (capacity_total) + 3 utility meters
+   * (capacity_daily/weekly/monthly), і, якщо переданий chargingEntity —
+   * 3 history_stats helpers (discharge_time_daily/weekly/monthly).
+   * Повертає мапу entity_id + людський лог подій, щоб можна було показати
+   * прогрес і одразу підставити результат у конфіг картки.
+   */
+  async run(sourceEntity, chargingEntity, batteryName, onProgress) {
     const log = [];
     const report = (msg) => {
       log.push(msg);
@@ -188,12 +243,26 @@ class SetupWizard {
     report(total.created ? `✓ Створено ${total.entityId}` : `✓ Вже існує: ${total.entityId}`);
 
     const entities = { capacity_total: total.entityId };
-    for (const { key, label, cycle } of WIZARD_CYCLES) {
+    for (const { key, label, cycle } of CAPACITY_CYCLES) {
       const title = `${batteryName} — використано (${label.toLowerCase()})`;
       report(`Створюю "${title}"…`);
       const meter = await this.ensureUtilityMeter(total.entityId, title, cycle);
       report(meter.created ? `✓ Створено ${meter.entityId}` : `✓ Вже існує: ${meter.entityId}`);
       entities[key] = meter.entityId;
+    }
+
+    if (chargingEntity) {
+      for (const { key, label, days } of DISCHARGE_CYCLES) {
+        const title = `${batteryName} — час розряду (${label.toLowerCase()})`;
+        report(`Створюю "${title}"…`);
+        const hs = await this.ensureHistoryStats(chargingEntity, title, ["off"], days);
+        report(hs.created ? `✓ Створено ${hs.entityId}` : `✓ Вже існує: ${hs.entityId}`);
+        entities[key] = hs.entityId;
+      }
+    } else {
+      report(
+        `⚠ Пропущено хелпери часу розряду: не вказано entities.charging у конфізі картки.`
+      );
     }
 
     return { entities, log };
@@ -226,7 +295,10 @@ class HaBmsBleCardEditor extends HTMLElement {
 
   _wizardAlreadyConfigured() {
     const e = this._entities();
-    return !!(e.capacity_daily && e.capacity_weekly && e.capacity_monthly && e.capacity_total);
+    const capacityDone = !!(e.capacity_daily && e.capacity_weekly && e.capacity_monthly && e.capacity_total);
+    if (!e.charging) return capacityDone;
+    const dischargeDone = !!(e.discharge_time_daily && e.discharge_time_weekly && e.discharge_time_monthly);
+    return capacityDone && dischargeDone;
   }
 
   async _runWizard() {
@@ -250,7 +322,7 @@ class HaBmsBleCardEditor extends HTMLElement {
     this._render();
 
     try {
-      const { entities, log } = await new SetupWizard(this._hass).run(source, batteryName, (msg) => {
+      const { entities, log } = await new SetupWizard(this._hass).run(source, e.charging, batteryName, (msg) => {
         this._wizardStatus = { ok: true, text: "Створення…", lines: [...log, msg] };
         this._render();
       });
@@ -272,11 +344,14 @@ class HaBmsBleCardEditor extends HTMLElement {
 
   _renderWizard() {
     if (this._wizardAlreadyConfigured()) {
-      return `<p style="font-size:12px; opacity:0.7; margin:0;">✓ Сенсори споживання вже налаштовані в <code>entities.capacity_*</code>.</p>`;
+      return `<p style="font-size:12px; opacity:0.7; margin:0;">✓ Сенсори споживання${
+        this._entities().charging ? " і часу розряду" : ""
+      } вже налаштовані.</p>`;
     }
     if (!this._wizardEligible()) {
       return `<p style="font-size:12px; opacity:0.7; margin:0;">Вкажіть <code>entities.power</code> (або <code>current</code>) у YAML-режимі, щоб можна було створити сенсори споживання.</p>`;
     }
+    const hasCharging = !!this._entities().charging;
     const statusHtml = this._wizardStatus
       ? `<div style="font-size:12px; margin-top:8px; color:${this._wizardStatus.ok ? "var(--primary-text-color)" : "var(--error-color,#E24B4A)"};">
           <div>${this._wizardStatus.text}</div>
@@ -288,11 +363,14 @@ class HaBmsBleCardEditor extends HTMLElement {
         <button id="wizard-btn" ${this._wizardBusy ? "disabled" : ""}
           style="width:100%; padding:10px; border-radius:8px; border:none; cursor:pointer;
           background: var(--primary-color, #0F6E56); color: white; font-size:13px;">
-          ${this._wizardBusy ? "Створюю…" : "Створити сенсори споживання і часу роботи"}
+          ${this._wizardBusy ? "Створюю…" : "Створити сенсори споживання і часу розряду"}
         </button>
         <p style="font-size:11px; opacity:0.6; margin:6px 0 0;">
-          Створить 4 helper-сенсори (накопичена ємність + сьогодні/тиждень/місяць) через
-          вбудований механізм Helpers у HA. Потрібні admin-права.
+          Створить helper-сенсори ємності (накопичена + сьогодні/тиждень/місяць)${
+            hasCharging
+              ? " та часу розряду (сьогодні/тиждень/місяць)"
+              : " — для часу розряду додайте entities.charging у YAML-конфізі картки"
+          } через вбудований механізм Helpers у HA. Потрібні admin-права.
         </p>
         ${statusHtml}
       </div>
@@ -321,7 +399,7 @@ class HaBmsBleCardEditor extends HTMLElement {
           — див. README для повного списку ключів <code>entities:</code>.
         </p>
         <div style="border-top:1px solid var(--divider-color,#333); padding-top:12px;">
-          <div style="font-size:13px; font-weight:500; margin-bottom:8px;">Сенсори споживання / часу роботи</div>
+          <div style="font-size:13px; font-weight:500; margin-bottom:8px;">Сенсори споживання / часу розряду</div>
           ${this._renderWizard()}
         </div>
       </div>
@@ -378,7 +456,7 @@ class HaBmsBleCard extends HTMLElement {
   }
 
   getCardSize() {
-    return this._config && this._config.display_mode === "inline" ? 6 : 2;
+    return this._config && this._config.display_mode === "inline" ? 7 : 3;
   }
 
   connectedCallback() {
@@ -429,6 +507,11 @@ class HaBmsBleCard extends HTMLElement {
     return "BMS Battery";
   }
 
+  /**
+   * Напруги комірок. Кількість комірок НЕ конфігурується явно — картка
+   * автоматично бере довжину масиву (з entities.cell_voltages, або, якщо
+   * той не заданий, з атрибута cell_voltages сенсора delta_cell_voltage).
+   */
   _cellVoltages() {
     const explicit = this._e("cell_voltages");
     if (Array.isArray(explicit) && explicit.length) {
@@ -477,35 +560,41 @@ class HaBmsBleCard extends HTMLElement {
   /**
    * Справжня форма акумулятора (корпус з клемою зверху), заповнення знизу
    * вгору відповідно до SOC%, колір заповнення залежить від рівня заряду.
+   * variant "full" — головна ілюстрація (збільшена, з крупнішим написом
+   * і більшою відносною площею заповнення), "mini" — для widget-режиму.
    */
   _renderBatteryShape(percent, variant) {
     const p = Math.max(0, Math.min(100, Number(percent) || 0));
     const color = batteryFillColor(p);
     const clipId = `bms-fill-clip-${this._uid}`;
     const isMini = variant === "mini";
-    const w = isMini ? 52 : 84;
-    const h = isMini ? 82 : 132;
-    const bodyX = 5, bodyY = 11, bodyW = w - 10, bodyH = h - 16, radius = 8;
-    const termW = w * 0.36, termH = 6;
+    // Головну (full) ілюстрацію збільшено ~25% і зроблено тонші стінки
+    // корпусу, щоб саме заповнення (рівень заряду) виглядало більшим.
+    const w = isMini ? 58 : 108;
+    const h = isMini ? 92 : 172;
+    const wallThickness = isMini ? 2 : 2.5;
+    const bodyX = 5, bodyY = 12, bodyW = w - 10, bodyH = h - 17, radius = 9;
+    const termW = w * 0.36, termH = 7;
     const termX = (w - termW) / 2;
-    const fillH = (bodyH - 6) * (p / 100);
-    const fillY = bodyY + 3 + (bodyH - 6 - fillH);
+    const innerPad = isMini ? 3 : 3.5;
+    const fillH = (bodyH - innerPad * 2) * (p / 100);
+    const fillY = bodyY + innerPad + (bodyH - innerPad * 2 - fillH);
 
     return `
       <div class="bms-battery-shape bms-battery-shape-${variant}">
         <svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
           <defs>
             <clipPath id="${clipId}">
-              <rect x="${bodyX + 3}" y="${bodyY + 3}" width="${bodyW - 6}" height="${bodyH - 6}" rx="${radius - 3}"/>
+              <rect x="${bodyX + innerPad - 1}" y="${bodyY + innerPad - 1}" width="${bodyW - (innerPad - 1) * 2}" height="${bodyH - (innerPad - 1) * 2}" rx="${radius - innerPad}"/>
             </clipPath>
           </defs>
           <rect x="${termX}" y="${bodyY - termH}" width="${termW}" height="${termH + 2}" rx="2"
-            fill="none" stroke="var(--secondary-text-color,#888)" stroke-width="2"/>
+            fill="none" stroke="var(--secondary-text-color,#888)" stroke-width="${wallThickness}"/>
           <rect x="${bodyX}" y="${bodyY}" width="${bodyW}" height="${bodyH}" rx="${radius}"
-            fill="none" stroke="var(--secondary-text-color,#888)" stroke-width="2"/>
-          <rect x="${bodyX + 3}" y="${fillY}" width="${bodyW - 6}" height="${fillH}"
+            fill="none" stroke="var(--secondary-text-color,#888)" stroke-width="${wallThickness}"/>
+          <rect x="${bodyX + innerPad}" y="${fillY}" width="${bodyW - innerPad * 2}" height="${fillH}"
             fill="${color}" clip-path="url(#${clipId})">
-            <animate attributeName="y" from="${bodyY + bodyH - 3}" to="${fillY}" dur="0.6s" fill="freeze"/>
+            <animate attributeName="y" from="${bodyY + bodyH - innerPad}" to="${fillY}" dur="0.6s" fill="freeze"/>
             <animate attributeName="height" from="0" to="${fillH}" dur="0.6s" fill="freeze"/>
           </rect>
         </svg>
@@ -513,6 +602,43 @@ class HaBmsBleCard extends HTMLElement {
           <span class="bms-battery-pct">${p.toFixed(0)}%</span>
           <span class="bms-battery-sub">SOC</span>
         </div>
+      </div>
+    `;
+  }
+
+  /**
+   * Мала іконка-батарейка для однієї комірки (замість смужки-прогресбару).
+   * Заповнення — за абсолютною напругою в типовому діапазоні LiFePO4,
+   * колір заповнення — за ступенем дисбалансу відносно порогів картки.
+   */
+  _renderCellBattery(v, idx, color) {
+    const w = 30, h = 48;
+    const bodyX = 4, bodyY = 8, bodyW = w - 8, bodyH = h - 12, radius = 5;
+    const termW = w * 0.4, termH = 4;
+    const termX = (w - termW) / 2;
+    const frac = cellVoltageFraction(v);
+    const innerPad = 2;
+    const fillH = (bodyH - innerPad * 2) * frac;
+    const fillY = bodyY + innerPad + (bodyH - innerPad * 2 - fillH);
+    const clipId = `bms-cell-clip-${this._uid}-${idx}`;
+
+    return `
+      <div class="bms-cell-battery" title="Комірка ${idx + 1}: ${Number.isFinite(v) ? v.toFixed(3) : "—"} V">
+        <svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
+          <defs>
+            <clipPath id="${clipId}">
+              <rect x="${bodyX + 1}" y="${bodyY + 1}" width="${bodyW - 2}" height="${bodyH - 2}" rx="${radius - 1}"/>
+            </clipPath>
+          </defs>
+          <rect x="${termX}" y="${bodyY - termH}" width="${termW}" height="${termH + 1}" rx="1"
+            fill="none" stroke="var(--secondary-text-color,#888)" stroke-width="1.5"/>
+          <rect x="${bodyX}" y="${bodyY}" width="${bodyW}" height="${bodyH}" rx="${radius}"
+            fill="none" stroke="var(--secondary-text-color,#888)" stroke-width="1.5"/>
+          <rect x="${bodyX + innerPad}" y="${fillY}" width="${bodyW - innerPad * 2}" height="${fillH}"
+            fill="${color}" clip-path="url(#${clipId})"/>
+        </svg>
+        <span class="bms-cell-battery-idx">${idx + 1}</span>
+        <span class="bms-cell-battery-val">${Number.isFinite(v) ? v.toFixed(3) : "—"}V</span>
       </div>
     `;
   }
@@ -538,6 +664,18 @@ class HaBmsBleCard extends HTMLElement {
     `;
   }
 
+  _renderDischargeCard(label, entityId) {
+    if (!entityId) return "";
+    const val = stateOf(this._hass, entityId);
+    // history_stats у режимі "time" повертає значення в годинах
+    return `
+      <div class="bms-metric">
+        <div class="bms-metric-label">${label}</div>
+        <div class="bms-metric-value">${fmt(val, 1, " год")}</div>
+      </div>
+    `;
+  }
+
   _renderDiagBadge(label, entityId, positiveIsGood) {
     if (!entityId) return "";
     const state = stateOf(this._hass, entityId);
@@ -559,25 +697,14 @@ class HaBmsBleCard extends HTMLElement {
     const min = Math.min(...cells);
     const max = Math.max(...cells);
     const delta = max - min;
-    const range = max - min || 0.05;
     return `
       <div class="bms-section-title">
-        <span>Напруга комірок</span>
+        <span>Напруга комірок (${cells.length})</span>
         <span class="bms-muted">Δ ${delta.toFixed(3)} V</span>
       </div>
-      <div class="bms-cell-list">
+      <div class="bms-cell-grid">
         ${cells
-          .map((v, i) => {
-            const pct = Math.max(8, Math.min(100, ((v - (min - range * 0.2)) / (range * 1.4)) * 100));
-            const color = this._cellBarColor(v, min, delta);
-            return `
-              <div class="bms-cell-row">
-                <span class="bms-cell-idx">${i + 1}</span>
-                <div class="bms-cell-track"><div class="bms-cell-fill" style="width:${pct}%; background:${color};"></div></div>
-                <span class="bms-cell-val">${v.toFixed(3)}V</span>
-              </div>
-            `;
-          })
+          .map((v, i) => this._renderCellBattery(v, i, this._cellBarColor(v, min, delta)))
           .join("")}
       </div>
     `;
@@ -585,6 +712,10 @@ class HaBmsBleCard extends HTMLElement {
 
   _hasCapacityEntities() {
     return !!(this._e("capacity_daily") || this._e("capacity_weekly") || this._e("capacity_monthly") || this._e("capacity_total"));
+  }
+
+  _hasDischargeEntities() {
+    return !!(this._e("discharge_time_daily") || this._e("discharge_time_weekly") || this._e("discharge_time_monthly"));
   }
 
   _renderFullView() {
@@ -663,6 +794,16 @@ class HaBmsBleCard extends HTMLElement {
               там є кнопка автоматичного створення, або див. README.
             </p>`}
           </div>
+
+          ${this._hasDischargeEntities() ? `
+          <div class="bms-section bms-section-discharge">
+            <div class="bms-section-title"><span>Час розряду</span></div>
+            <div class="bms-diag-grid bms-capacity-grid">
+              ${this._renderDischargeCard("Сьогодні", this._e("discharge_time_daily"))}
+              ${this._renderDischargeCard("Тиждень", this._e("discharge_time_weekly"))}
+              ${this._renderDischargeCard("Місяць", this._e("discharge_time_monthly"))}
+            </div>
+          </div>` : ""}
         </div>
       </div>
     `;
@@ -726,12 +867,13 @@ class HaBmsBleCard extends HTMLElement {
         .bms-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; }
         .bms-title { display:flex; align-items:center; gap:6px; font-size:14px; font-weight:500; }
         .bms-status-pill { font-size:11px; padding:3px 8px; border-radius:7px; white-space:nowrap; }
-        .bms-top-row { display:flex; align-items:flex-start; gap:12px; margin-bottom:10px; }
+        .bms-top-row { display:flex; align-items:flex-start; gap:14px; margin-bottom:10px; }
         .bms-battery-col { display:flex; flex-direction:column; align-items:center; gap:6px; flex-shrink:0; }
         .bms-battery-shape { position:relative; display:flex; align-items:center; justify-content:center; }
-        .bms-battery-label { position:absolute; top:34%; display:flex; flex-direction:column; align-items:center; }
-        .bms-battery-pct { font-size:13px; font-weight:500; }
-        .bms-battery-shape-full .bms-battery-pct { font-size:17px; }
+        .bms-battery-label { position:absolute; top:36%; display:flex; flex-direction:column; align-items:center; }
+        .bms-battery-pct { font-size:14px; font-weight:600; }
+        .bms-battery-shape-full .bms-battery-pct { font-size:23px; }
+        .bms-battery-shape-full .bms-battery-sub { font-size:10px; }
         .bms-battery-sub { font-size:8px; opacity:0.6; }
         .bms-metric-grid { flex:1; display:grid; grid-template-columns:1fr 1fr; gap:6px; min-width:0; }
         .bms-metric-grid-mini { grid-template-columns:1fr 1fr; }
@@ -744,12 +886,10 @@ class HaBmsBleCard extends HTMLElement {
         .bms-section { border-top:0.5px solid var(--divider-color,#333); padding-top:8px; margin-top:8px; }
         .bms-section-title { display:flex; justify-content:space-between; font-size:11px; opacity:0.75; margin-bottom:6px; }
         .bms-muted { opacity:0.6; }
-        .bms-cell-list { display:flex; flex-direction:column; gap:4px; }
-        .bms-cell-row { display:flex; align-items:center; gap:6px; }
-        .bms-cell-idx { font-size:10px; opacity:0.6; width:12px; }
-        .bms-cell-track { flex:1; height:6px; background:var(--secondary-background-color, rgba(127,127,127,0.15)); border-radius:3px; overflow:hidden; }
-        .bms-cell-fill { height:100%; border-radius:3px; }
-        .bms-cell-val { font-size:10px; width:46px; text-align:right; }
+        .bms-cell-grid { display:flex; flex-wrap:wrap; gap:8px; }
+        .bms-cell-battery { display:flex; flex-direction:column; align-items:center; gap:1px; }
+        .bms-cell-battery-idx { font-size:9px; opacity:0.55; }
+        .bms-cell-battery-val { font-size:9px; }
         .bms-diag-grid { display:grid; grid-template-columns:1fr 1fr; gap:6px; }
         .bms-diag-grid-plain { grid-template-columns:1fr 1fr 1fr; margin-top:6px; }
         .bms-diag-badge { border-radius:7px; padding:6px 8px; }
@@ -779,15 +919,17 @@ class HaBmsBleCard extends HTMLElement {
             column-gap: 12px;
             grid-template-areas:
               "cells diag"
-              "capacity capacity";
+              "capacity capacity"
+              "discharge discharge";
           }
           .bms-section-cells { grid-area: cells; border-top:none; margin-top:0; padding-top:0; }
           .bms-section-diag { grid-area: diag; border-top:none; margin-top:0; padding-top:0;
             border-left:0.5px solid var(--divider-color,#333); padding-left:12px; }
           .bms-section-capacity { grid-area: capacity; }
+          .bms-section-discharge { grid-area: discharge; }
         }
         @container bms (min-width: 760px) {
-          .bms-top-row { gap:20px; }
+          .bms-top-row { gap:24px; }
           .bms-metric-grid { grid-template-columns: repeat(4, 1fr); }
         }
       </style>
@@ -842,3 +984,16 @@ window.customCards.push({
   description: "Картка для BLE BMS-акумуляторів (Redodo/LiTime/JBD/Daly/JK/Seplos) через інтеграцію BMS_BLE-HA",
   preview: true,
 });
+
+// Чисті допоміжні функції винесені для юніт-тестів (Node, CommonJS).
+// У браузері `module` не визначений, тому цей блок там просто не спрацює.
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = {
+    fmt,
+    secondsToHuman,
+    batteryFillColor,
+    cellVoltageFraction,
+    CELL_VOLTAGE_RANGE,
+    DEFAULT_THRESHOLDS,
+  };
+}
