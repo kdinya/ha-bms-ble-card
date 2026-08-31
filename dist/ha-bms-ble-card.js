@@ -1359,7 +1359,7 @@ class HaBmsBleCard extends HTMLElement {
       ["Проблеми", this._e("problem"), false, "ti-alert-triangle", (on) => on ? "Є" : "Немає"],
     ];
     const status = this._statusInfo();
-    const cells = items.map(([label, id, goodWhenOn, icon, fmtVal]) => {
+    let cells = items.map(([label, id, goodWhenOn, icon, fmtVal]) => {
       const state = stateOf(this._hass, id);
       if (state === undefined) return "";
       const on = state === "on" || state === "true";
