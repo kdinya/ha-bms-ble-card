@@ -7,7 +7,7 @@
  * https://github.com/kdinya/ha-bms-ble-card
  */
 
-const CARD_VERSION = "1.9.0";
+const CARD_VERSION = "2.0.0";
 
 console.info(
   `%c HA-BMS-BLE-CARD %c v${CARD_VERSION} `,
@@ -700,30 +700,39 @@ class HaBmsBleCardEditor extends HTMLElement {
   _renderDevicePicker() {
     const manualDeviceId = this._entities().device_id || "";
     const autoIds = this._hass ? findBmsBleDeviceIds(this._hass) : [];
+    const effectiveId = manualDeviceId || (autoIds.length === 1 ? autoIds[0] : "");
+    const options = autoIds
+      .map((id) => {
+        const sel = id === effectiveId ? " selected" : "";
+        return `<option value="${id}"${sel}>${this._deviceLabel(id)}</option>`;
+      })
+      .join("");
     let note;
-    if (manualDeviceId) {
-      note = `✓ Обрано вручну: ${this._deviceLabel(manualDeviceId)}`;
-    } else if (autoIds.length === 1) {
-      note = `✓ Автоматично визначено: ${this._deviceLabel(autoIds[0])}`;
+    if (effectiveId) {
+      const auto = this._hass ? autoDiscoverEntities(this._hass, effectiveId) : {};
+      const keys = Object.keys(auto).filter((k) => auto[k]);
+      note = `✓ Пристрій: <b>${this._deviceLabel(effectiveId)}</b> — автоматично знайдено ${keys.length} сенсорів (SOC, напруга, струм, комірки…). Ручні поля нижче не потрібні.`;
     } else if (autoIds.length > 1) {
-      note = `Знайдено декілька акумуляторів BMS_BLE-HA — оберіть потрібний вище.`;
+      note = `Знайдено ${autoIds.length} акумуляторів BMS_BLE-HA — оберіть потрібний.`;
     } else {
-      note = `Акумулятор BMS_BLE-HA не знайдено автоматично. Перевірте, що інтеграція встановлена і акумулятор підключений, або оберіть пристрій вручну.`;
+      note = `Акумулятор BMS_BLE-HA не знайдено. Встановіть інтеграцію і підключіть батарею, або вкажіть device_id.`;
     }
-    const field = this._hasDevicePicker()
-      ? `<ha-device-picker data-key="device_id"></ha-device-picker>`
-      : `<input data-key="device_id" type="text" value="${manualDeviceId}" placeholder="device_id (опційно)"
-          style="width:100%; box-sizing:border-box;" />`;
+    // Always show a clear select of BMS devices (filters to our integration)
+    const select = `
+      <select id="bms-device-select" style="width:100%;box-sizing:border-box;padding:8px;border-radius:8px;border:1px solid var(--divider-color,#333);background:var(--card-background-color);color:var(--primary-text-color);">
+        <option value="">— оберіть акумулятор —</option>
+        ${options}
+      </select>`;
     return `
-      <div class="bms-field" data-key="device_id">${field}</div>
-      <p style="font-size:11px; opacity:0.6; margin:4px 0 0;">${note}</p>
+      <div class="bms-field" data-key="device_id">${select}</div>
+      <p style="font-size:12px; opacity:0.75; margin:8px 0 0; line-height:1.4;">${note}</p>
     `;
   }
 
   _renderEntityGroups() {
     return ENTITY_FIELD_GROUPS.map(
-      (group, i) => `
-      <details class="bms-group" ${i === 0 ? "open" : ""}>
+      (group) => `
+      <details class="bms-group">
         <summary>${group.title}</summary>
         <div class="bms-group-grid">
           ${group.fields.map(([key, label, domain]) => this._renderEntityField(key, label, domain)).join("")}
@@ -783,7 +792,7 @@ class HaBmsBleCardEditor extends HTMLElement {
         .bms-editor-group-title { font-size:13px; font-weight:500; margin-bottom:8px; }
         details.bms-group { border:1px solid var(--divider-color,#333); border-radius:8px; padding:8px 10px; margin-bottom:8px; }
         details.bms-group summary { cursor:pointer; font-size:13px; font-weight:500; padding:2px 0; }
-        .bms-group-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:8px; }
+        .bms-group-grid { display:grid; grid-template-columns:1fr; gap:10px; margin-top:8px; }
         .bms-field label { }
         .bms-cell-row { display:flex; align-items:center; gap:6px; margin-bottom:6px; }
         .bms-cell-row .bms-field { flex:1; }
@@ -807,12 +816,10 @@ class HaBmsBleCardEditor extends HTMLElement {
           ${this._renderDevicePicker()}
         </div>
         <div>
-          <div class="bms-editor-group-title">Сутності (entities) — ручне перевизначення</div>
-          <p style="font-size:11px; opacity:0.6; margin:0 0 8px;">
-            Якщо вище знайдено акумулятор, картка вже сама підставила
-            потрібні сенсори — поля нижче не обов'язкові й потрібні лише
-            щоб виправити щось вручну (наприклад, якщо конкретна BMS-плата
-            публікує сенсор нетипово).
+          <div class="bms-editor-group-title">Ручне перевизначення (не обовʼязково)</div>
+          <p style="font-size:12px; opacity:0.65; margin:0 0 8px; line-height:1.4;">
+            Після вибору акумулятора вище всі сенсори підтягуються самі.
+            Розкривайте групи лише якщо треба замінити окрему сутність.
           </p>
           ${this._renderEntityGroups()}
           ${this._renderCellVoltagesGroup()}
@@ -825,6 +832,15 @@ class HaBmsBleCardEditor extends HTMLElement {
     `;
     this.querySelector("#name").addEventListener("change", (e) => this._update("name", e.target.value));
     this.querySelector("#display_mode").addEventListener("change", (e) => this._update("display_mode", e.target.value));
+    const devSel = this.querySelector("#bms-device-select");
+    if (devSel) {
+      devSel.addEventListener("change", (e) => {
+        const entities = { ...this._entities() };
+        if (e.target.value) entities.device_id = e.target.value;
+        else delete entities.device_id;
+        this._update("entities", entities);
+      });
+    }
     const wizardBtn = this.querySelector("#wizard-btn");
     if (wizardBtn) wizardBtn.addEventListener("click", () => this._runWizard());
 
@@ -1121,15 +1137,31 @@ class HaBmsBleCard extends HTMLElement {
   }
 
   /* ===== Cell as filled rounded rect (mockup style) ===== */
-  _renderCellTile(v, idx, color) {
+  _renderCellBatteryMini(v, idx, color) {
     const frac = cellVoltageFraction(v);
-    const pct = Math.round(frac * 100);
+    const w = 44, h = 64;
+    const bodyX = 6, bodyY = 10, bodyW = w - 12, bodyH = h - 16, radius = 7;
+    const termW = w * 0.36, termH = 5, termX = (w - termW) / 2;
+    const pad = 3;
+    const fillH = Math.max(0, (bodyH - pad * 2) * frac);
+    const fillY = bodyY + pad + (bodyH - pad * 2 - fillH);
+    const clipId = `bms-cell-clip-${this._uid}-${idx}`;
     return `
-      <div class="bms-cell-tile" title="Cell ${idx + 1}: ${Number.isFinite(v) ? v.toFixed(3) : "—"} V">
-        <div class="bms-cell-v">${Number.isFinite(v) ? v.toFixed(3) : "—"} V</div>
-        <div class="bms-cell-bar">
-          <div class="bms-cell-fill" style="height:${pct}%; background:${color};"></div>
-        </div>
+      <div class="bms-cell-batt" title="C${idx + 1}: ${Number.isFinite(v) ? v.toFixed(3) : "—"} V">
+        <div class="bms-cell-v">${Number.isFinite(v) ? v.toFixed(3) : "—"}</div>
+        <svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
+          <defs>
+            <clipPath id="${clipId}">
+              <rect x="${bodyX + 1}" y="${bodyY + 1}" width="${bodyW - 2}" height="${bodyH - 2}" rx="${radius - 1}"/>
+            </clipPath>
+          </defs>
+          <rect x="${termX}" y="${bodyY - termH}" width="${termW}" height="${termH + 2}" rx="2"
+            fill="none" stroke="rgba(160,170,180,0.65)" stroke-width="2"/>
+          <rect x="${bodyX}" y="${bodyY}" width="${bodyW}" height="${bodyH}" rx="${radius}"
+            fill="rgba(0,0,0,0.25)" stroke="rgba(160,170,180,0.65)" stroke-width="2"/>
+          <rect x="${bodyX + pad}" y="${fillY}" width="${bodyW - pad * 2}" height="${fillH}"
+            fill="${color}" clip-path="url(#${clipId})" rx="3"/>
+        </svg>
         <div class="bms-cell-name">C${idx + 1}</div>
       </div>
     `;
@@ -1183,7 +1215,7 @@ class HaBmsBleCard extends HTMLElement {
   _renderCellSection() {
     const cells = this._cellVoltages();
     if (!cells.length) {
-      return `<div class="bms-panel"><p class="bms-muted">Немає даних про комірки</p></div>`;
+      return `<div class="bms-panel"><p class="bms-muted">Немає даних про комірки. Увімкніть diagnostic-сенсор Delta cell voltage в BMS_BLE-HA — масив cell_voltages підтягнеться сам.</p></div>`;
     }
     const finite = cells.filter(Number.isFinite);
     const min = Math.min(...finite);
@@ -1191,6 +1223,7 @@ class HaBmsBleCard extends HTMLElement {
     const delta = max - min;
     const minIdx = cells.indexOf(min);
     const maxIdx = cells.indexOf(max);
+    const batts = cells.map((v, i) => this._renderCellBatteryMini(v, i, this._cellColor(v, min, max, delta))).join("");
     const rows = cells.map((v, i) => {
       const frac = cellVoltageFraction(v);
       const color = this._cellColor(v, min, max, delta);
@@ -1206,7 +1239,8 @@ class HaBmsBleCard extends HTMLElement {
     return `
       <div class="bms-panel bms-cells-panel">
         <div class="bms-section-title"><span>Комірки (Δ ${delta.toFixed(3)}V)</span></div>
-        ${rows}
+        <div class="bms-cell-batts">${batts}</div>
+        <div class="bms-cell-bars">${rows}</div>
         <div class="bms-cell-extremes">
           <div class="bms-extreme" style="color:#1D9E75">Макс ${max.toFixed(3)} V<br><span class="bms-muted">C${maxIdx + 1}</span></div>
           <div class="bms-extreme" style="color:#EF9F27">Мін ${min.toFixed(3)} V<br><span class="bms-muted">C${minIdx + 1}</span></div>
@@ -1293,7 +1327,10 @@ class HaBmsBleCard extends HTMLElement {
             </div>
             ${runtime !== undefined ? `
             <div class="bms-panel bms-runtime-panel">
-              <div class="bms-runtime-head"><i class="ti ti-clock-hour-4"></i><span>До розряду</span></div>
+              <div class="bms-runtime-head"><i class="ti ti-clock-hour-4"></i><span>${
+                status.color === "success" ? "До повного заряду" :
+                status.color === "warning" ? "До розряду" : "Залишок (оцінка)"
+              }</span></div>
               <div class="bms-runtime-val">~${secondsToHuman(Number(runtime))}</div>
               <div class="bms-soc-bar"><div class="bms-soc-fill" style="width:${socPct}%;background:${batteryFillColor(socPct)};"></div></div>
               <div class="bms-soc-bar-lab">${socPct.toFixed(0)}%</div>
@@ -1445,6 +1482,17 @@ class HaBmsBleCard extends HTMLElement {
         .bms-soc-bar-lab { font-size:11px; opacity:0.6; text-align:right; margin-top:4px; }
         .bms-section-title { display:flex; justify-content:space-between; align-items:center; font-size:12px; font-weight:600; opacity:0.9; margin-bottom:10px; }
         .bms-muted { opacity:0.55; font-size:12px; margin:0; }
+        .bms-cell-batts {
+          display:flex; flex-wrap:wrap; gap:10px; justify-content:flex-start; margin-bottom:12px;
+        }
+        .bms-cell-batt {
+          display:flex; flex-direction:column; align-items:center; gap:3px;
+          background: rgba(0,0,0,0.15); border-radius:12px; padding:6px 6px 4px;
+          border: 1px solid var(--bms-border);
+        }
+        .bms-cell-v { font-size:11px; font-weight:700; }
+        .bms-cell-name { font-size:10px; opacity:0.55; }
+        .bms-cell-bars { margin-top:2px; }
         .bms-hbar-row { display:grid; grid-template-columns: 28px minmax(0,1fr) 64px; gap:8px; align-items:center; margin-bottom:7px; }
         .bms-hbar-lab { font-size:11px; opacity:0.7; font-weight:600; }
         .bms-hbar-track { height:10px; border-radius:999px; background:rgba(255,255,255,0.08); overflow:hidden; }
