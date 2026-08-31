@@ -7,7 +7,7 @@
  * https://github.com/kdinya/ha-bms-ble-card
  */
 
-const CARD_VERSION = "1.0.0";
+const CARD_VERSION = "1.1.0";
 
 console.info(
   `%c HA-BMS-BLE-CARD %c v${CARD_VERSION} `,
@@ -39,6 +39,12 @@ function attrOf(hass, entityId, attr) {
   return hass.states[entityId].attributes[attr];
 }
 
+function batteryFillColor(percent) {
+  if (percent <= 15) return "#E24B4A";
+  if (percent <= 30) return "#EF9F27";
+  return "#1D9E75";
+}
+
 function secondsToHuman(seconds) {
   if (seconds === undefined || seconds === null || Number.isNaN(Number(seconds))) return "—";
   const s = Number(seconds);
@@ -64,8 +70,9 @@ class HaBmsBleCardEditor extends HTMLElement {
     this.innerHTML = `
       <div style="padding: 12px; display: flex; flex-direction: column; gap: 12px;">
         <div>
-          <label style="display:block; font-size:13px; margin-bottom:4px;">Назва картки</label>
-          <input id="name" type="text" value="${c.name || ""}" style="width:100%; box-sizing:border-box;" />
+          <label style="display:block; font-size:13px; margin-bottom:4px;">Назва (порожньо = автоматично з пристрою)</label>
+          <input id="name" type="text" value="${c.name || ""}" placeholder="Автоматично"
+            style="width:100%; box-sizing:border-box;" />
         </div>
         <div>
           <label style="display:block; font-size:13px; margin-bottom:4px;">Режим відображення</label>
@@ -92,6 +99,11 @@ class HaBmsBleCardEditor extends HTMLElement {
 customElements.define("ha-bms-ble-card-editor", HaBmsBleCardEditor);
 
 class HaBmsBleCard extends HTMLElement {
+  constructor() {
+    super();
+    this._uid = Math.random().toString(36).slice(2, 9);
+  }
+
   static getConfigElement() {
     return document.createElement("ha-bms-ble-card-editor");
   }
@@ -100,7 +112,6 @@ class HaBmsBleCard extends HTMLElement {
     return {
       type: "custom:ha-bms-ble-card",
       display_mode: "widget",
-      name: "BMS Battery",
       entities: {},
       thresholds: DEFAULT_THRESHOLDS,
     };
@@ -140,6 +151,36 @@ class HaBmsBleCard extends HTMLElement {
 
   _e(key) {
     return this._config && this._config.entities ? this._config.entities[key] : undefined;
+  }
+
+  /**
+   * Назва батареї: якщо вказана в config.name — override користувача.
+   * Інакше автоматично береться з Device Registry (назва пристрою, до якого
+   * прив'язана інтеграція BMS_BLE-HA), і як останній fallback — з
+   * friendly_name сенсора, з обрізаним суфіксом ("... Voltage"/"... Напруга").
+   * Нічого не прошито жорстко.
+   */
+  _batteryName() {
+    if (this._config.name && this._config.name.trim()) return this._config.name.trim();
+
+    const anchorEntity = this._e("soc") || this._e("voltage") || this._e("current") || this._e("power");
+    if (anchorEntity && this._hass) {
+      const entReg = this._hass.entities && this._hass.entities[anchorEntity];
+      const deviceId = entReg && entReg.device_id;
+      const device = deviceId && this._hass.devices && this._hass.devices[deviceId];
+      if (device) {
+        const deviceName = device.name_by_user || device.name;
+        if (deviceName) return deviceName;
+      }
+      const friendly = attrOf(this._hass, anchorEntity, "friendly_name");
+      if (friendly) {
+        const stripped = friendly
+          .replace(/\s*(voltage|напруга|current|струм|power|потужність|soc|заряд).*$/i, "")
+          .trim();
+        if (stripped) return stripped;
+      }
+    }
+    return "BMS Battery";
   }
 
   _cellVoltages() {
@@ -185,6 +226,49 @@ class HaBmsBleCard extends HTMLElement {
     if (delta >= cell_delta_critical || dev >= cell_delta_critical) return "#E24B4A";
     if (delta >= cell_delta_warning || dev >= cell_delta_warning) return "#EF9F27";
     return "#1D9E75";
+  }
+
+  /**
+   * Справжня форма акумулятора (корпус з клемою зверху), заповнення знизу
+   * вгору відповідно до SOC%, колір заповнення залежить від рівня заряду.
+   */
+  _renderBatteryShape(percent, variant) {
+    const p = Math.max(0, Math.min(100, Number(percent) || 0));
+    const color = batteryFillColor(p);
+    const clipId = `bms-fill-clip-${this._uid}`;
+    const isMini = variant === "mini";
+    const w = isMini ? 64 : 108;
+    const h = isMini ? 100 : 168;
+    const bodyX = 6, bodyY = 14, bodyW = w - 12, bodyH = h - 20, radius = 10;
+    const termW = w * 0.36, termH = 8;
+    const termX = (w - termW) / 2;
+    const fillH = (bodyH - 6) * (p / 100);
+    const fillY = bodyY + 3 + (bodyH - 6 - fillH);
+
+    return `
+      <div class="bms-battery-shape bms-battery-shape-${variant}">
+        <svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
+          <defs>
+            <clipPath id="${clipId}">
+              <rect x="${bodyX + 3}" y="${bodyY + 3}" width="${bodyW - 6}" height="${bodyH - 6}" rx="${radius - 3}"/>
+            </clipPath>
+          </defs>
+          <rect x="${termX}" y="${bodyY - termH}" width="${termW}" height="${termH + 2}" rx="2"
+            fill="none" stroke="var(--secondary-text-color,#888)" stroke-width="2"/>
+          <rect x="${bodyX}" y="${bodyY}" width="${bodyW}" height="${bodyH}" rx="${radius}"
+            fill="none" stroke="var(--secondary-text-color,#888)" stroke-width="2.5"/>
+          <rect x="${bodyX + 3}" y="${fillY}" width="${bodyW - 6}" height="${fillH}"
+            fill="${color}" clip-path="url(#${clipId})">
+            <animate attributeName="y" from="${bodyY + bodyH - 3}" to="${fillY}" dur="0.6s" fill="freeze"/>
+            <animate attributeName="height" from="0" to="${fillH}" dur="0.6s" fill="freeze"/>
+          </rect>
+        </svg>
+        <div class="bms-battery-label">
+          <span class="bms-battery-pct">${p.toFixed(0)}%</span>
+          <span class="bms-battery-sub">SOC</span>
+        </div>
+      </div>
+    `;
   }
 
   _renderMetricCard(label, value) {
@@ -263,34 +347,22 @@ class HaBmsBleCard extends HTMLElement {
     const cycles = stateOf(this._hass, this._e("charge_cycles"));
     const linkQuality = stateOf(this._hass, this._e("link_quality"));
     const rssi = stateOf(this._hass, this._e("rssi"));
-    const socNum = Number(soc) || 0;
     const status = this._statusInfo();
     const statusColors = this._statusColorVars(status.color);
-    const circumference = 226;
-    const offset = circumference - (circumference * Math.min(100, Math.max(0, socNum))) / 100;
 
     return `
       <div class="bms-full">
         <div class="bms-header">
-          <div class="bms-title"><i class="ti ti-battery-4" style="color:${statusColors.fg};"></i>
-            <span>${this._config.name || "BMS Battery"}</span></div>
-          <span class="bms-status-pill" style="background:${statusColors.bg}; color:${statusColors.fg};">
-            <i class="ti ${status.icon}"></i> ${status.label}
-          </span>
+          <div class="bms-title"><i class="ti ti-bluetooth" style="color:${statusColors.fg};"></i>
+            <span>${this._batteryName()}</span></div>
         </div>
 
         <div class="bms-top-row">
-          <div class="bms-soc-ring">
-            <svg width="88" height="88" viewBox="0 0 84 84">
-              <circle cx="42" cy="42" r="36" fill="none" stroke="var(--divider-color,#333)" stroke-width="8"/>
-              <circle cx="42" cy="42" r="36" fill="none" stroke="${statusColors.fg}" stroke-width="8"
-                stroke-linecap="round" stroke-dasharray="${circumference}" stroke-dashoffset="${offset}"
-                transform="rotate(-90 42 42)"/>
-            </svg>
-            <div class="bms-soc-label">
-              <span class="bms-soc-value">${fmt(soc, 0)}%</span>
-              <span class="bms-soc-sub">SoC</span>
-            </div>
+          <div class="bms-battery-col">
+            ${this._renderBatteryShape(soc, "full")}
+            <span class="bms-status-pill" style="background:${statusColors.bg}; color:${statusColors.fg};">
+              <i class="ti ${status.icon}"></i> ${status.label}
+            </span>
           </div>
           <div class="bms-metric-grid">
             ${this._renderMetricCard("Напруга", fmt(voltage, 2, " V"))}
@@ -365,23 +437,25 @@ class HaBmsBleCard extends HTMLElement {
     const statusColors = this._statusColorVars(status.color);
     return `
       <div class="bms-mini" tabindex="0" role="button" aria-label="Відкрити детальну картку батареї">
-        <div class="bms-mini-battery">
-          <div class="bms-mini-battery-fill" style="height:${Math.min(100, Math.max(0, Number(soc) || 0))}%; background:${statusColors.fg};"></div>
-          <div class="bms-mini-battery-label">
-            <span class="bms-soc-value">${fmt(soc, 0)}%</span>
-            <span class="bms-soc-sub">SOC</span>
-          </div>
+        <div class="bms-mini-header">
+          <i class="ti ti-bluetooth" style="color:${statusColors.fg}; font-size:14px;"></i>
+          <span>${this._batteryName()}</span>
         </div>
-        <div class="bms-mini-right">
-          <div class="bms-metric-grid bms-metric-grid-mini">
-            ${this._renderMetricCard("Напруга", fmt(voltage, 2, " V"))}
-            ${this._renderMetricCard("Струм", fmt(current, 1, " A"))}
-            ${this._renderMetricCard("Потужність", fmt(power, 0, " W"))}
-            ${this._renderMetricCard("Темп.", fmt(temp, 1, " °C"))}
+        <div class="bms-mini-body">
+          <div class="bms-battery-col">
+            ${this._renderBatteryShape(soc, "mini")}
           </div>
-          <span class="bms-status-pill" style="background:${statusColors.bg}; color:${statusColors.fg};">
-            <i class="ti ${status.icon}"></i> ${status.label}
-          </span>
+          <div class="bms-mini-right">
+            <div class="bms-metric-grid bms-metric-grid-mini">
+              ${this._renderMetricCard("Напруга", fmt(voltage, 2, " V"))}
+              ${this._renderMetricCard("Струм", fmt(current, 1, " A"))}
+              ${this._renderMetricCard("Потужність", fmt(power, 0, " W"))}
+              ${this._renderMetricCard("Темп.", fmt(temp, 1, " °C"))}
+            </div>
+            <span class="bms-status-pill" style="background:${statusColors.bg}; color:${statusColors.fg};">
+              <i class="ti ${status.icon}"></i> ${status.label}
+            </span>
+          </div>
         </div>
       </div>
     `;
@@ -404,11 +478,13 @@ class HaBmsBleCard extends HTMLElement {
         .bms-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; }
         .bms-title { display:flex; align-items:center; gap:8px; font-size:15px; font-weight:500; }
         .bms-status-pill { font-size:12px; padding:4px 10px; border-radius:8px; white-space:nowrap; }
-        .bms-top-row { display:flex; align-items:center; gap:16px; margin-bottom:14px; }
-        .bms-soc-ring { position:relative; width:88px; height:88px; flex-shrink:0; }
-        .bms-soc-label { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; }
-        .bms-soc-value { font-size:20px; font-weight:500; }
-        .bms-soc-sub { font-size:10px; opacity:0.6; }
+        .bms-top-row { display:flex; align-items:flex-start; gap:16px; margin-bottom:14px; }
+        .bms-battery-col { display:flex; flex-direction:column; align-items:center; gap:10px; flex-shrink:0; }
+        .bms-battery-shape { position:relative; display:flex; align-items:center; justify-content:center; }
+        .bms-battery-label { position:absolute; top:34%; display:flex; flex-direction:column; align-items:center; }
+        .bms-battery-pct { font-size:15px; font-weight:500; }
+        .bms-battery-shape-full .bms-battery-pct { font-size:20px; }
+        .bms-battery-sub { font-size:9px; opacity:0.6; }
         .bms-metric-grid { flex:1; display:grid; grid-template-columns:1fr 1fr; gap:8px; }
         .bms-metric-grid-mini { grid-template-columns:1fr 1fr; }
         .bms-metric { background: var(--secondary-background-color, rgba(127,127,127,0.08)); border-radius:8px; padding:8px 10px; }
@@ -431,11 +507,9 @@ class HaBmsBleCard extends HTMLElement {
         .bms-diag-badge-label { font-size:11px; opacity:0.85; }
         .bms-diag-badge-value { font-size:14px; font-weight:500; }
         .bms-plain-stat { display:flex; flex-direction:column; gap:2px; font-size:13px; }
-        .bms-mini { display:flex; gap:14px; align-items:center; cursor:pointer; }
-        .bms-mini-battery { position:relative; width:56px; height:88px; border:2px solid var(--divider-color,#555);
-          border-radius:8px; overflow:hidden; flex-shrink:0; background: var(--secondary-background-color, rgba(127,127,127,0.08)); }
-        .bms-mini-battery-fill { position:absolute; bottom:0; left:0; right:0; transition:height 0.4s ease; }
-        .bms-mini-battery-label { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; }
+        .bms-mini { display:flex; flex-direction:column; gap:12px; cursor:pointer; }
+        .bms-mini-header { display:flex; align-items:center; gap:8px; font-size:14px; font-weight:500; }
+        .bms-mini-body { display:flex; gap:14px; align-items:center; }
         .bms-mini-right { flex:1; display:flex; flex-direction:column; gap:8px; }
         .bms-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:1000;
           display:flex; align-items:center; justify-content:center; padding:16px; box-sizing:border-box; }

@@ -58,7 +58,8 @@ ANT, Seplos, Renogy та інші.
 ```yaml
 type: custom:ha-bms-ble-card
 display_mode: widget   # або: inline
-name: Redodo 12V 140Ah
+# name: необов'язково — якщо не вказати, картка сама підтягне назву
+# з Device Registry (пристрій батареї в BMS_BLE-HA) або з friendly_name сенсора
 entities:
   voltage: sensor.redodo_voltage
   current: sensor.redodo_current
