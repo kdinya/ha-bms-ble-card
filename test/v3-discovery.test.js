@@ -1,5 +1,15 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
+
+// The card is a browser custom element. Stub the minimum DOM globals so the
+// pure discovery/calculation helpers can be loaded by Node's test runner.
+if (typeof global.HTMLElement === "undefined") {
+  global.HTMLElement = class HTMLElement {};
+}
+if (typeof global.customElements === "undefined") {
+  global.customElements = { get: () => undefined, define: () => {} };
+}
+
 const { discoverEntities, etaSeconds, FIELDS, DOMAIN } = require("../src/ha-bms-ble-card-v3.js");
 
 function fixture() {
