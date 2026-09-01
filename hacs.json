@@ -1,6 +1,6 @@
 {
   "name": "BMS BLE Battery Card",
   "render_readme": true,
-  "filename": "ha-bms-ble-card.js",
+  "filename": "src/ha-bms-ble-card-v3.js",
   "content_in_root": false
 }
