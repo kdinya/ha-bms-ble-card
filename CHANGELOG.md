@@ -1,5 +1,15 @@
 # Changelog
 
+## 3.0.0-beta.1
+
+- Automatic discovery of BMS_BLE-HA devices by device registry.
+- Automatic mapping of the requested battery entities without hard-coded entity IDs.
+- Automatic cell-voltage display from the BMS_BLE-HA `cell_voltages` attribute.
+- Optional display of additional BMS attributes when exposed by the integration.
+- Real Home Assistant Recorder power history for discharge-energy statistics.
+- Dedicated beta release workflow for HACS-installable pre-releases.
+- Existing stable `main` branch remains unchanged.
+
 ## 2.1.2
 
 Виправлення після реальної перевірки рендера (попередні ітерації
