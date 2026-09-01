@@ -70,6 +70,7 @@ const TI_TO_MDI = {
   "ti-chart-donut-3": "mdi:chart-donut",
   "ti-clock-hour-4": "mdi:clock-outline",
   "ti-flame": "mdi:fire",
+  "ti-grid-dots": "mdi:grid",
   "ti-pause": "mdi:pause",
   "ti-plug-connected": "mdi:power-plug",
   "ti-refresh": "mdi:refresh",
@@ -227,9 +228,11 @@ const KEYWORD_RULES = [
   { key: "link_quality", domain: "sensor", test: (o) => o.includes("link_quality") || o.includes("linkquality") },
   { key: "charge_cycles", domain: "sensor", test: (o) => o.includes("cycle") && !o.includes("capacity") && !o.includes("charge") },
   { key: "design_capacity", domain: "sensor", test: (o) => o.includes("design") && o.includes("cap") },
+  { key: "cycle_capacity", domain: "sensor", test: (o) => o.includes("cycle") && o.includes("cap") },
   { key: "balance_current", domain: "sensor", test: (o) => o.includes("balance") && o.includes("cur") },
   { key: "soh", domain: "sensor", test: (o) => hasWord(o, "soh") || o.includes("battery_health") || (o.includes("health") && !o.includes("unhealthy")) },
-  { key: "stored_energy", domain: "sensor", test: (o) => o.includes("stored") || (o.includes("cycle") && o.includes("cap")) },
+  { key: "stored_energy", domain: "sensor", test: (o) => o.includes("stored") },
+  { key: "cell_bitmask", domain: "sensor", test: (o) => o.includes("bitmask") || (o.includes("cell") && o.includes("mask")) },
   { key: "balancer", domain: "binary_sensor", test: (o) => o.includes("balanc") },
   { key: "chrg_mosfet", domain: "binary_sensor", test: (o) =>
       (o.includes("mosfet") || o.includes("mos_fet") || o.includes("mos")) &&
@@ -632,6 +635,12 @@ const ENTITY_FIELD_GROUPS = [
       ["link_quality", "Link quality", "sensor"],
       ["rssi", "RSSI", "sensor"],
       ["charge_cycles", "Цикли заряду", "sensor"],
+      ["design_capacity", "Номінальна ємність (Ah)", "sensor"],
+      ["cycle_capacity", "Cycle capacity / Stored Energy (Wh) — реальний sensor BMS_BLE-HA", "sensor"],
+      ["soh", "SOH / Battery health (%)", "sensor"],
+      ["balance_current", "Balance Current (A) — лише якщо ваша інтеграція публікує окремий sensor; для BMS_BLE-HA це атрибут, підхоплюється автоматично", "sensor"],
+      ["cell_bitmask", "Cell Bitmask — лише для інтеграцій з окремим sensor; для BMS_BLE-HA це атрибут балансира, підхоплюється автоматично", "sensor"],
+      ["stored_energy", "Stored Energy (Wh) — legacy, для інтеграцій без cycle_capacity", "sensor"],
     ],
   },
   {
@@ -1155,6 +1164,7 @@ class HaBmsBleCard extends HTMLElement {
 
   set hass(hass) {
     this._hass = hass;
+    this._maybeFetchDailyHistory();
     this._render();
   }
 
@@ -1289,13 +1299,64 @@ class HaBmsBleCard extends HTMLElement {
     return { cells, min, max, delta: max - min, minIdx: cells.indexOf(min), maxIdx: cells.indexOf(max) };
   }
 
+  /**
+   * "Stored Energy" (Wh). Пріоритет:
+   * 1) sensor cycle_capacity (реальний sensor BMS_BLE-HA, Wh) — офіційно
+   *    підтверджено в const.py / aiobmsble: ATTR_CYCLE_CAP = "cycle_capacity" [Wh].
+   * 2) legacy "stored_energy" — ручний entity для інтеграцій, де такий сенсор
+   *    справді існує під такою назвою (не BMS_BLE-HA).
+   * 3) оцінка: design_capacity(Ah) × voltage(V) × soc/100, якщо є всі три.
+   */
+  _storedEnergyWh() {
+    const cycleCap = Number(stateOf(this._hass, this._e("cycle_capacity")));
+    if (Number.isFinite(cycleCap) && cycleCap > 0) return cycleCap;
+    const legacy = Number(stateOf(this._hass, this._e("stored_energy")));
+    if (Number.isFinite(legacy) && legacy > 0) return legacy;
+    const design = Number(stateOf(this._hass, this._e("design_capacity")));
+    const soc = Number(stateOf(this._hass, this._e("soc")));
+    const voltage = Number(stateOf(this._hass, this._e("voltage")));
+    if (Number.isFinite(design) && design > 0 && Number.isFinite(voltage) && voltage > 0 && Number.isFinite(soc)) {
+      return design * voltage * (soc / 100);
+    }
+    return undefined;
+  }
+
+  /**
+   * Balance Current (A). У BMS_BLE-HA це НЕ окрема сутність, а атрибут
+   * "balance_current" (список з одним числом) на entity струму (sensor.*_current):
+   * see sensor.py: {ATTR_BALANCE_CUR: [data.get("balance_current", 0.0)]}.
+   * Ручний entity лишається як fallback для інших інтеграцій.
+   */
+  _balanceCurrentA() {
+    const manual = Number(stateOf(this._hass, this._e("balance_current")));
+    if (Number.isFinite(manual)) return manual;
+    const attr = attrOf(this._hass, this._e("current"), "balance_current");
+    const v = Array.isArray(attr) ? Number(attr[0]) : Number(attr);
+    return Number.isFinite(v) ? v : undefined;
+  }
+
+  /**
+   * Cell Bitmask — у BMS_BLE-HA це атрибут "cells" на entity балансира
+   * (binary_sensor.*_balancer), бінарний рядок типу "1111":
+   * see binary_sensor.py: {ATTR_CELLS: f"{balancer:0{cell_count}b}"[::-1]}.
+   * Зверни увагу: сам entity балансира вимкнений за замовчуванням у HA —
+   * користувачу треба ввімкнути його вручну (Налаштування → Сутності).
+   */
+  _cellBitmask() {
+    const manual = stateOf(this._hass, this._e("cell_bitmask"));
+    if (manual !== undefined && manual !== null && manual !== "unknown" && manual !== "unavailable") {
+      return manual;
+    }
+    return attrOf(this._hass, this._e("balancer"), "cells");
+  }
+
   _etaInfo() {
     const status = this._statusInfo();
     const runtimeNum = Number(stateOf(this._hass, this._e("runtime")));
     const soc = Number(stateOf(this._hass, this._e("soc")));
     const current = Number(stateOf(this._hass, this._e("current")));
     const design = stateOf(this._hass, this._e("design_capacity"));
-    const stored = stateOf(this._hass, this._e("stored_energy"));
+    const stored = this._storedEnergyWh();
     const voltage = stateOf(this._hass, this._e("voltage"));
     let seconds = Number.isFinite(runtimeNum) && runtimeNum > 0 ? runtimeNum : undefined;
     if (seconds === undefined) {
@@ -1345,27 +1406,93 @@ class HaBmsBleCard extends HTMLElement {
   }
 
   _renderHistoryBars() {
-    const days = [
-      { d: "22.05", v: 8.1 }, { d: "23.05", v: 11.3 }, { d: "24.05", v: 9.7, today: true },
-      { d: "25.05", v: 12.6 }, { d: "26.05", v: 10.9 }, { d: "27.05", v: 13.4 }, { d: "28.05", v: 9.1 },
-    ];
-    const real = Number(stateOf(this._hass, this._e("capacity_daily")));
-    if (Number.isFinite(real)) days[2].v = real;
-    const maxV = 20;
-    const cols = days.map((x) => `
+    const entityId = this._e("capacity_daily");
+    if (!entityId) return "";
+    const days = this._historyDaily;
+    if (!days || !days.length) {
+      return `
+        <h2 class="section-title">Історія використання по днях</h2>
+        <p class="muted-note">Історія завантажується або недоступна — потрібна довготривала статистика
+          (recorder, long-term statistics) для сенсора добового споживання "${entityId}".</p>`;
+    }
+    const maxRaw = Math.max(1, ...days.map((x) => x.v));
+    const maxV = Math.max(10, Math.ceil(maxRaw / 10) * 10);
+    const todayKey = new Date().toISOString().slice(0, 10);
+    const cols = days.map((x) => {
+      const isToday = x.dateKey === todayKey;
+      return `
       <div class="bar-col">
         <div class="bar-val">${x.v.toFixed(1)} Ah</div>
-        <div class="bar ${x.today ? "today" : ""}" style="height:${((x.v / maxV) * 100).toFixed(0)}%"></div>
-        <div class="bar-date ${x.today ? "today" : ""}">${x.d}</div>
-      </div>`).join("");
+        <div class="bar ${isToday ? "today" : ""}" style="height:${((x.v / maxV) * 100).toFixed(0)}%"></div>
+        <div class="bar-date ${isToday ? "today" : ""}">${x.d}</div>
+      </div>`;
+    }).join("");
     return `
       <h2 class="section-title">Історія використання по днях</h2>
       <div class="history-box">
         <div class="history-chart">
-          <div class="yaxis"><span>20 Ah</span><span>10 Ah</span><span>0 Ah</span></div>
+          <div class="yaxis"><span>${maxV} Ah</span><span>${Math.round(maxV / 2)} Ah</span><span>0 Ah</span></div>
           ${cols}
         </div>
       </div>`;
+  }
+
+  /**
+   * Реальна історія по днях з recorder long-term statistics (НЕ mock).
+   * Джерело — entity "capacity_daily" (зазвичай history_stats-сенсор, що
+   * рахує Ah спожиті сьогодні й скидається щоночі): беремо приріст ("change")
+   * за кожен день за останні 7 днів через WS recorder/statistics_during_period.
+   * Якщо в цього сенсора не ввімкнена long-term statistics (немає state_class),
+   * WS-виклик поверне порожньо/впаде — тоді просто показуємо muted-підказку,
+   * без падіння картки.
+   */
+  async _maybeFetchDailyHistory() {
+    const entityId = this._e("capacity_daily");
+    if (!entityId || !this._hass || typeof this._hass.callWS !== "function") return;
+    const now = Date.now();
+    if (
+      this._historyEntityId === entityId &&
+      this._historyFetchedAt &&
+      now - this._historyFetchedAt < 15 * 60 * 1000
+    ) {
+      return; // кеш 15хв
+    }
+    if (this._historyFetchInFlight) return;
+    this._historyFetchInFlight = true;
+    this._historyEntityId = entityId;
+    this._historyFetchedAt = now;
+    try {
+      const end = new Date();
+      const start = new Date(end.getTime() - 8 * 24 * 60 * 60 * 1000);
+      const result = await this._hass.callWS({
+        type: "recorder/statistics_during_period",
+        start_time: start.toISOString(),
+        end_time: end.toISOString(),
+        statistic_ids: [entityId],
+        period: "day",
+      });
+      const rows = (result && result[entityId]) || [];
+      const days = rows.slice(-7).map((r) => {
+        const d = new Date(r.start);
+        let value;
+        if (Number.isFinite(r.change)) value = r.change;
+        else if (Number.isFinite(r.max) && Number.isFinite(r.min)) value = r.max - r.min;
+        else value = Number(r.state);
+        return {
+          dateKey: d.toISOString().slice(0, 10),
+          d: `${String(d.getDate()).padStart(2, "0")}.${String(d.getMonth() + 1).padStart(2, "0")}`,
+          v: Number.isFinite(value) ? Math.abs(value) : 0,
+        };
+      }).filter((x) => Number.isFinite(x.v));
+      if (days.length) {
+        this._historyDaily = days;
+        this._render();
+      }
+    } catch (e) {
+      // recorder/statistics_during_period недоступний для цього сенсора — тихо ігноруємо
+    } finally {
+      this._historyFetchInFlight = false;
+    }
   }
 
   _renderFullView() {
@@ -1378,9 +1505,10 @@ class HaBmsBleCard extends HTMLElement {
     const soh = stateOf(this._hass, this._e("soh"));
     const link = stateOf(this._hass, this._e("link_quality"));
     const rssi = stateOf(this._hass, this._e("rssi"));
-    const stored = stateOf(this._hass, this._e("stored_energy"));
+    const stored = this._storedEnergyWh();
     const design = stateOf(this._hass, this._e("design_capacity"));
-    const balanceCur = stateOf(this._hass, this._e("balance_current"));
+    const balanceCur = this._balanceCurrentA();
+    const cellBitmask = this._cellBitmask();
     const status = this._statusInfo();
     const eta = this._etaInfo();
     const socPct = Number.isFinite(soc) ? Math.max(0, Math.min(100, soc)) : 0;
@@ -1526,6 +1654,7 @@ class HaBmsBleCard extends HTMLElement {
           <div class="diag-card"><div class="diag-icon">${haIcon("ti-battery",20,"#E24B4A")}</div><div class="diag-text"><div class="l1">Package Voltage</div><div class="l2">${fmt(voltage, 2)} V</div></div></div>
           <div class="diag-card"><div class="diag-icon">${haIcon("ti-wave-sine",20,"#4b9bf0")}</div><div class="diag-text"><div class="l1">Package Current</div><div class="l2">${fmt(current, 1)} A</div></div></div>
           <div class="diag-card"><div class="diag-icon">${haIcon("ti-chart-donut-3",20,"#4b9bf0")}</div><div class="diag-text"><div class="l1">Package SOC</div><div class="l2">${fmt(soc, 0)}%</div></div></div>
+          ${cellBitmask !== undefined && cellBitmask !== null && cellBitmask !== "" ? `<div class="diag-card"><div class="diag-icon">${haIcon("ti-grid-dots",20,"#4b9bf0")}</div><div class="diag-text"><div class="l1">Cell Bitmask</div><div class="l2">${cellBitmask}</div></div></div>` : ""}
         </div>
       </div>
     `;
@@ -1712,6 +1841,11 @@ class HaBmsBleCard extends HTMLElement {
         .history-box {
           background:var(--panel); border:1px solid var(--border); border-radius:16px;
           padding:20px 20px 12px; margin-bottom:24px;
+        }
+        .muted-note {
+          background:var(--panel); border:1px solid var(--border); border-radius:16px;
+          padding:14px 16px; margin-bottom:24px; font-size:12.5px; color:var(--muted-2);
+          line-height:1.4;
         }
         .history-chart {
           display:flex; align-items:flex-end; gap:18px; height:170px; margin-top:10px;
