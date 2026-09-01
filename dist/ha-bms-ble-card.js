@@ -7,7 +7,7 @@
  * https://github.com/kdinya/ha-bms-ble-card
  */
 
-const CARD_VERSION = "3.0.0-beta.2";
+const CARD_VERSION = "3.0.0-beta.3";
 
 console.info(
   `%c HA-BMS-BLE-CARD %c v${CARD_VERSION} `,
@@ -879,9 +879,13 @@ class HaBmsBleCardEditor extends HTMLElement {
           : `<div class="bms-auto-hint">✓ авто: <code>${auto}</code></div>`)
       : `<div class="bms-auto-hint bms-auto-miss">не знайдено автоматично</div>`;
     if (this._hasEntityPicker()) {
+      // ha-entity-picker сам малює свій label (Material floating label,
+      // виставляється нижче через picker.label у _wireEntityFields) —
+      // якщо додати тут ще й статичний .bms-field-label з тим самим
+      // текстом, назва поля буде видно ДВІЧІ поспіль. Тому для варіанту
+      // з picker-ом статичний підпис не рендеримо.
       return `
         <div class="bms-field" data-key="${key}" data-domain="${domain}">
-          <div class="bms-field-label">${label}</div>
           <ha-entity-picker data-key="${key}"></ha-entity-picker>
           ${hint}
         </div>
@@ -2028,5 +2032,7 @@ if (typeof module !== "undefined" && module.exports) {
     BMS_BLE_DOMAIN,
     findBmsBleDeviceIds,
     autoDiscoverEntities,
+    HaBmsBleCardEditor,
+    ENTITY_FIELD_GROUPS,
   };
 }

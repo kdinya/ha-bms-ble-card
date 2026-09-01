@@ -32,6 +32,7 @@ assert.ok(mod.secondsToHuman, "secondsToHuman exported");
 assert.ok(mod.batteryFillColor, "batteryFillColor exported");
 assert.ok(mod.estimateEtaSeconds, "estimateEtaSeconds exported");
 assert.ok(mod.autoDiscoverEntities, "autoDiscoverEntities exported");
+assert.ok(mod.HaBmsBleCardEditor, "HaBmsBleCardEditor exported");
 
 assert.strictEqual(mod.fmt(13.24, 2, " V"), "13.24 V");
 assert.ok(mod.secondsToHuman(45000).includes("год"));
@@ -113,3 +114,38 @@ const el = new (class extends global.HTMLElement {})();
 
 console.log("All smoke tests passed.");
 console.log("Discovered:", Object.keys(discovered).sort().join(", "));
+
+// --- Editor: назва поля НЕ повинна дублюватись у розмітці, коли доступний
+// ha-entity-picker (він сам малює свій floating label; раніше поруч
+// малювався ще й статичний .bms-field-label з тим самим текстом — саме
+// це й давало видиме дублювання назви в налаштуваннях картки). ---
+{
+  const savedGet = global.customElements.get;
+  global.customElements.get = (name) => (name === "ha-entity-picker" ? function HaEntityPickerStub() {} : undefined);
+
+  const editor = Object.create(mod.HaBmsBleCardEditor.prototype);
+  editor._config = { entities: {} };
+  editor._hass = mockHass;
+
+  const soc = mod.ENTITY_FIELD_GROUPS.flatMap((g) => g.fields).find(([key]) => key === "soc");
+  assert.ok(soc, "soc field exists in ENTITY_FIELD_GROUPS");
+  const [socKey, socLabel, socDomain] = soc;
+  const fieldHtml = editor._renderEntityField(socKey, socLabel, socDomain);
+  const occurrences = fieldHtml.split(socLabel).length - 1;
+  assert.strictEqual(
+    occurrences,
+    0,
+    `label "${socLabel}" must not be statically rendered when ha-entity-picker is available (it sets its own label) — got ${occurrences} occurrence(s) in: ${fieldHtml}`
+  );
+  assert.ok(fieldHtml.includes("<ha-entity-picker"), "picker element still rendered");
+
+  // Явно не мають існувати як окремі конфігуровані поля — вони не є
+  // окремими сутностями в BMS_BLE-HA (лише атрибути) або є legacy/дублем.
+  const allKeys = mod.ENTITY_FIELD_GROUPS.flatMap((g) => g.fields).map(([key]) => key);
+  for (const removed of ["balance_current", "cell_bitmask", "stored_energy"]) {
+    assert.ok(!allKeys.includes(removed), `"${removed}" must be removed from ENTITY_FIELD_GROUPS`);
+  }
+
+  global.customElements.get = savedGet;
+  console.log("Editor label-duplication regression test passed.");
+}
