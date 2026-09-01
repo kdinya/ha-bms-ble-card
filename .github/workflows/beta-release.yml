@@ -33,38 +33,29 @@ jobs:
           git tag -a "$tag" "$GITHUB_SHA" -m "Release $tag"
           git push origin "$tag"
 
-      - name: Build HACS root file and release asset
+      - name: Validate HACS entry point
         shell: bash
         run: |
           set -euo pipefail
-          test -s src/ha-bms-ble-card-v3.js
-          cp src/ha-bms-ble-card-v3.js ha-bms-ble-card.js
-          mkdir -p dist
-          cp src/ha-bms-ble-card-v3.js dist/ha-bms-ble-card.js
-          node --check ha-bms-ble-card.js
           test -s ha-bms-ble-card.js
-          test -s dist/ha-bms-ble-card.js
+          node --check ha-bms-ble-card.js
 
-      - name: Commit HACS root file to release commit
+      - name: Prepare release asset
         shell: bash
         run: |
           set -euo pipefail
-          if git diff --quiet -- ha-bms-ble-card.js; then
-            echo "Root HACS file already committed."
-          else
-            git add ha-bms-ble-card.js
-            git commit -m "build: include HACS root artifact"
-            git push origin HEAD:bms-v3-auto-discovery
-            echo "IMPORTANT: the release tag points to the triggering commit; root artifact is already generated for validation."
-          fi
+          mkdir -p release
+          cp ha-bms-ble-card.js release/ha-bms-ble-card.js
+          sed -i -E 's/(const VERSION = ")[^"]+(";)/\1'"${{ steps.tag.outputs.tag }}"'\2/' release/ha-bms-ble-card.js
+          node --check release/ha-bms-ble-card.js
+          test -s release/ha-bms-ble-card.js
+          grep -F 'const VERSION = "${{ steps.tag.outputs.tag }}"' release/ha-bms-ble-card.js
 
       - name: Publish GitHub pre-release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.tag.outputs.tag }}
-          target_commitish: bms-v3-auto-discovery
+          target_commitish: ${{ github.sha }}
           prerelease: true
-          files: |
-            ha-bms-ble-card.js
-            dist/ha-bms-ble-card.js
+          files: release/ha-bms-ble-card.js
           generate_release_notes: true
