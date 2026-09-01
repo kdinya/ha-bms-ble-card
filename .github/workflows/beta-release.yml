@@ -1,0 +1,53 @@
+name: Beta release
+
+on:
+  push:
+    branches:
+      - bms-v3-auto-discovery
+
+permissions:
+  contents: write
+
+jobs:
+  beta-release:
+    if: startsWith(github.event.head_commit.message, 'release-beta:')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create next beta tag
+        id: tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --tags --force
+          latest=$(git tag --list 'v3.0.0-beta.*' | sort -V | tail -n1 || true)
+          if [ -z "$latest" ]; then
+            next=1
+          else
+            next=$(( ${latest##*.} + 1 ))
+          fi
+          tag="v3.0.0-beta.${next}"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$tag" "$GITHUB_SHA" -m "Release $tag"
+          git push origin "$tag"
+
+      - name: Build beta artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          cp src/ha-bms-ble-card-v3.js dist/ha-bms-ble-card.js
+          node --check dist/ha-bms-ble-card.js
+
+      - name: Publish GitHub pre-release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          prerelease: true
+          files: dist/ha-bms-ble-card.js
+          generate_release_notes: true
