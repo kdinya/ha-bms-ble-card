@@ -7,7 +7,7 @@
  * https://github.com/kdinya/ha-bms-ble-card
  */
 
-const CARD_VERSION = "3.0.0-beta.3";
+const CARD_VERSION = "3.0.0-beta.4";
 
 console.info(
   `%c HA-BMS-BLE-CARD %c v${CARD_VERSION} `,
@@ -199,7 +199,24 @@ function findBmsBleDeviceIds(hass) {
 }
 
 /** Список сутностей конкретного пристрою з розширеною інформацією,
- *  потрібною для класифікації (домен, device_class, object_id, unique_id тощо). */
+ *  потрібною для класифікації (домен, device_class, object_id,
+ *  translation_key тощо).
+ *
+ *  ВАЖЛИВО: `hass.entities`, який картка отримує в браузері, — це НЕ повний
+ *  реєстр сутностей. Фронтенд HA підписується на полегшену версію
+ *  (`config/entity_registry/list_for_display`), і в ній: (1) немає поля
+ *  `unique_id` взагалі; (2) сутності, вимкнені за замовчуванням
+ *  (`disabled_by` не null), НЕ включаються в цей список — бекенд явно
+ *  фільтрує їх (`entry.disabled_by is None`). Це стосується, зокрема,
+ *  Max/Min cell voltage, MOSFET заряду/розряду, Balancer, Heater, RSSI,
+ *  Link quality — всі вони в BMS_BLE-HA вимкнені за замовчуванням.
+ *  Тому автопошук нижче для них нічого не знайде через `hass.entities`,
+ *  доки користувач вручну не увімкне сутність у HA — і жодна евристика
+ *  за словами/device_class/translation_key це не обійде, бо сутності
+ *  просто немає в даних, які бачить картка. Для таких сутностей є окремий
+ *  запит через `config/entity_registry/list` (без цього фільтра) —
+ *  див. `HaBmsBleCardEditor._ensureFullRegistryFetch`.
+ */
 function deviceEntitiesInfo(hass, deviceId) {
   if (!hass || !hass.entities || !deviceId) return [];
   return Object.entries(hass.entities)
@@ -212,7 +229,7 @@ function deviceEntitiesInfo(hass, deviceId) {
         objectId: objectIdOf(entityId),
         deviceClass: (state && state.attributes && state.attributes.device_class) || e.device_class,
         friendlyName: (state && state.attributes && state.attributes.friendly_name) || "",
-        uniqueId: e.unique_id,
+        translationKey: e.translation_key,
         platform: e.platform,
       };
     })
@@ -225,7 +242,8 @@ function deviceEntitiesInfo(hass, deviceId) {
  * `self._attr_unique_id = f"{DOMAIN}-{unique_id}-{descr.key}"`), де
  * {key} — точний внутрішній ключ сенсора. MAC у форматі format_mac()
  * містить двокрапки, а не дефіси, тому останній сегмент після "-" —
- * це завжди {key}, без винятків.
+ * це завжди {key}, без винятків. Використовується лише з повним
+ * реєстром (`config/entity_registry/list`), де unique_id реально є.
  */
 function keyFromUniqueId(uniqueId) {
   if (!uniqueId) return undefined;
@@ -234,35 +252,61 @@ function keyFromUniqueId(uniqueId) {
 }
 
 /**
- * Точна відповідність "внутрішній ключ BMS_BLE-HA" → "ключ конфігу картки".
- * Це надійніший спосіб автовизначення, ніж підбір за словами в entity_id:
- * деякі сенсори (наприклад cycle_capacity) не мають перекладу назви
- * (translation_key) в самій інтеграції, тож їхній entity_id не обов'язково
- * містить очікуване слово — а unique_id завжди містить точний ключ.
+ * Точна відповідність "внутрішній ключ BMS_BLE-HA" → "ключ конфігу
+ * картки". Внутрішній ключ — це одне й те саме значення, яке в самій
+ * інтеграції є і `key`, і (де воно задане) `translation_key` сенсора,
+ * і завжди останній сегмент `unique_id`. Використовується у двох
+ * місцях: (1) підбір за `translation_key` з полегшеного `hass.entities`
+ * (працює лише для сенсорів, де в BMS_BLE-HA задано translation_key —
+ * не всі його мають, див. коментар нижче); (2) підбір за `unique_id`
+ * з повного реєстру (працює для всіх сутностей, увімкнених і вимкнених).
  */
-const UNIQUE_ID_KEY_MAP = {
-  voltage: "voltage",
-  battery_level: "soc",
+const BMS_BLE_KEY_MAP = {
   battery_health: "soh",
-  temperature: "temperature",
-  current: "current",
-  cycle_capacity: "cycle_capacity",
   cycles: "charge_cycles",
   design_capacity: "design_capacity",
-  power: "power",
-  runtime: "runtime",
   delta_cell_voltage: "delta_cell_voltage",
   max_cell_voltage: "max_cell_voltage",
   min_cell_voltage: "min_cell_voltage",
   rssi: "rssi",
   link_quality: "link_quality",
-  battery_charging: "charging",
+  runtime: "runtime",
+  current: "current",
   balancer: "balancer",
   chrg_mosfet: "chrg_mosfet",
   dischrg_mosfet: "dischrg_mosfet",
   heater: "heater",
+  // Ці ключі НЕ мають translation_key в самій інтеграції (тому через
+  // полегшений hass.entities не підберуться), але мають unique_id —
+  // придатні лише для підбору через повний реєстр:
+  voltage: "voltage",
+  battery_level: "soc",
+  power: "power",
+  battery_charging: "charging",
   problem: "problem",
+  cycle_capacity: "cycle_capacity",
 };
+
+/**
+ * Розбирає результат `hass.callWS({ type: "config/entity_registry/list" })`
+ * (повний реєстр, БЕЗ фільтра за disabled_by — на відміну від полегшеного
+ * `hass.entities`) на мапу ключів конфігу картки, підбираючи сутності
+ * конкретного пристрою за точним ключем з `unique_id`. Це єдиний спосіб
+ * автоматично підхопити сутності, вимкнені за замовчуванням.
+ */
+function discoverFromFullRegistry(entries, deviceId) {
+  const result = {};
+  if (!Array.isArray(entries) || !deviceId) return result;
+  for (const e of entries) {
+    if (!e || e.device_id !== deviceId || e.platform !== BMS_BLE_DOMAIN) continue;
+    const rawKey = keyFromUniqueId(e.unique_id);
+    const cardKey = rawKey && BMS_BLE_KEY_MAP[rawKey];
+    if (cardKey && !result[cardKey]) {
+      result[cardKey] = { entityId: e.entity_id, disabledBy: e.disabled_by || null };
+    }
+  }
+  return result;
+}
 
 // Ключові слова (специфічні, перевіряються ДО загальних правил за
 // device_class, щоб, наприклад, "max_cell_voltage" не забрав собі
@@ -326,6 +370,11 @@ const DEVICE_CLASS_RULES = [
   { key: "rssi", domain: "sensor", deviceClass: "signal_strength" },
   { key: "charging", domain: "binary_sensor", deviceClass: "battery_charging" },
   { key: "problem", domain: "binary_sensor", deviceClass: "problem" },
+  // cycle_capacity в BMS_BLE-HA не має translation_key (тому не підбирається
+  // проходом 1 нижче), але має device_class "energy_storage" — і, на
+  // відміну від max/min cell voltage тощо, цей сенсор УВІМКНЕНИЙ за
+  // замовчуванням, тож у нього є live-стан і device_class з нього доступний.
+  { key: "cycle_capacity", domain: "sensor", deviceClass: "energy_storage" },
 ];
 
 /**
@@ -341,21 +390,27 @@ function autoDiscoverEntities(hass, deviceId) {
   const used = new Set();
   const result = {};
 
-  // 1) Найточніший прохід: за унікальним ключем із unique_id (працює
-  //    навіть для сенсорів без перекладу назви, наприклад cycle_capacity).
+  // 1) За translation_key з полегшеного hass.entities — працює лише для
+  //    сенсорів, які мають translation_key в самій інтеграції (більшість,
+  //    окрім voltage/battery_level/power/battery_charging/problem/
+  //    cycle_capacity — для них є проходи 2-3 нижче). ВАЖЛИВО: сутності,
+  //    вимкнені за замовчуванням (max/min cell voltage, MOSFET заряду/
+  //    розряду, balancer, heater, rssi, link_quality), у hass.entities
+  //    взагалі відсутні (бекенд HA відфільтровує їх з полегшеного
+  //    реєстру) — цей прохід їх знайде, лише якщо користувач уже увімкнув
+  //    їх у HA вручну. Для пошуку вимкнених сутностей без ручного
+  //    втручання дивись HaBmsBleCardEditor._ensureFullRegistryFetch.
   for (const e of list) {
     if (used.has(e.entityId)) continue;
-    const rawKey = keyFromUniqueId(e.uniqueId);
-    const cardKey = rawKey && UNIQUE_ID_KEY_MAP[rawKey];
+    const cardKey = e.translationKey && BMS_BLE_KEY_MAP[e.translationKey];
     if (cardKey && !result[cardKey]) {
       result[cardKey] = e.entityId;
       used.add(e.entityId);
     }
   }
 
-  // 2) Фолбек за словами в entity_id/device_class — для сутностей без
-  //    unique_id у реєстрі (старі версії фронтенду HA) або нетипових
-  //    налаштувань.
+  // 2) Фолбек за словами в entity_id — для сутностей без translation_key
+  //    у реєстрі (нетипові інтеграції) або коли ключ не входить у мапу.
   for (const rule of KEYWORD_RULES) {
     const match = list.find(
       (e) => !used.has(e.entityId) && e.domain === rule.domain && rule.test(e.objectId)
@@ -723,6 +778,7 @@ class HaBmsBleCardEditor extends HTMLElement {
     this._config = { ...config };
     this._wizardStatus = null;
     this._wizardBusy = false;
+    this._fullRegistry = null;
     this._render();
   }
 
@@ -761,7 +817,52 @@ class HaBmsBleCardEditor extends HTMLElement {
   _effectiveEntities() {
     const deviceId = this._autoDeviceId();
     const auto = this._hass && deviceId ? autoDiscoverEntities(this._hass, deviceId) : {};
-    return { ...auto, ...this._entities() };
+    this._ensureFullRegistryFetch(deviceId);
+    const fromRegistry = {};
+    const registryMap = this._fullRegistryMap(deviceId);
+    for (const [k, info] of Object.entries(registryMap)) fromRegistry[k] = info.entityId;
+    return { ...auto, ...fromRegistry, ...this._entities() };
+  }
+
+  /** Мапа, зібрана з повного реєстру сутностей (config/entity_registry/list)
+   *  для поточного deviceId, якщо вона вже завантажена — інакше {}. */
+  _fullRegistryMap(deviceId) {
+    return this._fullRegistry && this._fullRegistry.deviceId === deviceId ? this._fullRegistry.map : {};
+  }
+
+  /**
+   * `hass.entities`, доступний картці в браузері, — це полегшений реєстр
+   * (`config/entity_registry/list_for_display`), який HA явно фільтрує:
+   * сутності з `disabled_by !== null` у нього не потрапляють (і в нього
+   * немає навіть unique_id). У BMS_BLE-HA вимкнені за замовчуванням саме
+   * Max/Min cell voltage, MOSFET заряду/розряду, Balancer, Heater, RSSI,
+   * Link quality — тому звичайний автопошук (`autoDiscoverEntities`) їх
+   * ніколи не знайде, скільки евристик не додавай.
+   *
+   * Єдиний спосіб побачити такі сутності — окремо запросити ПОВНИЙ реєстр
+   * командою `config/entity_registry/list` (без фільтра за disabled_by,
+   * доступна без прав адміністратора) і підібрати сутності пристрою за
+   * точним ключем з їхнього unique_id. Робимо це один раз на deviceId і
+   * кешуємо результат; коли відповідь прийде, перерендерюємо форму.
+   */
+  _ensureFullRegistryFetch(deviceId) {
+    if (!this._hass || !deviceId || typeof this._hass.callWS !== "function") return;
+    if (this._fullRegistry && this._fullRegistry.deviceId === deviceId && this._fullRegistry.status !== "error") {
+      return;
+    }
+    this._fullRegistry = { deviceId, status: "loading", map: {} };
+    this._hass
+      .callWS({ type: "config/entity_registry/list" })
+      .then((entries) => {
+        if (this._autoDeviceId() !== deviceId) return; // користувач встиг обрати інший пристрій
+        this._fullRegistry = { deviceId, status: "done", map: discoverFromFullRegistry(entries, deviceId) };
+        if (this._mounted) this._render();
+      })
+      .catch(() => {
+        // Стара версія HA без цієї команди (малоймовірно) — лишаємось на
+        // базовому автопошуку через hass.entities.
+        this._fullRegistry = { deviceId, status: "error", map: {} };
+      });
   }
 
   _hasEntityPicker() {
@@ -870,14 +971,28 @@ class HaBmsBleCardEditor extends HTMLElement {
   _renderEntityField(key, label, domain) {
     const deviceId = this._autoDeviceId();
     const autoMap = this._hass && deviceId ? autoDiscoverEntities(this._hass, deviceId) : {};
+    this._ensureFullRegistryFetch(deviceId);
+    const registryInfo = this._fullRegistryMap(deviceId)[key];
     const manual = this._entities()[key] || "";
-    const auto = autoMap[key] || "";
+    const auto = autoMap[key] || (registryInfo && registryInfo.entityId) || "";
     const value = manual || auto || "";
-    const hint = auto
-      ? (manual
-          ? `<div class="bms-auto-hint">вручну (авто було: <code>${auto}</code>)</div>`
-          : `<div class="bms-auto-hint">✓ авто: <code>${auto}</code></div>`)
-      : `<div class="bms-auto-hint bms-auto-miss">не знайдено автоматично</div>`;
+    let hint;
+    if (manual) {
+      hint = auto
+        ? `<div class="bms-auto-hint">вручну (авто було: <code>${auto}</code>)</div>`
+        : `<div class="bms-auto-hint">вручну</div>`;
+    } else if (auto && !autoMap[key] && registryInfo && registryInfo.disabledBy) {
+      // Знайдено лише через повний реєстр, і сутність вимкнена за
+      // замовчуванням у HA — сама по собі вона не даватиме значень, доки
+      // користувач її не увімкне.
+      hint = `<div class="bms-auto-hint bms-auto-miss">знайдено <code>${auto}</code>, але сутність вимкнена за замовчуванням — увімкніть її в HA (Налаштування → Пристрої та сервіси → Сутності), щоб бачити значення</div>`;
+    } else if (auto) {
+      hint = `<div class="bms-auto-hint">✓ авто: <code>${auto}</code></div>`;
+    } else if (this._fullRegistry && this._fullRegistry.deviceId === deviceId && this._fullRegistry.status === "loading") {
+      hint = `<div class="bms-auto-hint">пошук…</div>`;
+    } else {
+      hint = `<div class="bms-auto-hint bms-auto-miss">не знайдено автоматично</div>`;
+    }
     if (this._hasEntityPicker()) {
       // ha-entity-picker сам малює свій label (Material floating label,
       // виставляється нижче через picker.label у _wireEntityFields) —
@@ -2034,5 +2149,6 @@ if (typeof module !== "undefined" && module.exports) {
     autoDiscoverEntities,
     HaBmsBleCardEditor,
     ENTITY_FIELD_GROUPS,
+    discoverFromFullRegistry,
   };
 }

@@ -149,3 +149,44 @@ console.log("Discovered:", Object.keys(discovered).sort().join(", "));
   global.customElements.get = savedGet;
   console.log("Editor label-duplication regression test passed.");
 }
+
+// --- Editor: автопошук вимкнених за замовчуванням сутностей (Max/Min cell
+// voltage, MOSFET заряду/розряду тощо) через повний реєстр
+// (config/entity_registry/list), якого немає в полегшеному hass.entities. ---
+(async () => {
+  const editor = Object.create(mod.HaBmsBleCardEditor.prototype);
+  editor._config = { entities: { device_id: "dev1" } };
+  editor._mounted = false; // без реального DOM для рендеру
+  editor._hass = {
+    entities: {}, // полегшений реєстр — вимкнені сутності тут відсутні
+    states: {},
+    callWS: async (msg) => {
+      assert.strictEqual(msg.type, "config/entity_registry/list");
+      return [
+        {
+          entity_id: "sensor.batt_max_cell_voltage",
+          device_id: "dev1",
+          platform: "bms_ble",
+          disabled_by: "integration",
+          unique_id: "bms_ble-aa:bb:cc:dd:ee:ff-max_cell_voltage",
+        },
+      ];
+    },
+  };
+
+  const before = editor._effectiveEntities();
+  assert.ok(!before.max_cell_voltage, "до завершення запиту поле ще не заповнене");
+
+  // Даємо мікрозадачам (.then у _ensureFullRegistryFetch) відпрацювати.
+  await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+
+  const after = editor._effectiveEntities();
+  assert.equal(after.max_cell_voltage, "sensor.batt_max_cell_voltage", "після завершення запиту поле підтягується з повного реєстру");
+
+  console.log("Editor full-registry (disabled-by-default entities) discovery test passed.");
+})().catch((err) => {
+  console.error(err);
+  process.exitCode = 1;
+});

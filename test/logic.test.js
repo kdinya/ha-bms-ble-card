@@ -25,6 +25,7 @@ const {
   DEFAULT_THRESHOLDS,
   findBmsBleDeviceIds,
   autoDiscoverEntities,
+  discoverFromFullRegistry,
 } = require("../dist/ha-bms-ble-card.js");
 
 // Мінімальний фейковий hass для тестів автопошуку: один пристрій
@@ -157,25 +158,24 @@ test("autoDiscoverEntities: max/min/delta cell voltage розпізнаютьс�
   assert.equal(entities.voltage, "sensor.battery_voltage");
 });
 
-test("autoDiscoverEntities: cycle_capacity визначається за unique_id, навіть якщо entity_id не містить 'cycle'/'cap' (немає translation_key в BMS_BLE-HA)", () => {
+test("autoDiscoverEntities: cycle_capacity визначається за device_class 'energy_storage' (сенсор увімкнений за замовчуванням, тому має live-стан)", () => {
   // Реальний сценарій: у sensor.py BMS_BLE-HA сенсор ATTR_CYCLE_CAP не має
   // ні name, ні translation_key, тому HA генерує entity_id лише з назви
-  // пристрою — без слова "cycle"/"cap". Раніше це залишало поле картки
-  // порожнім, бо KEYWORD_RULES шукали ці слова в entity_id.
+  // пристрою — без слова "cycle"/"cap" (KEYWORD_RULES це не зловить).
+  // Але в нього Є device_class="energy_storage" і, оскільки сенсор
+  // УВІМКНЕНИЙ за замовчуванням, цей device_class видно через живий стан
+  // (hass.states[...].attributes.device_class) — саме так його й шукаємо.
+  //
+  // ВАЖЛИВО: `hass.entities`, який реально бачить картка в браузері, —
+  // полегшений реєстр (config/entity_registry/list_for_display) БЕЗ
+  // unique_id. Тому цей тест навмисно НЕ кладе unique_id в entities —
+  // так само, як у справжньому HA.
   const entities = {
-    "sensor.redodo_12v_100ah": {
-      device_id: "dev1",
-      platform: "bms_ble",
-      unique_id: "bms_ble-aa:bb:cc:dd:ee:ff-cycle_capacity",
-    },
-    "sensor.redodo_12v_100ah_cycles": {
-      device_id: "dev1",
-      platform: "bms_ble",
-      unique_id: "bms_ble-aa:bb:cc:dd:ee:ff-cycles",
-    },
+    "sensor.redodo_12v_100ah": { device_id: "dev1", platform: "bms_ble" },
+    "sensor.redodo_12v_100ah_cycles": { device_id: "dev1", platform: "bms_ble", translation_key: "cycles" },
   };
   const states = {
-    "sensor.redodo_12v_100ah": {},
+    "sensor.redodo_12v_100ah": { attributes: { device_class: "energy_storage" } },
     "sensor.redodo_12v_100ah_cycles": {},
   };
   const result = autoDiscoverEntities({ entities, states }, "dev1");
@@ -183,17 +183,71 @@ test("autoDiscoverEntities: cycle_capacity визначається за unique_
   assert.equal(result.charge_cycles, "sensor.redodo_12v_100ah_cycles");
 });
 
-test("autoDiscoverEntities: unique_id має пріоритет над словниковими правилами, коли вони конфліктують", () => {
+test("autoDiscoverEntities: підбір за translation_key з полегшеного hass.entities (без unique_id, як у реальному HA)", () => {
   const entities = {
-    "sensor.weird_name": {
-      device_id: "dev1",
-      platform: "bms_ble",
-      unique_id: "bms_ble-11:22:33:44:55:66-battery_level",
-    },
+    "sensor.weird_name": { device_id: "dev1", platform: "bms_ble", translation_key: "battery_health" },
   };
   const states = { "sensor.weird_name": {} };
   const result = autoDiscoverEntities({ entities, states }, "dev1");
-  assert.equal(result.soc, "sensor.weird_name");
+  assert.equal(result.soh, "sensor.weird_name");
+});
+
+test("discoverFromFullRegistry: знаходить сутності, вимкнені за замовчуванням (Max/Min cell voltage, MOSFET заряду/розряду), яких немає в hass.entities", () => {
+  // config/entity_registry/list (на відміну від list_for_display, який
+  // стоїть за hass.entities) НЕ фільтрує за disabled_by і містить
+  // unique_id — тому лише через нього можна знайти вимкнені за
+  // замовчуванням сутності BMS_BLE-HA.
+  const fullRegistry = [
+    {
+      entity_id: "sensor.redodo_max_cell_voltage",
+      device_id: "dev1",
+      platform: "bms_ble",
+      disabled_by: "integration",
+      unique_id: "bms_ble-aa:bb:cc:dd:ee:ff-max_cell_voltage",
+    },
+    {
+      entity_id: "sensor.redodo_min_cell_voltage",
+      device_id: "dev1",
+      platform: "bms_ble",
+      disabled_by: "integration",
+      unique_id: "bms_ble-aa:bb:cc:dd:ee:ff-min_cell_voltage",
+    },
+    {
+      entity_id: "binary_sensor.redodo_chrg_mosfet",
+      device_id: "dev1",
+      platform: "bms_ble",
+      disabled_by: "integration",
+      unique_id: "bms_ble-aa:bb:cc:dd:ee:ff-chrg_mosfet",
+    },
+    {
+      entity_id: "binary_sensor.redodo_dischrg_mosfet",
+      device_id: "dev1",
+      platform: "bms_ble",
+      disabled_by: "integration",
+      unique_id: "bms_ble-aa:bb:cc:dd:ee:ff-dischrg_mosfet",
+    },
+    // Сутність іншого пристрою — не повинна потрапити в результат.
+    {
+      entity_id: "sensor.other_device_max_cell_voltage",
+      device_id: "dev2",
+      platform: "bms_ble",
+      disabled_by: "integration",
+      unique_id: "bms_ble-ff:ee:dd:cc:bb:aa-max_cell_voltage",
+    },
+  ];
+  const result = discoverFromFullRegistry(fullRegistry, "dev1");
+  assert.equal(result.max_cell_voltage.entityId, "sensor.redodo_max_cell_voltage");
+  assert.equal(result.max_cell_voltage.disabledBy, "integration");
+  assert.equal(result.min_cell_voltage.entityId, "sensor.redodo_min_cell_voltage");
+  assert.equal(result.chrg_mosfet.entityId, "binary_sensor.redodo_chrg_mosfet");
+  assert.equal(result.dischrg_mosfet.entityId, "binary_sensor.redodo_dischrg_mosfet");
+  assert.equal(Object.keys(result).length, 4, "сутність іншого пристрою не має потрапити в результат");
+});
+
+test("discoverFromFullRegistry: без device_id або з порожнім списком повертає {}", () => {
+  assert.deepEqual(discoverFromFullRegistry([], "dev1"), {});
+  assert.deepEqual(discoverFromFullRegistry([{ entity_id: "sensor.x", device_id: "dev1", platform: "bms_ble", unique_id: "bms_ble-aa-voltage" }], ""), {});
+  assert.deepEqual(discoverFromFullRegistry(null, "dev1"), {});
 });
 
 test("autoDiscoverEntities: без пристрою повертає порожній обʼєкт", () => {
