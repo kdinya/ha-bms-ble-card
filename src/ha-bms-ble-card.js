@@ -7,7 +7,7 @@
  * https://github.com/kdinya/ha-bms-ble-card
  */
 
-const CARD_VERSION = "2.1.0";
+const CARD_VERSION = "3.0.0-beta.2";
 
 console.info(
   `%c HA-BMS-BLE-CARD %c v${CARD_VERSION} `,
@@ -199,7 +199,7 @@ function findBmsBleDeviceIds(hass) {
 }
 
 /** Список сутностей конкретного пристрою з розширеною інформацією,
- *  потрібною для класифікації (домен, device_class, object_id тощо). */
+ *  потрібною для класифікації (домен, device_class, object_id, unique_id тощо). */
 function deviceEntitiesInfo(hass, deviceId) {
   if (!hass || !hass.entities || !deviceId) return [];
   return Object.entries(hass.entities)
@@ -212,10 +212,57 @@ function deviceEntitiesInfo(hass, deviceId) {
         objectId: objectIdOf(entityId),
         deviceClass: (state && state.attributes && state.attributes.device_class) || e.device_class,
         friendlyName: (state && state.attributes && state.attributes.friendly_name) || "",
+        uniqueId: e.unique_id,
+        platform: e.platform,
       };
     })
     .sort((a, b) => a.entityId.localeCompare(b.entityId));
 }
+
+/**
+ * unique_id сутностей BMS_BLE-HA завжди має вигляд `bms_ble-{mac}-{key}`
+ * (див. sensor.py / binary_sensor.py самої інтеграції:
+ * `self._attr_unique_id = f"{DOMAIN}-{unique_id}-{descr.key}"`), де
+ * {key} — точний внутрішній ключ сенсора. MAC у форматі format_mac()
+ * містить двокрапки, а не дефіси, тому останній сегмент після "-" —
+ * це завжди {key}, без винятків.
+ */
+function keyFromUniqueId(uniqueId) {
+  if (!uniqueId) return undefined;
+  const idx = uniqueId.lastIndexOf("-");
+  return idx >= 0 ? uniqueId.slice(idx + 1) : undefined;
+}
+
+/**
+ * Точна відповідність "внутрішній ключ BMS_BLE-HA" → "ключ конфігу картки".
+ * Це надійніший спосіб автовизначення, ніж підбір за словами в entity_id:
+ * деякі сенсори (наприклад cycle_capacity) не мають перекладу назви
+ * (translation_key) в самій інтеграції, тож їхній entity_id не обов'язково
+ * містить очікуване слово — а unique_id завжди містить точний ключ.
+ */
+const UNIQUE_ID_KEY_MAP = {
+  voltage: "voltage",
+  battery_level: "soc",
+  battery_health: "soh",
+  temperature: "temperature",
+  current: "current",
+  cycle_capacity: "cycle_capacity",
+  cycles: "charge_cycles",
+  design_capacity: "design_capacity",
+  power: "power",
+  runtime: "runtime",
+  delta_cell_voltage: "delta_cell_voltage",
+  max_cell_voltage: "max_cell_voltage",
+  min_cell_voltage: "min_cell_voltage",
+  rssi: "rssi",
+  link_quality: "link_quality",
+  battery_charging: "charging",
+  balancer: "balancer",
+  chrg_mosfet: "chrg_mosfet",
+  dischrg_mosfet: "dischrg_mosfet",
+  heater: "heater",
+  problem: "problem",
+};
 
 // Ключові слова (специфічні, перевіряються ДО загальних правил за
 // device_class, щоб, наприклад, "max_cell_voltage" не забрав собі
@@ -229,10 +276,7 @@ const KEYWORD_RULES = [
   { key: "charge_cycles", domain: "sensor", test: (o) => o.includes("cycle") && !o.includes("capacity") && !o.includes("charge") },
   { key: "design_capacity", domain: "sensor", test: (o) => o.includes("design") && o.includes("cap") },
   { key: "cycle_capacity", domain: "sensor", test: (o) => o.includes("cycle") && o.includes("cap") },
-  { key: "balance_current", domain: "sensor", test: (o) => o.includes("balance") && o.includes("cur") },
   { key: "soh", domain: "sensor", test: (o) => hasWord(o, "soh") || o.includes("battery_health") || (o.includes("health") && !o.includes("unhealthy")) },
-  { key: "stored_energy", domain: "sensor", test: (o) => o.includes("stored") },
-  { key: "cell_bitmask", domain: "sensor", test: (o) => o.includes("bitmask") || (o.includes("cell") && o.includes("mask")) },
   { key: "balancer", domain: "binary_sensor", test: (o) => o.includes("balanc") },
   { key: "chrg_mosfet", domain: "binary_sensor", test: (o) =>
       (o.includes("mosfet") || o.includes("mos_fet") || o.includes("mos")) &&
@@ -297,6 +341,21 @@ function autoDiscoverEntities(hass, deviceId) {
   const used = new Set();
   const result = {};
 
+  // 1) Найточніший прохід: за унікальним ключем із unique_id (працює
+  //    навіть для сенсорів без перекладу назви, наприклад cycle_capacity).
+  for (const e of list) {
+    if (used.has(e.entityId)) continue;
+    const rawKey = keyFromUniqueId(e.uniqueId);
+    const cardKey = rawKey && UNIQUE_ID_KEY_MAP[rawKey];
+    if (cardKey && !result[cardKey]) {
+      result[cardKey] = e.entityId;
+      used.add(e.entityId);
+    }
+  }
+
+  // 2) Фолбек за словами в entity_id/device_class — для сутностей без
+  //    unique_id у реєстрі (старі версії фронтенду HA) або нетипових
+  //    налаштувань.
   for (const rule of KEYWORD_RULES) {
     const match = list.find(
       (e) => !used.has(e.entityId) && e.domain === rule.domain && rule.test(e.objectId)
@@ -636,11 +695,8 @@ const ENTITY_FIELD_GROUPS = [
       ["rssi", "RSSI", "sensor"],
       ["charge_cycles", "Цикли заряду", "sensor"],
       ["design_capacity", "Номінальна ємність (Ah)", "sensor"],
-      ["cycle_capacity", "Cycle capacity / Stored Energy (Wh) — реальний sensor BMS_BLE-HA", "sensor"],
+      ["cycle_capacity", "Stored Energy / Cycle capacity (Wh)", "sensor"],
       ["soh", "SOH / Battery health (%)", "sensor"],
-      ["balance_current", "Balance Current (A) — лише якщо ваша інтеграція публікує окремий sensor; для BMS_BLE-HA це атрибут, підхоплюється автоматично", "sensor"],
-      ["cell_bitmask", "Cell Bitmask — лише для інтеграцій з окремим sensor; для BMS_BLE-HA це атрибут балансира, підхоплюється автоматично", "sensor"],
-      ["stored_energy", "Stored Energy (Wh) — legacy, для інтеграцій без cycle_capacity", "sensor"],
     ],
   },
   {
@@ -1303,15 +1359,11 @@ class HaBmsBleCard extends HTMLElement {
    * "Stored Energy" (Wh). Пріоритет:
    * 1) sensor cycle_capacity (реальний sensor BMS_BLE-HA, Wh) — офіційно
    *    підтверджено в const.py / aiobmsble: ATTR_CYCLE_CAP = "cycle_capacity" [Wh].
-   * 2) legacy "stored_energy" — ручний entity для інтеграцій, де такий сенсор
-   *    справді існує під такою назвою (не BMS_BLE-HA).
-   * 3) оцінка: design_capacity(Ah) × voltage(V) × soc/100, якщо є всі три.
+   * 2) оцінка: design_capacity(Ah) × voltage(V) × soc/100, якщо є всі три.
    */
   _storedEnergyWh() {
     const cycleCap = Number(stateOf(this._hass, this._e("cycle_capacity")));
     if (Number.isFinite(cycleCap) && cycleCap > 0) return cycleCap;
-    const legacy = Number(stateOf(this._hass, this._e("stored_energy")));
-    if (Number.isFinite(legacy) && legacy > 0) return legacy;
     const design = Number(stateOf(this._hass, this._e("design_capacity")));
     const soc = Number(stateOf(this._hass, this._e("soc")));
     const voltage = Number(stateOf(this._hass, this._e("voltage")));
@@ -1325,11 +1377,10 @@ class HaBmsBleCard extends HTMLElement {
    * Balance Current (A). У BMS_BLE-HA це НЕ окрема сутність, а атрибут
    * "balance_current" (список з одним числом) на entity струму (sensor.*_current):
    * see sensor.py: {ATTR_BALANCE_CUR: [data.get("balance_current", 0.0)]}.
-   * Ручний entity лишається як fallback для інших інтеграцій.
+   * Тому в налаштуваннях картки немає окремого поля для цього — значення
+   * завжди береться з атрибута.
    */
   _balanceCurrentA() {
-    const manual = Number(stateOf(this._hass, this._e("balance_current")));
-    if (Number.isFinite(manual)) return manual;
     const attr = attrOf(this._hass, this._e("current"), "balance_current");
     const v = Array.isArray(attr) ? Number(attr[0]) : Number(attr);
     return Number.isFinite(v) ? v : undefined;
@@ -1341,12 +1392,10 @@ class HaBmsBleCard extends HTMLElement {
    * see binary_sensor.py: {ATTR_CELLS: f"{balancer:0{cell_count}b}"[::-1]}.
    * Зверни увагу: сам entity балансира вимкнений за замовчуванням у HA —
    * користувачу треба ввімкнути його вручну (Налаштування → Сутності).
+   * Немає окремого поля в налаштуваннях — значення завжди береться
+   * з атрибута.
    */
   _cellBitmask() {
-    const manual = stateOf(this._hass, this._e("cell_bitmask"));
-    if (manual !== undefined && manual !== null && manual !== "unknown" && manual !== "unavailable") {
-      return manual;
-    }
     return attrOf(this._hass, this._e("balancer"), "cells");
   }
 

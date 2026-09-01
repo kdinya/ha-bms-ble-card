@@ -157,6 +157,45 @@ test("autoDiscoverEntities: max/min/delta cell voltage розпізнаютьс�
   assert.equal(entities.voltage, "sensor.battery_voltage");
 });
 
+test("autoDiscoverEntities: cycle_capacity визначається за unique_id, навіть якщо entity_id не містить 'cycle'/'cap' (немає translation_key в BMS_BLE-HA)", () => {
+  // Реальний сценарій: у sensor.py BMS_BLE-HA сенсор ATTR_CYCLE_CAP не має
+  // ні name, ні translation_key, тому HA генерує entity_id лише з назви
+  // пристрою — без слова "cycle"/"cap". Раніше це залишало поле картки
+  // порожнім, бо KEYWORD_RULES шукали ці слова в entity_id.
+  const entities = {
+    "sensor.redodo_12v_100ah": {
+      device_id: "dev1",
+      platform: "bms_ble",
+      unique_id: "bms_ble-aa:bb:cc:dd:ee:ff-cycle_capacity",
+    },
+    "sensor.redodo_12v_100ah_cycles": {
+      device_id: "dev1",
+      platform: "bms_ble",
+      unique_id: "bms_ble-aa:bb:cc:dd:ee:ff-cycles",
+    },
+  };
+  const states = {
+    "sensor.redodo_12v_100ah": {},
+    "sensor.redodo_12v_100ah_cycles": {},
+  };
+  const result = autoDiscoverEntities({ entities, states }, "dev1");
+  assert.equal(result.cycle_capacity, "sensor.redodo_12v_100ah");
+  assert.equal(result.charge_cycles, "sensor.redodo_12v_100ah_cycles");
+});
+
+test("autoDiscoverEntities: unique_id має пріоритет над словниковими правилами, коли вони конфліктують", () => {
+  const entities = {
+    "sensor.weird_name": {
+      device_id: "dev1",
+      platform: "bms_ble",
+      unique_id: "bms_ble-11:22:33:44:55:66-battery_level",
+    },
+  };
+  const states = { "sensor.weird_name": {} };
+  const result = autoDiscoverEntities({ entities, states }, "dev1");
+  assert.equal(result.soc, "sensor.weird_name");
+});
+
 test("autoDiscoverEntities: без пристрою повертає порожній обʼєкт", () => {
   const hass = fakeHass();
   assert.deepEqual(autoDiscoverEntities(hass, undefined), {});

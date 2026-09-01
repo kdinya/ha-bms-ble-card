@@ -118,7 +118,7 @@ entities:
   soc: sensor.redodo_soc
   temperature: sensor.redodo_temperature
   runtime: sensor.redodo_runtime
-  stored_energy: sensor.redodo_stored_energy
+  cycle_capacity: sensor.redodo_cycle_capacity
   charge_cycles: sensor.redodo_charge_cycles
   delta_cell_voltage: sensor.redodo_delta_cell_voltage
   max_cell_voltage: sensor.redodo_max_cell_voltage
