@@ -33,23 +33,21 @@ jobs:
           git tag -a "$tag" "$GITHUB_SHA" -m "Release $tag"
           git push origin "$tag"
 
-      - name: Validate HACS entry point
+      - name: Build single-file HACS asset
         shell: bash
         run: |
           set -euo pipefail
           test -s ha-bms-ble-card.js
-          node --check ha-bms-ble-card.js
-
-      - name: Prepare release asset
-        shell: bash
-        run: |
-          set -euo pipefail
+          test -s src/ha-bms-ble-card-v3-editor.js
           mkdir -p release
           cp ha-bms-ble-card.js release/ha-bms-ble-card.js
+          printf '\n\n' >> release/ha-bms-ble-card.js
+          cat src/ha-bms-ble-card-v3-editor.js >> release/ha-bms-ble-card.js
           sed -i -E 's/(const VERSION = ")[^"]+(";)/\1'"${{ steps.tag.outputs.tag }}"'\2/' release/ha-bms-ble-card.js
           node --check release/ha-bms-ble-card.js
           test -s release/ha-bms-ble-card.js
           grep -F 'const VERSION = "${{ steps.tag.outputs.tag }}"' release/ha-bms-ble-card.js
+          if grep -q 'import(' release/ha-bms-ble-card.js; then echo 'Dynamic imports are forbidden in the HACS asset'; exit 1; fi
 
       - name: Publish GitHub pre-release
         uses: softprops/action-gh-release@v2
