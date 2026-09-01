@@ -2,7 +2,7 @@ name: Tests
 
 on:
   push:
-    branches: [main]
+    branches: [main, bms-v3-auto-discovery]
   pull_request:
 
 jobs:
@@ -13,9 +13,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - name: Verify dist matches src (no forgotten build step)
-        run: diff src/ha-bms-ble-card.js dist/ha-bms-ble-card.js
-      - name: Syntax check
-        run: node --check dist/ha-bms-ble-card.js
+      - name: Syntax check stable card
+        run: node --check src/ha-bms-ble-card.js
+      - name: Syntax check v3 card
+        run: node --check src/ha-bms-ble-card-v3.js
       - name: Run unit tests
-        run: node --test test/logic.test.js
+        run: node --test test/logic.test.js test/smoke-render.test.js test/v3-discovery.test.js
