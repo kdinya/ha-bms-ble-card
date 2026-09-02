@@ -1,0 +1,83 @@
+name: Gemini Code Assistant
+
+on:
+  issues:
+    types: [opened]
+
+jobs:
+  process-issue:
+    if: contains(github.event.issue.title, '[AI]')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Dependencies
+        run: pip install google-genai
+
+      - name: Run Gemini Script
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+        run: |
+          python -c "
+          import os, glob
+          from google import genai
+
+          client = genai.Client(api_key=os.environ['GEMINI_API_KEY'])
+          
+          code_files = glob.glob('**/*.js', recursive=True) + glob.glob('**/*.css', recursive=True) + glob.glob('**/*.html', recursive=True)
+          context = ''
+          for filepath in code_files:
+              with open(filepath, 'r', encoding='utf-8') as f:
+                  context += f'\n--- FILE: {filepath} ---\n' + f.read()
+
+          prompt = f'''
+          Task: {os.environ['ISSUE_TITLE']}
+          Details: {os.environ['ISSUE_BODY']}
+          
+          Existing Codebase:
+          {context}
+
+          Return ONLY the complete updated code for the file that requires modification.
+          Precede the code block with a line specifying the relative file path in this exact format:
+          FILENAME: path/to/file
+          '''
+
+          response = client.models.generate_content(
+              model='gemini-2.5-flash',
+              contents=prompt
+          )
+
+          text = response.text.strip()
+          if 'FILENAME:' in text:
+              lines = text.splitlines()
+              filepath = lines[0].replace('FILENAME:', '').strip()
+              code = '\n'.join(lines[1:]).strip()
+              if code.startswith('```'):
+                  code = '\n'.join(code.splitlines()[1:])
+              if code.endswith('```'):
+                  code = '\n'.join(code.splitlines()[:-1])
+                  
+              with open(filepath, 'w', encoding='utf-8') as f:
+                  f.write(code)
+          "
+
+      - name: Commit and Push Changes
+        run: |
+          git config --global user.name "Gemini Assistant"
+          git config --global user.email "action@github.com"
+          git add .
+          git commit -m "AI Fix: ${{ github.event.issue.title }}" || exit 0
+          git push
+          
