@@ -23,6 +23,7 @@ const {
   cellVoltageFraction,
   activeBalancingCells,
   moreInfoAttr,
+  chargeFlowState,
   CELL_VOLTAGE_RANGE,
   DEFAULT_THRESHOLDS,
   findBmsBleDeviceIds,
@@ -312,4 +313,12 @@ test("moreInfoAttr: повертає data-more-info лише коли entity_id 
   assert.match(attr, /data-more-info="sensor\.batt_voltage"/);
   assert.match(attr, /tabindex="0"/);
   assert.match(attr, /role="button"/);
+});
+
+test("chargeFlowState: мапить підпис статусу на стан анімації потоку", () => {
+  assert.equal(chargeFlowState("Заряджається"), "charging");
+  assert.equal(chargeFlowState("Розряджається"), "discharging");
+  assert.equal(chargeFlowState("У простої"), null);
+  assert.equal(chargeFlowState("Проблема"), null);
+  assert.equal(chargeFlowState(undefined), null);
 });

@@ -272,3 +272,60 @@ console.log("Discovered:", Object.keys(discovered).sort().join(", "));
 
   console.log("Editor hardware-dependent-field hint regression test passed.");
 }
+
+// --- Картка: анімація потоку заряду/розряду на батареї (реально
+// зазначена користувачем відсутня фіча — не плутати з підсвіткою
+// балансування комірок вище, це окрема анімація на самій батареї). ---
+{
+  const card = Object.create(mod.HaBmsBleCard.prototype);
+  card._config = { entities: {} };
+
+  // 1) charging: on → статус "Заряджається" → клас bms-flow-charging.
+  const hassCharging = {
+    ...mockHass,
+    states: { ...mockHass.states, "binary_sensor.bat_charging": { state: "on", attributes: {} } },
+  };
+  card._hass = hassCharging;
+  card._resolvedEntities = mod.autoDiscoverEntities(hassCharging, deviceId);
+  const htmlCharging = card._renderFullView();
+  assert.match(htmlCharging, /battery-fill bms-flow-charging/, "заряд: клас анімації потоку на battery-fill");
+  assert.match(htmlCharging, /battery-shell[^"]*bms-flow-charging/, "заряд: клас анімації світіння на battery-shell");
+  assert.ok(!htmlCharging.includes("bms-flow-discharging"), "під час заряду немає класу розряду");
+
+  // 2) charging: off, струм явно від'ємний → статус "Розряджається" → bms-flow-discharging.
+  const hassDischarging = {
+    ...mockHass,
+    states: {
+      ...mockHass.states,
+      "binary_sensor.bat_charging": { state: "off", attributes: {} },
+      "sensor.bat_current": { state: "-16.8", attributes: { device_class: "current" } },
+    },
+  };
+  card._hass = hassDischarging;
+  card._resolvedEntities = mod.autoDiscoverEntities(hassDischarging, deviceId);
+  const htmlDischarging = card._renderFullView();
+  assert.match(htmlDischarging, /battery-fill bms-flow-discharging/, "розряд: клас анімації потоку на battery-fill");
+  assert.ok(!htmlDischarging.includes("bms-flow-charging"), "під час розряду немає класу заряду");
+
+  // 3) простій (струм ~0, charging off) → жодної анімації.
+  const hassIdle = {
+    ...mockHass,
+    states: {
+      ...mockHass.states,
+      "binary_sensor.bat_charging": { state: "off", attributes: {} },
+      "sensor.bat_current": { state: "0.05", attributes: { device_class: "current" } },
+    },
+  };
+  card._hass = hassIdle;
+  card._resolvedEntities = mod.autoDiscoverEntities(hassIdle, deviceId);
+  const htmlIdle = card._renderFullView();
+  assert.ok(!htmlIdle.includes("bms-flow-charging") && !htmlIdle.includes("bms-flow-discharging"), "у простої анімації немає");
+
+  // Те саме має працювати і в компактному (mini) вигляді картки.
+  card._hass = hassCharging;
+  card._resolvedEntities = mod.autoDiscoverEntities(hassCharging, deviceId);
+  const miniCharging = card._renderMiniView();
+  assert.match(miniCharging, /bms-flow-charging/, "заряд відображається і в mini-вигляді");
+
+  console.log("Card charge/discharge flow-animation regression test passed.");
+}

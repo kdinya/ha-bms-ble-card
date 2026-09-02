@@ -7,7 +7,7 @@
  * https://github.com/kdinya/ha-bms-ble-card
  */
 
-const CARD_VERSION = "3.0.0-beta.5";
+const CARD_VERSION = "3.0.0-beta.6";
 
 console.info(
   `%c HA-BMS-BLE-CARD %c v${CARD_VERSION} `,
@@ -820,6 +820,20 @@ const ENTITY_FIELD_GROUPS = [
  */
 const HARDWARE_DEPENDENT_FIELDS = new Set(["balancer", "chrg_mosfet", "dischrg_mosfet", "heater", "soh", "design_capacity"]);
 
+/**
+ * Наскільки барвиста анімація "потоку" всередині батареї відповідає
+ * поточному режиму (заряд/розряд), визначеному в `_statusInfo()`. Винесено
+ * як чисту функцію заради юніт-тесту — конкретні підписи статусу лишаються
+ * єдиним джерелом істини, замість дублювання умов current>0/charging="on".
+ * Натхнення — анімація потоку в jk-bms-card (там вона для балансування;
+ * тут ми додаємо саме заряд/розряд, якого явно просив користувач).
+ */
+function chargeFlowState(statusLabel) {
+  if (statusLabel === "Заряджається") return "charging";
+  if (statusLabel === "Розряджається") return "discharging";
+  return null;
+}
+
 class HaBmsBleCardEditor extends HTMLElement {
   setConfig(config) {
     this._config = { ...config };
@@ -1507,14 +1521,15 @@ class HaBmsBleCard extends HTMLElement {
   }
 
   /* ===== UI matching bms-dashboard.html reference ===== */
-  _renderBatteryShape(percent, variant) {
+  _renderBatteryShape(percent, variant, flowState) {
     const p = Math.max(0, Math.min(100, Number(percent) || 0));
     // CSS battery (not SVG) — same structure as reference HTML
     const topPct = Math.max(8, 100 - p);
+    const flowClass = flowState === "charging" ? "bms-flow-charging" : flowState === "discharging" ? "bms-flow-discharging" : "";
     return `
-      <div class="battery-shell bms-battery-shape-${variant}">
+      <div class="battery-shell bms-battery-shape-${variant} ${flowClass}">
         <div class="battery-nub"></div>
-        <div class="battery-fill" style="top:${topPct}%;">
+        <div class="battery-fill ${flowClass}" style="top:${topPct}%;">
           <div class="pct">${p.toFixed(0)}%</div>
           <div class="soc-label">SOC</div>
         </div>
@@ -1820,7 +1835,7 @@ class HaBmsBleCard extends HTMLElement {
 
         <div class="top-row">
           <div class="battery-box"${moreInfoAttr(this._e("soc"))}>
-            ${this._renderBatteryShape(soc, "full")}
+            ${this._renderBatteryShape(soc, "full", chargeFlowState(status.label))}
             <div class="charge-badge">
               ${haIcon(status.icon, 16)} ${status.label}${balancingOn ? ` · ${haIcon("ti-topology-star-3", 14)}` : ""}
             </div>
@@ -1915,7 +1930,7 @@ class HaBmsBleCard extends HTMLElement {
         </div>
         <div class="top-row">
           <div class="battery-box" style="width:140px;"${moreInfoAttr(this._e("soc"))}>
-            ${this._renderBatteryShape(soc, "mini")}
+            ${this._renderBatteryShape(soc, "mini", chargeFlowState(status.label))}
             <div class="charge-badge" style="font-size:12px;padding:6px 10px;">${status.label}</div>
           </div>
           <div class="stat-col">
@@ -2061,6 +2076,30 @@ class HaBmsBleCard extends HTMLElement {
           display:inline-flex; align-items:center; gap:4px; margin-left:8px; padding:2px 8px;
           border-radius:8px; background:var(--green-dim); color:var(--green); font-size:11px; font-weight:600;
           vertical-align:middle;
+        }
+
+        /* Анімація потоку заряду/розряду на самій батареї. Смуги в заповненні
+           "течуть" вгору при заряді (енергія прибуває) і вниз при розряді
+           (енергія витрачається); корпус батареї підсвічується відповідним
+           кольором у такт. Натхнення — анімація потоку балансування в
+           jk-bms-card, але тут саме для заряду/розряду, як просив користувач. */
+        @keyframes bms-flow-up { from { background-position: 0 28px, 0 0; } to { background-position: 0 0, 0 0; } }
+        @keyframes bms-flow-down { from { background-position: 0 0, 0 0; } to { background-position: 0 28px, 0 0; } }
+        @keyframes bms-glow-charge { 0%, 100% { box-shadow: 0 0 0 0 rgba(29,158,117,0); } 50% { box-shadow: 0 0 16px 2px rgba(29,158,117,0.5); } }
+        @keyframes bms-glow-discharge { 0%, 100% { box-shadow: 0 0 0 0 rgba(239,159,39,0); } 50% { box-shadow: 0 0 16px 2px rgba(239,159,39,0.45); } }
+        .battery-fill.bms-flow-charging, .battery-fill.bms-flow-discharging {
+          background-image:
+            repeating-linear-gradient(0deg, rgba(255,255,255,0.24) 0px, rgba(255,255,255,0.24) 7px, transparent 7px, transparent 18px),
+            linear-gradient(180deg,#63e07e 0%,#2fae4e 100%);
+          background-size: 100% 28px, 100% 100%;
+        }
+        .battery-fill.bms-flow-charging { animation: bms-flow-up 0.85s linear infinite; }
+        .battery-fill.bms-flow-discharging { animation: bms-flow-down 0.85s linear infinite; }
+        .battery-shell.bms-flow-charging { animation: bms-glow-charge 2s ease-in-out infinite; }
+        .battery-shell.bms-flow-discharging { animation: bms-glow-discharge 2s ease-in-out infinite; }
+        @media (prefers-reduced-motion: reduce) {
+          .battery-fill.bms-flow-charging, .battery-fill.bms-flow-discharging,
+          .battery-shell.bms-flow-charging, .battery-shell.bms-flow-discharging { animation: none; }
         }
 
         .discharge-box {
@@ -2259,6 +2298,7 @@ if (typeof module !== "undefined" && module.exports) {
     cellVoltageFraction,
     activeBalancingCells,
     moreInfoAttr,
+    chargeFlowState,
     CELL_VOLTAGE_RANGE,
     DEFAULT_THRESHOLDS,
     BMS_BLE_DOMAIN,
