@@ -329,3 +329,38 @@ console.log("Discovered:", Object.keys(discovered).sort().join(", "));
 
   console.log("Card charge/discharge flow-animation regression test passed.");
 }
+
+// --- Картка: flow-діаграма заряд/розряд (іконка -- пунктирна лінія --
+// НАША БАТАРЕЯ замість кола -- пунктирна лінія -- іконка), і повне
+// видалення блоків "Використано ємності" та "Час роботи до розряду
+// (прогноз)", як просив користувач. ---
+{
+  const card = Object.create(mod.HaBmsBleCard.prototype);
+  card._config = { entities: {} };
+
+  const hassCharging = {
+    ...mockHass,
+    states: { ...mockHass.states, "binary_sensor.bat_charging": { state: "on", attributes: {} } },
+  };
+  card._hass = hassCharging;
+  card._resolvedEntities = mod.autoDiscoverEntities(hassCharging, deviceId);
+  const htmlCharging = card._renderFullView();
+
+  assert.match(htmlCharging, /class="flow-row"/, "flow-row присутній");
+  assert.match(htmlCharging, /flow-icon-circle flow-active-charge/, "ліва іконка (заряд) активна під час заряду");
+  assert.ok(!htmlCharging.includes("flow-active-discharge"), "права іконка НЕ активна під час заряду");
+  assert.match(htmlCharging, /flow-line flow-line-charge active/, "лінія заряду анімована");
+  assert.ok(!/flow-line-discharge active/.test(htmlCharging), "лінія розряду не анімована під час заряду");
+  // Батарея тепер саме в flow-row (клас flow-battery), старого окремого
+  // battery-box більше немає.
+  assert.match(htmlCharging, /<div class="flow-battery"[^>]*>[\s\S]{0,50}battery-shell bms-battery-shape-flow/, "батарея відрендерена всередині flow-battery");
+  assert.ok(!htmlCharging.includes('class="battery-box"'), "старого окремого battery-box більше немає");
+
+  // Видалені за проханням користувача блоки не повинні з'являтися взагалі.
+  assert.ok(!htmlCharging.includes("Використано ємності"), "блок 'Використано ємності' видалено");
+  assert.ok(!htmlCharging.includes("Час роботи до розряду"), "блок 'Час роботи до розряду (прогноз)' видалено");
+  assert.ok(!htmlCharging.includes("usage-grid"), "розмітка usage-grid видалена");
+  assert.ok(!htmlCharging.includes("forecast-row"), "розмітка forecast-row видалена");
+
+  console.log("Card flow-diagram + removed-sections regression test passed.");
+}

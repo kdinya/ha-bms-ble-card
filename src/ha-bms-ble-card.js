@@ -7,7 +7,7 @@
  * https://github.com/kdinya/ha-bms-ble-card
  */
 
-const CARD_VERSION = "3.0.0-beta.6";
+const CARD_VERSION = "3.0.0-beta.7";
 
 console.info(
   `%c HA-BMS-BLE-CARD %c v${CARD_VERSION} `,
@@ -1536,14 +1536,6 @@ class HaBmsBleCard extends HTMLElement {
       </div>`;
   }
 
-  _hasCapacityEntities() {
-    return !!(this._e("capacity_daily") || this._e("capacity_weekly") || this._e("capacity_monthly") || this._e("capacity_total"));
-  }
-
-  _hasDischargeEntities() {
-    return !!(this._e("discharge_time_daily") || this._e("discharge_time_weekly") || this._e("discharge_time_monthly"));
-  }
-
   _cellStats() {
     const cells = this._cellVoltages();
     if (!cells.length) return null;
@@ -1617,40 +1609,6 @@ class HaBmsBleCard extends HTMLElement {
     let label = "До розряду";
     if (status.color === "success") label = "До повного заряду";
     return { seconds, label, socPct: Number.isFinite(soc) ? Math.max(0, Math.min(100, soc)) : 0 };
-  }
-
-  _renderSparkline(seed) {
-    const pts = [];
-    let y = 18;
-    const n = 14;
-    for (let i = 0; i < n; i++) {
-      const t = (seed * 19 + i * 11) % 13;
-      y = Math.max(4, Math.min(32, y + (t - 6) * 1.3));
-      pts.push(y);
-    }
-    const w = 280, h = 36;
-    const max = Math.max(...pts), min = Math.min(...pts);
-    const step = w / (n - 1);
-    const norm = (v) => h - ((v - min) / (max - min || 1)) * h * 0.8 - h * 0.1;
-    const d = pts.map((v, i) => `${i === 0 ? "M" : "L"}${(i * step).toFixed(1)},${norm(v).toFixed(1)}`).join(" ");
-    return `<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" class="bms-spark"><path d="${d}" fill="none" stroke="#1D9E75" stroke-width="1.6"/></svg>`;
-  }
-
-  _renderCapacityCard(label, entityId, designAh) {
-    if (!entityId) return "";
-    const val = Number(stateOf(this._hass, entityId));
-    const unit = attrOf(this._hass, entityId, "unit_of_measurement") || "Ah";
-    let pctHtml = "";
-    if (Number.isFinite(val) && Number.isFinite(designAh) && designAh > 0) {
-      pctHtml = `<div class="p">${((val / designAh) * 100).toFixed(1)}%</div>`;
-    }
-    const seed = (entityId || "").length + (Number.isFinite(val) ? Math.round(val * 10) : 0);
-    return `
-      <div class="usage-card"${moreInfoAttr(entityId)}>
-        <div class="lbl">${label}</div>
-        <div class="val-row"><div class="v">${fmt(val, 1)} ${unit}</div>${pctHtml}</div>
-        ${this._renderSparkline(seed)}
-      </div>`;
   }
 
   _renderHistoryBars() {
@@ -1758,6 +1716,7 @@ class HaBmsBleCard extends HTMLElement {
     const balanceCur = this._balanceCurrentA();
     const cellBitmask = this._cellBitmask();
     const status = this._statusInfo();
+    const flowState = chargeFlowState(status.label);
     const eta = this._etaInfo();
     const socPct = Number.isFinite(soc) ? Math.max(0, Math.min(100, soc)) : 0;
     const designN = Number(design);
@@ -1833,13 +1792,30 @@ class HaBmsBleCard extends HTMLElement {
           </div>
         </div>
 
-        <div class="top-row">
-          <div class="battery-box"${moreInfoAttr(this._e("soc"))}>
-            ${this._renderBatteryShape(soc, "full", chargeFlowState(status.label))}
+        <div class="flow-row">
+          <div class="flow-node">
+            <div class="flow-icon-circle ${flowState === "charging" ? "flow-active-charge" : ""}">${haIcon("ti-bolt", 26, flowState === "charging" ? "#1D9E75" : "#8b96a3")}</div>
+            <div class="flow-label">Заряд</div>
+            <div class="flow-state ${flowState === "charging" ? "on" : ""}">${flowState === "charging" ? "ON" : "OFF"}</div>
+            <div class="flow-val">${flowState === "charging" ? `${fmt(power, 0)} W` : "—"}</div>
+          </div>
+          <div class="flow-line flow-line-charge ${flowState === "charging" ? "active" : ""}"></div>
+          <div class="flow-battery"${moreInfoAttr(this._e("soc"))}>
+            ${this._renderBatteryShape(soc, "flow", flowState)}
             <div class="charge-badge">
               ${haIcon(status.icon, 16)} ${status.label}${balancingOn ? ` · ${haIcon("ti-topology-star-3", 14)}` : ""}
             </div>
           </div>
+          <div class="flow-line flow-line-discharge ${flowState === "discharging" ? "active" : ""}"></div>
+          <div class="flow-node">
+            <div class="flow-icon-circle ${flowState === "discharging" ? "flow-active-discharge" : ""}">${haIcon("ti-plug-connected", 26, flowState === "discharging" ? "#EF9F27" : "#8b96a3")}</div>
+            <div class="flow-label">Розряд</div>
+            <div class="flow-state ${flowState === "discharging" ? "on-discharge" : ""}">${flowState === "discharging" ? "ON" : "OFF"}</div>
+            <div class="flow-val">${flowState === "discharging" ? `${fmt(Math.abs(Number(power)), 0)} W` : "—"}</div>
+          </div>
+        </div>
+
+        <div class="top-row">
           <div class="stat-col">
             <div class="stat-box"${moreInfoAttr(this._e("voltage"))}><div class="val">${fmt(voltage, 2)} V</div><div class="lbl">Напруга</div></div>
             <div class="stat-box"${moreInfoAttr(this._e("current"))}><div class="val ${currentGreen ? "green" : ""}">${fmt(current, 1)} A</div><div class="lbl">Струм</div></div>
@@ -1874,27 +1850,6 @@ class HaBmsBleCard extends HTMLElement {
           ${link !== undefined ? `<div class="metric"><div class="val">${fmt(link, 0)}%</div><div class="lbl">Link Quality</div></div>` : ""}
           ${rssi !== undefined ? `<div class="metric"><div class="val">${fmt(rssi, 0)} <span>dBm</span></div><div class="lbl">RSSI</div></div>` : ""}
         </div>
-
-        <h2 class="section-title">Використано ємності</h2>
-        ${this._hasCapacityEntities() ? `
-        <div class="usage-grid">
-          ${this._renderCapacityCard("Сьогодні", this._e("capacity_daily"), designN)}
-          ${this._renderCapacityCard("Тиждень", this._e("capacity_weekly"), designN)}
-          ${this._renderCapacityCard("Місяць", this._e("capacity_monthly"), designN)}
-          ${this._renderCapacityCard("Всього", this._e("capacity_total"), designN)}
-        </div>` : `<p class="bms-muted" style="margin-bottom:24px;">Сенсори споживання не налаштовані.</p>`}
-
-        ${this._hasDischargeEntities() || eta.seconds !== undefined ? `
-        <h2 class="section-title">Час роботи до розряду (прогноз)</h2>
-        <div class="forecast-row">
-          <div class="forecast-card">
-            <div class="icon-circle">${haIcon("ti-clock-hour-4",20,"#4b9bf0")}</div>
-            <div class="forecast-text"><div class="l1">При поточному навантаженні</div><div class="l2">${eta.seconds !== undefined ? secondsToHuman(eta.seconds) : "—"}</div></div>
-          </div>
-          ${this._e("discharge_time_daily") ? `<div class="forecast-card"${moreInfoAttr(this._e("discharge_time_daily"))}><div class="icon-circle">${haIcon("ti-clock-hour-4",20,"#4b9bf0")}</div><div class="forecast-text"><div class="l1">Сьогоднішній розряд</div><div class="l2">~${fmt(stateOf(this._hass, this._e("discharge_time_daily")), 1)} год</div></div></div>` : ""}
-          ${this._e("discharge_time_weekly") ? `<div class="forecast-card"${moreInfoAttr(this._e("discharge_time_weekly"))}><div class="icon-circle">${haIcon("ti-clock-hour-4",20,"#4b9bf0")}</div><div class="forecast-text"><div class="l1">Середній за тиждень</div><div class="l2">~${fmt(stateOf(this._hass, this._e("discharge_time_weekly")), 1)} год</div></div></div>` : ""}
-          ${this._e("discharge_time_monthly") ? `<div class="forecast-card"${moreInfoAttr(this._e("discharge_time_monthly"))}><div class="icon-circle">${haIcon("ti-clock-hour-4",20,"#4b9bf0")}</div><div class="forecast-text"><div class="l1">Середній за місяць</div><div class="l2">~${fmt(stateOf(this._hass, this._e("discharge_time_monthly")), 1)} год</div></div></div>` : ""}
-        </div>` : ""}
 
         ${this._renderHistoryBars()}
 
@@ -2005,6 +1960,47 @@ class HaBmsBleCard extends HTMLElement {
         .dot { width:8px; height:8px; border-radius:50%; background:var(--green); display:inline-block; }
 
         .top-row { display:flex; gap:14px; margin-bottom:14px; align-items:stretch; flex-wrap:wrap; }
+
+        /* Flow-діаграма заряд/розряд навколо батареї — натхнення від
+           дашбордів на кшталт "Core Reactor" (jk-bms-card): іконка джерела
+           заряду зліва, наша батарея (з анімацією потоку) в центрі замість
+           кола, іконка навантаження справа, з'єднані пунктирними лініями,
+           що анімуються лише коли відповідний бік активний. */
+        .flow-row { display:flex; align-items:center; justify-content:center; gap:6px; margin:8px 0 20px; flex-wrap:wrap; }
+        .flow-node { display:flex; flex-direction:column; align-items:center; gap:4px; width:96px; flex-shrink:0; }
+        .flow-icon-circle {
+          width:60px; height:60px; border-radius:50%; border:2px solid #3a4650; background:#0a0f14;
+          display:flex; align-items:center; justify-content:center; transition:border-color 0.3s ease, box-shadow 0.3s ease;
+        }
+        .flow-icon-circle.flow-active-charge { border-color:var(--green); box-shadow:0 0 14px rgba(29,158,117,0.45); }
+        .flow-icon-circle.flow-active-discharge { border-color:var(--amber); box-shadow:0 0 14px rgba(239,159,39,0.4); }
+        .flow-label { font-size:13px; color:var(--muted); }
+        .flow-state { font-size:12px; font-weight:700; color:var(--muted-2); }
+        .flow-state.on { color:var(--green); }
+        .flow-state.on-discharge { color:var(--amber); }
+        .flow-val { font-size:15px; font-weight:700; }
+        .flow-battery { display:flex; flex-direction:column; align-items:center; gap:10px; flex-shrink:0; }
+        .flow-line {
+          flex:1; height:3px; min-width:24px; max-width:110px; align-self:center; margin-top:-30px;
+          background-image: repeating-linear-gradient(to right, #3a4650 0, #3a4650 8px, transparent 8px, transparent 16px);
+          background-size: 32px 3px; transition: background-image 0.3s ease;
+        }
+        @keyframes bms-dash-move-right { from { background-position-x:0; } to { background-position-x:32px; } }
+        @keyframes bms-dash-move-left { from { background-position-x:32px; } to { background-position-x:0; } }
+        .flow-line-charge.active {
+          background-image: repeating-linear-gradient(to right, var(--green) 0, var(--green) 8px, transparent 8px, transparent 16px);
+          animation: bms-dash-move-right 0.7s linear infinite;
+        }
+        .flow-line-discharge.active {
+          background-image: repeating-linear-gradient(to right, var(--amber) 0, var(--amber) 8px, transparent 8px, transparent 16px);
+          animation: bms-dash-move-right 0.7s linear infinite;
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .flow-line-charge.active, .flow-line-discharge.active { animation:none; }
+        }
+        @media (max-width: 480px) {
+          .flow-line { display:none; }
+        }
         .battery-box {
           background:var(--panel); border:1px solid var(--border); border-radius:16px;
           width:230px; flex-shrink:0; padding:16px; display:flex; flex-direction:column; align-items:center; gap:14px;
@@ -2014,6 +2010,7 @@ class HaBmsBleCard extends HTMLElement {
           border:3px solid #3a4650; background:#0a0f14; padding:6px;
         }
         .bms-battery-shape-mini.battery-shell { width:90px; height:130px; }
+        .bms-battery-shape-flow.battery-shell { width:104px; height:152px; }
         .battery-nub {
           position:absolute; top:-10px; left:50%; transform:translateX(-50%);
           width:44px; height:10px; background:#3a4650; border-radius:4px 4px 0 0;
