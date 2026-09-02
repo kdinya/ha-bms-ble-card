@@ -7,7 +7,7 @@
  * https://github.com/kdinya/ha-bms-ble-card
  */
 
-const CARD_VERSION = "3.0.0-beta.7";
+const CARD_VERSION = "3.0.0-beta.8";
 
 console.info(
   `%c HA-BMS-BLE-CARD %c v${CARD_VERSION} `,
@@ -74,6 +74,8 @@ const TI_TO_MDI = {
   "ti-pause": "mdi:pause",
   "ti-plug-connected": "mdi:power-plug",
   "ti-refresh": "mdi:refresh",
+  "ti-transmission-tower": "mdi:transmission-tower",
+  "ti-home-bolt": "mdi:home-lightning-bolt",
   "ti-scale": "mdi:scale-balance",
   "ti-topology-star-3": "mdi:sitemap",
   "ti-wave-sine": "mdi:sine-wave",
@@ -190,6 +192,36 @@ function activeBalancingCells(bitmaskStr) {
  */
 function moreInfoAttr(entityId) {
   return entityId ? ` data-more-info="${entityId}" tabindex="0" role="button"` : "";
+}
+
+/**
+ * Зігнута стрілка "потоку енергії" з наконечником — власна, оригінальна
+ * SVG-графіка (не запозичена з чужих скріншотів/іконок). Плавний
+ * S-подібний вигин замість прямої лінії, і наконечник-трикутник у кінці.
+ * Анімація — рухомий пунктир по кривій (stroke-dashoffset), що дає
+ * значно плавніший, векторний рух смужок порівняно з попереднім
+ * підходом на CSS background-position.
+ *
+ * Однакова горизонтальна форма підходить для ОБОХ з'єднувачів (іконка→
+ * батарея і батарея→іконка): у локальних координатах з'єднувача потік
+ * завжди йде зліва направо, а яка сторона фізично "джерело" — залежить
+ * лише від того, з якого боку картки розміщено іконку. Вертикальний
+ * варіант (для вузьких екранів, де ряд складається у колонку) — той
+ * самий принцип згори вниз.
+ */
+function flowArrowSvg(vertical, active, colorHex) {
+  const stroke = active ? colorHex : "#3a4650";
+  const dashClass = active ? "flow-arrow-active" : "";
+  if (vertical) {
+    return `<svg class="flow-arrow flow-arrow-v" viewBox="0 0 50 100" preserveAspectRatio="none" aria-hidden="true">
+      <path class="flow-arrow-path ${dashClass}" d="M14,4 C14,28 36,28 36,50 L36,78" fill="none" stroke="${stroke}" stroke-width="4" stroke-linecap="round"/>
+      <polygon class="flow-arrow-head" points="27,78 36,95 45,78" fill="${stroke}"/>
+    </svg>`;
+  }
+  return `<svg class="flow-arrow flow-arrow-h" viewBox="0 0 100 50" preserveAspectRatio="none" aria-hidden="true">
+    <path class="flow-arrow-path ${dashClass}" d="M4,36 C28,36 28,14 50,14 L78,14" fill="none" stroke="${stroke}" stroke-width="4" stroke-linecap="round"/>
+    <polygon class="flow-arrow-head" points="78,5 96,14 78,23" fill="${stroke}"/>
+  </svg>`;
 }
 
 /* ----------------------------------------------------------------------
@@ -1794,21 +1826,31 @@ class HaBmsBleCard extends HTMLElement {
 
         <div class="flow-row">
           <div class="flow-node">
-            <div class="flow-icon-circle ${flowState === "charging" ? "flow-active-charge" : ""}">${haIcon("ti-bolt", 26, flowState === "charging" ? "#1D9E75" : "#8b96a3")}</div>
+            <div class="flow-icon-circle ${flowState === "charging" ? "flow-active-charge" : ""}">${haIcon("ti-transmission-tower", 26, flowState === "charging" ? "#1D9E75" : "#8b96a3")}</div>
             <div class="flow-label">Заряд</div>
             <div class="flow-state ${flowState === "charging" ? "on" : ""}">${flowState === "charging" ? "ON" : "OFF"}</div>
             <div class="flow-val">${flowState === "charging" ? `${fmt(power, 0)} W` : "—"}</div>
           </div>
-          <div class="flow-line flow-line-charge ${flowState === "charging" ? "active" : ""}"></div>
+          <div class="flow-connector-wrap">
+            ${flowArrowSvg(false, flowState === "charging", "#1D9E75")}
+            ${flowArrowSvg(true, flowState === "charging", "#1D9E75")}
+          </div>
           <div class="flow-battery"${moreInfoAttr(this._e("soc"))}>
             ${this._renderBatteryShape(soc, "flow", flowState)}
             <div class="charge-badge">
               ${haIcon(status.icon, 16)} ${status.label}${balancingOn ? ` · ${haIcon("ti-topology-star-3", 14)}` : ""}
             </div>
+            <div class="flow-battery-readout">
+              <div class="v">${fmt(voltage, 1)} V</div>
+              <div class="a">${current !== undefined && current !== null ? `${Number(current) > 0 ? "+" : ""}${fmt(current, 1)} A` : "—"}</div>
+            </div>
           </div>
-          <div class="flow-line flow-line-discharge ${flowState === "discharging" ? "active" : ""}"></div>
+          <div class="flow-connector-wrap">
+            ${flowArrowSvg(false, flowState === "discharging", "#EF9F27")}
+            ${flowArrowSvg(true, flowState === "discharging", "#EF9F27")}
+          </div>
           <div class="flow-node">
-            <div class="flow-icon-circle ${flowState === "discharging" ? "flow-active-discharge" : ""}">${haIcon("ti-plug-connected", 26, flowState === "discharging" ? "#EF9F27" : "#8b96a3")}</div>
+            <div class="flow-icon-circle ${flowState === "discharging" ? "flow-active-discharge" : ""}">${haIcon("ti-home-bolt", 26, flowState === "discharging" ? "#EF9F27" : "#8b96a3")}</div>
             <div class="flow-label">Розряд</div>
             <div class="flow-state ${flowState === "discharging" ? "on-discharge" : ""}">${flowState === "discharging" ? "ON" : "OFF"}</div>
             <div class="flow-val">${flowState === "discharging" ? `${fmt(Math.abs(Number(power)), 0)} W` : "—"}</div>
@@ -1961,66 +2003,80 @@ class HaBmsBleCard extends HTMLElement {
 
         .top-row { display:flex; gap:14px; margin-bottom:14px; align-items:stretch; flex-wrap:wrap; }
 
-        /* Flow-діаграма заряд/розряд навколо батареї — натхнення від
-           дашбордів на кшталт "Core Reactor" (jk-bms-card): іконка джерела
-           заряду зліва, наша батарея (з анімацією потоку) в центрі замість
-           кола, іконка навантаження справа, з'єднані пунктирними лініями,
-           що анімуються лише коли відповідний бік активний. */
-        .flow-row { display:flex; align-items:center; justify-content:center; gap:6px; margin:8px 0 20px; flex-wrap:wrap; }
-        .flow-node { display:flex; flex-direction:column; align-items:center; gap:4px; width:96px; flex-shrink:0; }
+        /* Flow-діаграма заряд/розряд навколо батареї: іконка джерела зліва,
+           наша батарея (з анімацією потоку) в центрі замість кола, іконка
+           навантаження справа, з'єднані зігнутими стрілками з наконечником.
+           На вузьких екранах ряд складається в колонку, а стрілки
+           перемикаються на вертикальний варіант тим самим SVG-принципом. */
+        .flow-row { display:flex; align-items:center; justify-content:center; gap:2px; margin:8px 0 20px; }
+        .flow-node { display:flex; flex-direction:column; align-items:center; gap:4px; width:88px; flex-shrink:0; }
         .flow-icon-circle {
-          width:60px; height:60px; border-radius:50%; border:2px solid #3a4650; background:#0a0f14;
+          width:60px; height:60px; border-radius:50%; border:2px solid #4a5764;
+          background:radial-gradient(circle at 35% 30%, #232c34, #0a0f14);
+          box-shadow: inset 0 1px 2px rgba(255,255,255,0.12);
           display:flex; align-items:center; justify-content:center; transition:border-color 0.3s ease, box-shadow 0.3s ease;
         }
-        .flow-icon-circle.flow-active-charge { border-color:var(--green); box-shadow:0 0 14px rgba(29,158,117,0.45); }
-        .flow-icon-circle.flow-active-discharge { border-color:var(--amber); box-shadow:0 0 14px rgba(239,159,39,0.4); }
+        .flow-icon-circle.flow-active-charge { border-color:var(--green); box-shadow:0 0 14px rgba(29,158,117,0.5), inset 0 1px 2px rgba(255,255,255,0.12); }
+        .flow-icon-circle.flow-active-discharge { border-color:var(--amber); box-shadow:0 0 14px rgba(239,159,39,0.45), inset 0 1px 2px rgba(255,255,255,0.12); }
         .flow-label { font-size:13px; color:var(--muted); }
         .flow-state { font-size:12px; font-weight:700; color:var(--muted-2); }
         .flow-state.on { color:var(--green); }
         .flow-state.on-discharge { color:var(--amber); }
         .flow-val { font-size:15px; font-weight:700; }
-        .flow-battery { display:flex; flex-direction:column; align-items:center; gap:10px; flex-shrink:0; }
-        .flow-line {
-          flex:1; height:3px; min-width:24px; max-width:110px; align-self:center; margin-top:-30px;
-          background-image: repeating-linear-gradient(to right, #3a4650 0, #3a4650 8px, transparent 8px, transparent 16px);
-          background-size: 32px 3px; transition: background-image 0.3s ease;
-        }
-        @keyframes bms-dash-move-right { from { background-position-x:0; } to { background-position-x:32px; } }
-        @keyframes bms-dash-move-left { from { background-position-x:32px; } to { background-position-x:0; } }
-        .flow-line-charge.active {
-          background-image: repeating-linear-gradient(to right, var(--green) 0, var(--green) 8px, transparent 8px, transparent 16px);
-          animation: bms-dash-move-right 0.7s linear infinite;
-        }
-        .flow-line-discharge.active {
-          background-image: repeating-linear-gradient(to right, var(--amber) 0, var(--amber) 8px, transparent 8px, transparent 16px);
-          animation: bms-dash-move-right 0.7s linear infinite;
-        }
+        .flow-battery { display:flex; flex-direction:column; align-items:center; gap:8px; flex-shrink:0; }
+        .flow-battery-readout { display:flex; flex-direction:column; align-items:center; gap:1px; }
+        .flow-battery-readout .v { font-size:15px; font-weight:700; }
+        .flow-battery-readout .a { font-size:13px; color:var(--muted); }
+
+        .flow-connector-wrap { width:56px; height:56px; flex-shrink:0; display:flex; align-items:center; justify-content:center; }
+        .flow-arrow { width:100%; height:100%; overflow:visible; }
+        .flow-arrow-v { display:none; }
+        .flow-arrow-path { transition: stroke 0.3s ease; }
+        .flow-arrow-head { transition: fill 0.3s ease; }
+        @keyframes bms-arrow-flow { from { stroke-dashoffset:0; } to { stroke-dashoffset:-24; } }
+        .flow-arrow-path.flow-arrow-active { stroke-dasharray:13 11; animation: bms-arrow-flow 0.7s linear infinite; }
         @media (prefers-reduced-motion: reduce) {
-          .flow-line-charge.active, .flow-line-discharge.active { animation:none; }
+          .flow-arrow-path.flow-arrow-active { animation:none; }
         }
+        /* На вузькому екрані ряд перетворюється на колонку: іконка джерела
+           зверху, батарея, іконка навантаження знизу — жодних елементів не
+           ховаємо, лише перевпорядковуємо й перемикаємо орієнтацію стрілок. */
         @media (max-width: 480px) {
-          .flow-line { display:none; }
+          .flow-row { flex-direction:column; gap:0; }
+          .flow-connector-wrap { width:56px; height:44px; }
+          .flow-arrow-h { display:none; }
+          .flow-arrow-v { display:block; }
         }
         .battery-box {
           background:var(--panel); border:1px solid var(--border); border-radius:16px;
           width:230px; flex-shrink:0; padding:16px; display:flex; flex-direction:column; align-items:center; gap:14px;
         }
         .battery-shell {
-          position:relative; width:130px; height:190px; border-radius:14px;
-          border:3px solid #3a4650; background:#0a0f14; padding:6px;
+          position:relative; width:130px; height:190px; border-radius:16px;
+          border:3px solid #4a5764; background:linear-gradient(145deg,#1c242c,#0a0f14);
+          padding:6px; box-shadow: inset 0 2px 4px rgba(255,255,255,0.08), inset 0 -6px 10px rgba(0,0,0,0.5), 0 4px 10px rgba(0,0,0,0.4);
         }
         .bms-battery-shape-mini.battery-shell { width:90px; height:130px; }
         .bms-battery-shape-flow.battery-shell { width:104px; height:152px; }
         .battery-nub {
-          position:absolute; top:-10px; left:50%; transform:translateX(-50%);
-          width:44px; height:10px; background:#3a4650; border-radius:4px 4px 0 0;
+          position:absolute; top:-12px; left:50%; transform:translateX(-50%);
+          width:46px; height:12px; border-radius:5px 5px 0 0;
+          background:linear-gradient(180deg,#6b7883,#3a4650);
+          box-shadow: inset 0 1px 1px rgba(255,255,255,0.35);
         }
         .battery-fill {
-          position:absolute; left:6px; right:6px; bottom:6px; border-radius:8px;
-          background:linear-gradient(180deg,#63e07e 0%,#2fae4e 100%);
+          position:absolute; left:6px; right:6px; bottom:6px; border-radius:9px; overflow:hidden;
+          background:linear-gradient(180deg,#7bf094 0%,#63e07e 35%,#2fae4e 100%);
+          box-shadow: inset 0 2px 3px rgba(255,255,255,0.35), inset 0 -8px 14px rgba(0,0,0,0.3);
           display:flex; flex-direction:column; align-items:center; justify-content:center;
         }
-        .battery-fill .pct { font-size:30px; font-weight:800; color:#eafff0; line-height:1; }
+        /* Глянцева діагональна відбивна смуга — суто CSS, для об'ємного вигляду. */
+        .battery-fill::before {
+          content:""; position:absolute; top:-20%; left:8%; width:26%; height:140%;
+          background:linear-gradient(180deg, rgba(255,255,255,0.28), rgba(255,255,255,0));
+          transform:rotate(8deg); pointer-events:none;
+        }
+        .battery-fill .pct { font-size:30px; font-weight:800; color:#eafff0; line-height:1; text-shadow:0 1px 2px rgba(0,0,0,0.35); }
         .bms-battery-shape-mini .battery-fill .pct { font-size:22px; }
         .battery-fill .soc-label { font-size:12px; color:#eafff0cc; margin-top:2px; font-weight:600; }
         .charge-badge {
