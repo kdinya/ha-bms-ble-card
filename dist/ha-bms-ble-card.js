@@ -214,13 +214,13 @@ function flowArrowSvg(vertical, active, colorHex) {
   const dashClass = active ? "flow-arrow-active" : "";
   if (vertical) {
     return `<svg class="flow-arrow flow-arrow-v" viewBox="0 0 50 100" preserveAspectRatio="none" aria-hidden="true">
-      <path class="flow-arrow-path ${dashClass}" d="M14,4 C14,28 36,28 36,50 L36,78" fill="none" stroke="${stroke}" stroke-width="4" stroke-linecap="round"/>
-      <polygon class="flow-arrow-head" points="27,78 36,95 45,78" fill="${stroke}"/>
+      <path class="flow-arrow-path ${dashClass}" d="M14,4 C14,28 36,28 36,50 L36,78" fill="none" stroke="${stroke}" stroke-width="5.5" stroke-linecap="round"/>
+      <polygon class="flow-arrow-head" points="25,77 36,98 47,77" fill="${stroke}"/>
     </svg>`;
   }
   return `<svg class="flow-arrow flow-arrow-h" viewBox="0 0 100 50" preserveAspectRatio="none" aria-hidden="true">
-    <path class="flow-arrow-path ${dashClass}" d="M4,36 C28,36 28,14 50,14 L78,14" fill="none" stroke="${stroke}" stroke-width="4" stroke-linecap="round"/>
-    <polygon class="flow-arrow-head" points="78,5 96,14 78,23" fill="${stroke}"/>
+    <path class="flow-arrow-path ${dashClass}" d="M4,36 C28,36 28,14 50,14 L78,14" fill="none" stroke="${stroke}" stroke-width="5.5" stroke-linecap="round"/>
+    <polygon class="flow-arrow-head" points="77,3 98,14 77,25" fill="${stroke}"/>
   </svg>`;
 }
 
@@ -1815,18 +1815,30 @@ class HaBmsBleCard extends HTMLElement {
     const currentN = Number(current);
     const currentGreen = Number.isFinite(currentN) && Math.abs(currentN) > 0.3;
 
+    const linkN = Number(link);
+    const signalIcon = !Number.isFinite(linkN) ? "mdi:wifi-strength-outline"
+      : linkN >= 80 ? "mdi:wifi-strength-4" : linkN >= 50 ? "mdi:wifi-strength-3"
+      : linkN >= 25 ? "mdi:wifi-strength-2" : "mdi:wifi-strength-1";
+    const signalColor = !Number.isFinite(linkN) ? "#8b96a3" : linkN >= 50 ? "#1D9E75" : linkN >= 25 ? "#EF9F27" : "#E24B4A";
+    const nowStr = new Date().toLocaleTimeString("uk-UA", { hour: "2-digit", minute: "2-digit" });
+
     return `
       <div class="bms-full">
         <div class="header">
+          <div class="hdr-unit-badge">${this._config.unit_number || "1"}</div>
           <div>
             <h1>${this._batteryName()} ${haIcon("ti-bluetooth", 18, "#4b9bf0")}</h1>
             <div class="status"><span class="dot"></span> ${status.color === "danger" ? "Проблема" : "Підключено"}</div>
+          </div>
+          <div class="hdr-right"${moreInfoAttr(this._e("link_quality") || this._e("rssi"))}>
+            <span class="hdr-clock">${nowStr}</span>
+            <ha-icon icon="${signalIcon}" style="color:${signalColor};--mdc-icon-size:20px"></ha-icon>
           </div>
         </div>
 
         <div class="flow-row">
           <div class="flow-node">
-            <div class="flow-icon-circle ${flowState === "charging" ? "flow-active-charge" : ""}">${haIcon("ti-transmission-tower", 26, flowState === "charging" ? "#1D9E75" : "#8b96a3")}</div>
+            <div class="flow-icon-circle ${flowState === "charging" ? "flow-active-charge" : ""}">${haIcon("ti-transmission-tower", 32, flowState === "charging" ? "#1D9E75" : "#8b96a3")}</div>
             <div class="flow-label">Заряд</div>
             <div class="flow-state ${flowState === "charging" ? "on" : ""}">${flowState === "charging" ? "ON" : "OFF"}</div>
             <div class="flow-val">${flowState === "charging" ? `${fmt(power, 0)} W` : "—"}</div>
@@ -1850,7 +1862,7 @@ class HaBmsBleCard extends HTMLElement {
             ${flowArrowSvg(true, flowState === "discharging", "#EF9F27")}
           </div>
           <div class="flow-node">
-            <div class="flow-icon-circle ${flowState === "discharging" ? "flow-active-discharge" : ""}">${haIcon("ti-home-bolt", 26, flowState === "discharging" ? "#EF9F27" : "#8b96a3")}</div>
+            <div class="flow-icon-circle ${flowState === "discharging" ? "flow-active-discharge" : ""}">${haIcon("ti-home-bolt", 32, flowState === "discharging" ? "#EF9F27" : "#8b96a3")}</div>
             <div class="flow-label">Розряд</div>
             <div class="flow-state ${flowState === "discharging" ? "on-discharge" : ""}">${flowState === "discharging" ? "ON" : "OFF"}</div>
             <div class="flow-val">${flowState === "discharging" ? `${fmt(Math.abs(Number(power)), 0)} W` : "—"}</div>
@@ -1996,8 +2008,14 @@ class HaBmsBleCard extends HTMLElement {
           overflow: hidden;
         }
         ha-icon { --mdc-icon-size: 20px; }
-        .header { display:flex; align-items:flex-start; justify-content:space-between; margin-bottom:18px; }
+        .header { display:flex; align-items:flex-start; justify-content:space-between; margin-bottom:18px; gap:10px; }
         .header h1 { font-size:22px; margin:0 0 6px 0; font-weight:700; display:flex; align-items:center; gap:8px; }
+        .hdr-unit-badge {
+          width:26px; height:26px; border-radius:6px; background:#e9edf1; color:#0b1116;
+          font-weight:800; font-size:14px; display:flex; align-items:center; justify-content:center; flex-shrink:0;
+        }
+        .hdr-right { display:flex; align-items:center; gap:8px; flex-shrink:0; padding-top:2px; }
+        .hdr-clock { font-size:14px; color:var(--muted); font-weight:600; }
         .status { display:flex; align-items:center; gap:6px; color:var(--green); font-size:14px; font-weight:500; }
         .dot { width:8px; height:8px; border-radius:50%; background:var(--green); display:inline-block; }
 
@@ -2008,27 +2026,27 @@ class HaBmsBleCard extends HTMLElement {
            навантаження справа, з'єднані зігнутими стрілками з наконечником.
            На вузьких екранах ряд складається в колонку, а стрілки
            перемикаються на вертикальний варіант тим самим SVG-принципом. */
-        .flow-row { display:flex; align-items:center; justify-content:center; gap:2px; margin:8px 0 20px; }
-        .flow-node { display:flex; flex-direction:column; align-items:center; gap:4px; width:88px; flex-shrink:0; }
+        .flow-row { display:flex; align-items:center; justify-content:center; gap:6px; margin:10px 0 26px; }
+        .flow-node { display:flex; flex-direction:column; align-items:center; gap:6px; width:104px; flex-shrink:0; }
         .flow-icon-circle {
-          width:60px; height:60px; border-radius:50%; border:2px solid #4a5764;
+          width:78px; height:78px; border-radius:50%; border:2px solid #4a5764;
           background:radial-gradient(circle at 35% 30%, #232c34, #0a0f14);
           box-shadow: inset 0 1px 2px rgba(255,255,255,0.12);
           display:flex; align-items:center; justify-content:center; transition:border-color 0.3s ease, box-shadow 0.3s ease;
         }
-        .flow-icon-circle.flow-active-charge { border-color:var(--green); box-shadow:0 0 14px rgba(29,158,117,0.5), inset 0 1px 2px rgba(255,255,255,0.12); }
-        .flow-icon-circle.flow-active-discharge { border-color:var(--amber); box-shadow:0 0 14px rgba(239,159,39,0.45), inset 0 1px 2px rgba(255,255,255,0.12); }
-        .flow-label { font-size:13px; color:var(--muted); }
+        .flow-icon-circle.flow-active-charge { border-color:var(--green); box-shadow:0 0 18px rgba(29,158,117,0.5), inset 0 1px 2px rgba(255,255,255,0.12); }
+        .flow-icon-circle.flow-active-discharge { border-color:var(--amber); box-shadow:0 0 18px rgba(239,159,39,0.45), inset 0 1px 2px rgba(255,255,255,0.12); }
+        .flow-label { font-size:14px; color:var(--muted); font-weight:600; letter-spacing:0.02em; }
         .flow-state { font-size:12px; font-weight:700; color:var(--muted-2); }
         .flow-state.on { color:var(--green); }
         .flow-state.on-discharge { color:var(--amber); }
-        .flow-val { font-size:15px; font-weight:700; }
-        .flow-battery { display:flex; flex-direction:column; align-items:center; gap:8px; flex-shrink:0; }
+        .flow-val { font-size:16px; font-weight:700; }
+        .flow-battery { display:flex; flex-direction:column; align-items:center; gap:10px; flex-shrink:0; }
         .flow-battery-readout { display:flex; flex-direction:column; align-items:center; gap:1px; }
-        .flow-battery-readout .v { font-size:15px; font-weight:700; }
-        .flow-battery-readout .a { font-size:13px; color:var(--muted); }
+        .flow-battery-readout .v { font-size:17px; font-weight:700; }
+        .flow-battery-readout .a { font-size:14px; color:var(--muted); }
 
-        .flow-connector-wrap { width:56px; height:56px; flex-shrink:0; display:flex; align-items:center; justify-content:center; }
+        .flow-connector-wrap { width:74px; height:64px; flex-shrink:0; display:flex; align-items:center; justify-content:center; }
         .flow-arrow { width:100%; height:100%; overflow:visible; }
         .flow-arrow-v { display:none; }
         .flow-arrow-path { transition: stroke 0.3s ease; }
@@ -2057,18 +2075,34 @@ class HaBmsBleCard extends HTMLElement {
           padding:6px; box-shadow: inset 0 2px 4px rgba(255,255,255,0.08), inset 0 -6px 10px rgba(0,0,0,0.5), 0 4px 10px rgba(0,0,0,0.4);
         }
         .bms-battery-shape-mini.battery-shell { width:90px; height:130px; }
-        .bms-battery-shape-flow.battery-shell { width:104px; height:152px; }
+        .bms-battery-shape-flow.battery-shell {
+          width:152px; height:224px; border-radius:34px;
+          border:4px solid #56636f;
+          box-shadow: inset 0 3px 5px rgba(255,255,255,0.1), inset 0 -8px 14px rgba(0,0,0,0.55), 0 8px 20px rgba(0,0,0,0.5);
+        }
         .battery-nub {
           position:absolute; top:-12px; left:50%; transform:translateX(-50%);
           width:46px; height:12px; border-radius:5px 5px 0 0;
           background:linear-gradient(180deg,#6b7883,#3a4650);
           box-shadow: inset 0 1px 1px rgba(255,255,255,0.35);
         }
+        .bms-battery-shape-flow .battery-nub {
+          width:64px; height:18px; border-radius:10px 10px 0 0; top:-16px;
+          background:linear-gradient(180deg,#8b98a3,#3a4650);
+          box-shadow: inset 0 2px 2px rgba(255,255,255,0.45), 0 -1px 2px rgba(0,0,0,0.3);
+        }
         .battery-fill {
           position:absolute; left:6px; right:6px; bottom:6px; border-radius:9px; overflow:hidden;
           background:linear-gradient(180deg,#7bf094 0%,#63e07e 35%,#2fae4e 100%);
           box-shadow: inset 0 2px 3px rgba(255,255,255,0.35), inset 0 -8px 14px rgba(0,0,0,0.3);
           display:flex; flex-direction:column; align-items:center; justify-content:center;
+        }
+        .bms-battery-shape-flow .battery-fill { border-radius:26px; }
+        /* Меніск — вигнута верхня межа рідини для псевдо-3D ефекту циліндра. */
+        .bms-battery-shape-flow .battery-fill::after {
+          content:""; position:absolute; top:-9px; left:-4px; right:-4px; height:20px;
+          background:radial-gradient(ellipse at 50% 60%, rgba(255,255,255,0.35), rgba(255,255,255,0) 70%), #63e07e;
+          border-radius:50%; pointer-events:none;
         }
         /* Глянцева діагональна відбивна смуга — суто CSS, для об'ємного вигляду. */
         .battery-fill::before {
@@ -2078,7 +2112,9 @@ class HaBmsBleCard extends HTMLElement {
         }
         .battery-fill .pct { font-size:30px; font-weight:800; color:#eafff0; line-height:1; text-shadow:0 1px 2px rgba(0,0,0,0.35); }
         .bms-battery-shape-mini .battery-fill .pct { font-size:22px; }
+        .bms-battery-shape-flow .battery-fill .pct { font-size:42px; }
         .battery-fill .soc-label { font-size:12px; color:#eafff0cc; margin-top:2px; font-weight:600; }
+        .bms-battery-shape-flow .battery-fill .soc-label { font-size:14px; }
         .charge-badge {
           display:flex; align-items:center; gap:6px; background:var(--green-dim); color:var(--green);
           padding:8px 14px; border-radius:10px; font-size:14px; font-weight:600; width:100%; justify-content:center;
