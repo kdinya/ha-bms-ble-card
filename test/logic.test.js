@@ -21,6 +21,8 @@ const {
   batteryFillColor,
   dischargeOnlyTemplate,
   cellVoltageFraction,
+  activeBalancingCells,
+  moreInfoAttr,
   CELL_VOLTAGE_RANGE,
   DEFAULT_THRESHOLDS,
   findBmsBleDeviceIds,
@@ -281,4 +283,33 @@ test("Setup Wizard fix: інтегрування dischargeOnlyTemplate не да
   // бути близькою до нуля або додатною) — саме тому capacity_total був
   // невірний до фіксу.
   assert.notEqual(naiveSignedSum, dischargeOnlySum);
+});
+
+test("activeBalancingCells: розбирає bitmask з атрибута 'cells' balancer (BMS_BLE-HA), символ '1' на позиції i = активна комірка i+1", () => {
+  // binary_sensor.py: f"{balancer:0{cell_count}b}"[::-1] — реверснутий рядок,
+  // тому позиція в рядку == індекс біту == 0-based індекс комірки.
+  const active = activeBalancingCells("1010");
+  assert.ok(active.has(0), "комірка 1 (позиція 0) активна");
+  assert.ok(!active.has(1), "комірка 2 (позиція 1) не активна");
+  assert.ok(active.has(2), "комірка 3 (позиція 2) активна");
+  assert.ok(!active.has(3), "комірка 4 (позиція 3) не активна");
+  assert.equal(active.size, 2);
+});
+
+test("activeBalancingCells: некоректний/відсутній вхід повертає порожню множину", () => {
+  assert.equal(activeBalancingCells(undefined).size, 0);
+  assert.equal(activeBalancingCells(null).size, 0);
+  assert.equal(activeBalancingCells(42).size, 0);
+  assert.equal(activeBalancingCells("").size, 0);
+  assert.equal(activeBalancingCells("0000").size, 0);
+});
+
+test("moreInfoAttr: повертає data-more-info лише коли entity_id відомий (значення не з атрибута)", () => {
+  assert.equal(moreInfoAttr(undefined), "");
+  assert.equal(moreInfoAttr(""), "");
+  assert.equal(moreInfoAttr(null), "");
+  const attr = moreInfoAttr("sensor.batt_voltage");
+  assert.match(attr, /data-more-info="sensor\.batt_voltage"/);
+  assert.match(attr, /tabindex="0"/);
+  assert.match(attr, /role="button"/);
 });

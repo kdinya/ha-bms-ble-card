@@ -190,3 +190,85 @@ console.log("Discovered:", Object.keys(discovered).sort().join(", "));
   console.error(err);
   process.exitCode = 1;
 });
+
+// --- Картка (не редактор): клікабельні значення (data-more-info) і
+// підсвітка активного балансування комірок за bitmask з атрибута
+// balancer.cells. Натхнення — jk-bms-card ("клік по сутності = історія"
+// + підсвітка активних комірок замість анімації наосліп). ---
+{
+  const hassWithBalancing = {
+    ...mockHass,
+    states: {
+      ...mockHass.states,
+      "binary_sensor.bat_balancer": { state: "on", attributes: { cells: "1010" } },
+    },
+  };
+  const card = Object.create(mod.HaBmsBleCard.prototype);
+  card._hass = hassWithBalancing;
+  card._config = { entities: {} };
+  card._resolvedEntities = mod.autoDiscoverEntities(hassWithBalancing, deviceId);
+
+  const html = card._renderFullView();
+
+  assert.match(html, /data-more-info="sensor\.bat_voltage"/, "voltage stat-box clickable");
+  assert.match(html, /data-more-info="sensor\.bat_soc"/, "battery-box (SOC) clickable");
+  assert.match(html, /data-more-info="binary_sensor\.bat_balancer"/, "balancer func-box clickable");
+
+  // bitmask "1010" (реверснутий рядок з binary_sensor.py) → активні комірки
+  // з 0-based індексами 0 і 2, тобто C1 і C3.
+  const c1Row = html.match(/<div class="cell-row[^"]*"[^>]*>\s*<div class="cell-name">C1<\/div>/);
+  assert.ok(c1Row && c1Row[0].includes("balancing"), "C1 має клас balancing: " + (c1Row && c1Row[0]));
+  const c2Row = html.match(/<div class="cell-row[^"]*"[^>]*>\s*<div class="cell-name">C2<\/div>/);
+  assert.ok(c2Row && !c2Row[0].includes("balancing"), "C2 НЕ має класу balancing: " + (c2Row && c2Row[0]));
+  const c3Row = html.match(/<div class="cell-row[^"]*"[^>]*>\s*<div class="cell-name">C3<\/div>/);
+  assert.ok(c3Row && c3Row[0].includes("balancing"), "C3 має клас balancing: " + (c3Row && c3Row[0]));
+
+  assert.match(html, /balance-badge/, "показано бейдж \"Балансування\", коли balancer активний");
+
+  // Коли balancer вимкнений — жодна комірка не підсвічується, навіть якщо
+  // застарілий bitmask ще лежить в атрибуті.
+  const hassNoBalancing = {
+    ...mockHass,
+    states: {
+      ...mockHass.states,
+      "binary_sensor.bat_balancer": { state: "off", attributes: { cells: "1010" } },
+    },
+  };
+  card._hass = hassNoBalancing;
+  card._resolvedEntities = mod.autoDiscoverEntities(hassNoBalancing, deviceId);
+  const htmlOff = card._renderFullView();
+  assert.ok(!htmlOff.includes("balancing"), "без активного balancer підсвітки немає, навіть зі старим bitmask");
+  assert.ok(!htmlOff.includes("balance-badge"), "без активного balancer бейджа немає");
+
+  console.log("Card more-info + balancing-highlight regression test passed.");
+}
+
+// --- Editor: коли поле дійсно ВІДСУТНЄ (перевірили і hass.entities, і
+// повний реєстр — статус "done", нічого не знайдено), для апаратно-
+// залежних полів (MOSFET, Balancer, Heater, SOH, Design capacity)
+// показуємо пояснення про можливу відсутність підтримки в конкретній
+// BMS-платі, а не загальне "не знайдено автоматично". ---
+{
+  const editor = Object.create(mod.HaBmsBleCardEditor.prototype);
+  editor._config = { entities: { device_id: "dev1" } };
+  editor._mounted = false;
+  editor._hass = { entities: {}, states: {} };
+  // Симулюємо ВЖЕ завершений запит повного реєстру, який нічого не знайшов
+  // (типова ситуація для батареї, чий драйвер не звітує MOSFET-статус).
+  editor._fullRegistry = { deviceId: "dev1", status: "done", map: {} };
+
+  const chrgHint = editor._renderEntityField("chrg_mosfet", "MOSFET заряду", "binary_sensor");
+  assert.match(chrgHint, /не передає ці дані по BLE/, "апаратно-залежне поле пояснює можливу відсутність підтримки");
+  assert.match(chrgHint, /JK BMS/, "згадка конкретного відомого прикладу (JK BMS) для довіри до пояснення");
+
+  const dischrgHint = editor._renderEntityField("dischrg_mosfet", "MOSFET розряду", "binary_sensor");
+  assert.match(dischrgHint, /не передає ці дані по BLE/);
+
+  // Звичайне (не апаратно-залежне) поле в тій самій ситуації — просто
+  // "не знайдено автоматично", без спекуляцій про причину.
+  const voltageHint = editor._renderEntityField("voltage", "Напруга (V)", "sensor");
+  assert.match(voltageHint, /не знайдено автоматично/);
+  assert.ok(!voltageHint.includes("BLE"), "для звичайного поля не додаємо апаратне пояснення");
+
+  console.log("Editor hardware-dependent-field hint regression test passed.");
+}

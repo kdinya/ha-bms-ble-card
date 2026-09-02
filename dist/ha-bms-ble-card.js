@@ -7,7 +7,7 @@
  * https://github.com/kdinya/ha-bms-ble-card
  */
 
-const CARD_VERSION = "3.0.0-beta.4";
+const CARD_VERSION = "3.0.0-beta.5";
 
 console.info(
   `%c HA-BMS-BLE-CARD %c v${CARD_VERSION} `,
@@ -159,6 +159,37 @@ function cellVoltageFraction(v) {
   const { lo, hi } = CELL_VOLTAGE_RANGE;
   if (v === undefined || v === null || Number.isNaN(Number(v))) return 0;
   return Math.max(0, Math.min(1, (Number(v) - lo) / (hi - lo)));
+}
+
+/**
+ * Розбирає bitmask активного балансування з атрибута "cells" бінарного
+ * сенсора balancer у BMS_BLE-HA — див. binary_sensor.py:
+ * `{ATTR_CELLS: f"{data.get(ATTR_BALANCER, 0):0{data.get(ATTR_CELL_COUNT, 8)}b}"[::-1]}`.
+ * Рядок РЕВЕРСНУТИЙ відносно звичайного бінарного запису, тому символ
+ * на позиції i відповідає біту i вихідного числа — тобто комірці №(i+1).
+ * Повертає множину 0-based індексів комірок, які зараз балансуються.
+ * Натхнення з jk-bms-card: там balancer_status_bitmask підсвічує активні
+ * комірки замість анімації "від найвищої до найнижчої" наосліп.
+ */
+function activeBalancingCells(bitmaskStr) {
+  const result = new Set();
+  if (typeof bitmaskStr !== "string") return result;
+  for (let i = 0; i < bitmaskStr.length; i++) {
+    if (bitmaskStr[i] === "1") result.add(i);
+  }
+  return result;
+}
+
+/**
+ * HTML-атрибути, які роблять елемент клікабельним для відкриття
+ * стандартного діалогу історії/деталей сутності Home Assistant (подія
+ * "hass-more-info", яку слухає дашборд). Натхнення — головна фішка
+ * jk-bms-card: "clicking on an entity to see the history". Повертає
+ * порожній рядок, якщо entity_id невідомий (немає окремої сутності —
+ * наприклад значення взяте з атрибута).
+ */
+function moreInfoAttr(entityId) {
+  return entityId ? ` data-more-info="${entityId}" tabindex="0" role="button"` : "";
 }
 
 /* ----------------------------------------------------------------------
@@ -773,6 +804,22 @@ const ENTITY_FIELD_GROUPS = [
   },
 ];
 
+/**
+ * Ключі полів, чиї СУТНОСТІ в BMS_BLE-HA створюються, лише якщо конкретний
+ * BMS-чіп/плата фактично повідомляє ці дані по BLE (у самій інтеграції —
+ * `if descr.key not in bms.data: continue` для ВСІХ binary_sensor, і
+ * `if descr.optional and descr.key not in bms.data: continue` для
+ * помічених optional=True сенсорів). Це не "вимкнено за замовчуванням"
+ * (як max/min cell voltage) — сутності може не бути ВЗАГАЛІ, назавжди,
+ * якщо ваш конкретний драйвер aiobmsble для вашої моделі батареї просто
+ * не вміє читати цей параметр. Підтверджено, зокрема, офіційним issue
+ * (patman15/aiobmsble#7): для JK BMS статус MOSFET заряду/розряду
+ * недоступний. Коли поле з цього списку не знайдено НІДЕ (ні в
+ * hass.entities, ні в повному реєстрі), показуємо саме це пояснення —
+ * а не загальне "не знайдено автоматично", яке виглядає як баг картки.
+ */
+const HARDWARE_DEPENDENT_FIELDS = new Set(["balancer", "chrg_mosfet", "dischrg_mosfet", "heater", "soh", "design_capacity"]);
+
 class HaBmsBleCardEditor extends HTMLElement {
   setConfig(config) {
     this._config = { ...config };
@@ -965,9 +1012,11 @@ class HaBmsBleCardEditor extends HTMLElement {
     `;
   }
 
-  /** Одне поле вибору сутності: ha-entity-picker, якщо доступний у цій
-   *  версії HA, інакше — звичайний текстовий інпут з entity_id (fallback,
-   *  щоб редактор не ламався на нетипових/старих фронтендах). */
+/**
+ * Одне поле вибору сутності: ha-entity-picker, якщо доступний у цій
+ * версії HA, інакше — звичайний текстовий інпут з entity_id (fallback,
+ * щоб редактор не ламався на нетипових/старих фронтендах).
+ */
   _renderEntityField(key, label, domain) {
     const deviceId = this._autoDeviceId();
     const autoMap = this._hass && deviceId ? autoDiscoverEntities(this._hass, deviceId) : {};
@@ -976,6 +1025,7 @@ class HaBmsBleCardEditor extends HTMLElement {
     const manual = this._entities()[key] || "";
     const auto = autoMap[key] || (registryInfo && registryInfo.entityId) || "";
     const value = manual || auto || "";
+    const registryChecked = this._fullRegistry && this._fullRegistry.deviceId === deviceId && this._fullRegistry.status === "done";
     let hint;
     if (manual) {
       hint = auto
@@ -990,6 +1040,12 @@ class HaBmsBleCardEditor extends HTMLElement {
       hint = `<div class="bms-auto-hint">✓ авто: <code>${auto}</code></div>`;
     } else if (this._fullRegistry && this._fullRegistry.deviceId === deviceId && this._fullRegistry.status === "loading") {
       hint = `<div class="bms-auto-hint">пошук…</div>`;
+    } else if (registryChecked && HARDWARE_DEPENDENT_FIELDS.has(key)) {
+      // Перевірили і в hass.entities, і в повному реєстрі (config/entity_registry/list,
+      // без фільтра за disabled_by) — сутності немає ЗОВСІМ. Для цих полів
+      // це майже завжди означає, що ваша конкретна модель BMS не передає
+      // цей параметр по BLE, і сутність у BMS_BLE-HA просто не створюється.
+      hint = `<div class="bms-auto-hint bms-auto-miss">сутність не створена — ваша BMS-плата (драйвер aiobmsble), ймовірно, не передає ці дані по BLE. Це нормально: не всі виробники підтримують цю функцію (підтверджено, наприклад, для JK BMS). Можете лишити поле порожнім.</div>`;
     } else {
       hint = `<div class="bms-auto-hint bms-auto-miss">не знайдено автоматично</div>`;
     }
@@ -1417,6 +1473,15 @@ class HaBmsBleCard extends HTMLElement {
     return [];
   }
 
+  /** entity_id окремих комірок, якщо вони налаштовані явно (список у
+   *  entities.cell_voltages) — на відміну від значень, отриманих з
+   *  атрибута cell_voltages сенсора Delta cell voltage, у яких немає
+   *  власного entity_id для відкриття історії. */
+  _cellVoltageEntityIds() {
+    const explicit = this._e("cell_voltages");
+    return Array.isArray(explicit) && explicit.length ? explicit : undefined;
+  }
+
   _statusInfo() {
     const problem = stateOf(this._hass, this._e("problem"));
     const charging = stateOf(this._hass, this._e("charging"));
@@ -1566,7 +1631,7 @@ class HaBmsBleCard extends HTMLElement {
     }
     const seed = (entityId || "").length + (Number.isFinite(val) ? Math.round(val * 10) : 0);
     return `
-      <div class="usage-card">
+      <div class="usage-card"${moreInfoAttr(entityId)}>
         <div class="lbl">${label}</div>
         <div class="val-row"><div class="v">${fmt(val, 1)} ${unit}</div>${pctHtml}</div>
         ${this._renderSparkline(seed)}
@@ -1686,6 +1751,11 @@ class HaBmsBleCard extends HTMLElement {
     const usedAh = Number.isFinite(designN) && remainingAh !== undefined ? designN - remainingAh : undefined;
 
     const st = this._cellStats();
+    const cellEntityIds = this._cellVoltageEntityIds();
+    const bal = stateOf(this._hass, this._e("balancer"));
+    const on = (s) => s === "on" || s === "true";
+    const balancingOn = on(bal);
+    const activeCells = balancingOn ? activeBalancingCells(cellBitmask) : new Set();
     let cellsHtml = `<div class="cells-box"><div class="cells-title">Комірки</div><p class="bms-muted">Немає даних</p></div>`;
     if (st) {
       const lo = Math.min(st.min - 0.05, 3.05);
@@ -1694,44 +1764,44 @@ class HaBmsBleCard extends HTMLElement {
         let frac = Number.isFinite(v) ? (v - lo) / (hi - lo) : 0;
         frac = Math.max(0.2, Math.min(0.95, frac));
         const warn = v === st.min && st.delta >= 0.005;
-        return `<div class="cell-row">
+        const isBalancing = activeCells.has(i);
+        const cellEntity = (cellEntityIds && cellEntityIds[i]) || this._e("delta_cell_voltage");
+        return `<div class="cell-row ${isBalancing ? "balancing" : ""}"${moreInfoAttr(cellEntity)}>
           <div class="cell-name">C${i + 1}</div>
           <div class="cell-track"><div class="cell-fill ${warn ? "warn" : ""}" style="width:${Math.round(frac * 100)}%"></div></div>
-          <div class="cell-val">${Number.isFinite(v) ? v.toFixed(3) : "—"} V</div>
+          <div class="cell-val">${Number.isFinite(v) ? v.toFixed(3) : "—"} V${isBalancing ? ` ${haIcon("ti-topology-star-3", 12, "#1D9E75")}` : ""}</div>
         </div>`;
       }).join("");
       cellsHtml = `
         <div class="cells-box">
-          <div class="cells-title">Комірки (Δ ${st.delta.toFixed(3)}V)</div>
+          <div class="cells-title">Комірки (Δ ${st.delta.toFixed(3)}V)${balancingOn ? `<span class="balance-badge">${haIcon("ti-topology-star-3", 12)} Балансування</span>` : ""}</div>
           ${rows}
           <div class="badges-row">
-            <div class="badge green">Макс ${st.max.toFixed(3)} V<b>C${st.maxIdx + 1}</b></div>
-            <div class="badge amber">Мін ${st.min.toFixed(3)} V<b>C${st.minIdx + 1}</b></div>
+            <div class="badge green"${moreInfoAttr(cellEntityIds && cellEntityIds[st.maxIdx])}>Макс ${st.max.toFixed(3)} V<b>C${st.maxIdx + 1}</b></div>
+            <div class="badge amber"${moreInfoAttr(cellEntityIds && cellEntityIds[st.minIdx])}>Мін ${st.min.toFixed(3)} V<b>C${st.minIdx + 1}</b></div>
             <div class="badge blue">Δ ${st.delta.toFixed(3)} V<b>Різниця</b></div>
           </div>
         </div>`;
     }
 
-    const func = (icon, label, value, tone) => `
-      <div class="func-box">
+    const func = (icon, label, value, tone, entityId) => `
+      <div class="func-box"${moreInfoAttr(entityId)}>
         <div class="icon-circle">${haIcon(icon, 22, tone)}</div>
         <div class="func-text"><div class="l1">${label}</div><div class="l2" style="color:${tone}">${value}</div></div>
       </div>`;
 
-    const bal = stateOf(this._hass, this._e("balancer"));
     const chrgM = stateOf(this._hass, this._e("chrg_mosfet"));
     const disM = stateOf(this._hass, this._e("dischrg_mosfet"));
     const heat = stateOf(this._hass, this._e("heater"));
     const prob = stateOf(this._hass, this._e("problem"));
-    const on = (s) => s === "on" || s === "true";
     const G = "#1D9E75", M = "#8b96a3", A = "#EF9F27", R = "#E24B4A";
 
     let funcGrid = "";
-    if (bal !== undefined) funcGrid += func("ti-topology-star-3", "Балансир", on(bal) ? "Активний" : "Вимкнено", on(bal) ? G : M);
-    if (chrgM !== undefined) funcGrid += func("ti-plug-connected", "MOSFET заряд", on(chrgM) ? "Увімкнено" : "Вимкнено", on(chrgM) ? G : M);
-    if (disM !== undefined) funcGrid += func("ti-plug-connected", "MOSFET розряд", on(disM) ? "Увімкнено" : "Вимкнено", on(disM) ? G : M);
-    if (heat !== undefined) funcGrid += func("ti-flame", "Нагрівач", on(heat) ? "Увімкнено" : "Вимкнено", on(heat) ? A : M);
-    if (prob !== undefined) funcGrid += func("ti-alert-triangle", "Проблеми", on(prob) ? "Є" : "Немає", on(prob) ? R : G);
+    if (bal !== undefined) funcGrid += func("ti-topology-star-3", "Балансир", on(bal) ? "Активний" : "Вимкнено", on(bal) ? G : M, this._e("balancer"));
+    if (chrgM !== undefined) funcGrid += func("ti-plug-connected", "MOSFET заряд", on(chrgM) ? "Увімкнено" : "Вимкнено", on(chrgM) ? G : M, this._e("chrg_mosfet"));
+    if (disM !== undefined) funcGrid += func("ti-plug-connected", "MOSFET розряд", on(disM) ? "Увімкнено" : "Вимкнено", on(disM) ? G : M, this._e("dischrg_mosfet"));
+    if (heat !== undefined) funcGrid += func("ti-flame", "Нагрівач", on(heat) ? "Увімкнено" : "Вимкнено", on(heat) ? A : M, this._e("heater"));
+    if (prob !== undefined) funcGrid += func("ti-alert-triangle", "Проблеми", on(prob) ? "Є" : "Немає", on(prob) ? R : G, this._e("problem"));
     const modeLabel = status.label === "Заряджається" ? "Заряд" : status.label === "Розряджається" ? "Розряд" : status.label;
     const modeTone = status.color === "success" ? G : status.color === "warning" ? A : M;
     funcGrid += func(status.icon || "ti-bolt", "Режим", modeLabel, modeTone);
@@ -1749,17 +1819,17 @@ class HaBmsBleCard extends HTMLElement {
         </div>
 
         <div class="top-row">
-          <div class="battery-box">
+          <div class="battery-box"${moreInfoAttr(this._e("soc"))}>
             ${this._renderBatteryShape(soc, "full")}
             <div class="charge-badge">
-              ${haIcon(status.icon, 16)} ${status.label}
+              ${haIcon(status.icon, 16)} ${status.label}${balancingOn ? ` · ${haIcon("ti-topology-star-3", 14)}` : ""}
             </div>
           </div>
           <div class="stat-col">
-            <div class="stat-box"><div class="val">${fmt(voltage, 2)} V</div><div class="lbl">Напруга</div></div>
-            <div class="stat-box"><div class="val ${currentGreen ? "green" : ""}">${fmt(current, 1)} A</div><div class="lbl">Струм</div></div>
-            <div class="stat-box"><div class="val ${currentGreen ? "green" : ""}">${fmt(power, 0)} W</div><div class="lbl">Потужність</div></div>
-            <div class="stat-box"><div class="val">${fmt(temp, 1)} °C</div><div class="lbl">Температура</div></div>
+            <div class="stat-box"${moreInfoAttr(this._e("voltage"))}><div class="val">${fmt(voltage, 2)} V</div><div class="lbl">Напруга</div></div>
+            <div class="stat-box"${moreInfoAttr(this._e("current"))}><div class="val ${currentGreen ? "green" : ""}">${fmt(current, 1)} A</div><div class="lbl">Струм</div></div>
+            <div class="stat-box"${moreInfoAttr(this._e("power"))}><div class="val ${currentGreen ? "green" : ""}">${fmt(power, 0)} W</div><div class="lbl">Потужність</div></div>
+            <div class="stat-box"${moreInfoAttr(this._e("temperature"))}><div class="val">${fmt(temp, 1)} °C</div><div class="lbl">Температура</div></div>
           </div>
           ${cellsHtml}
         </div>
@@ -1806,23 +1876,23 @@ class HaBmsBleCard extends HTMLElement {
             <div class="icon-circle">${haIcon("ti-clock-hour-4",20,"#4b9bf0")}</div>
             <div class="forecast-text"><div class="l1">При поточному навантаженні</div><div class="l2">${eta.seconds !== undefined ? secondsToHuman(eta.seconds) : "—"}</div></div>
           </div>
-          ${this._e("discharge_time_daily") ? `<div class="forecast-card"><div class="icon-circle">${haIcon("ti-clock-hour-4",20,"#4b9bf0")}</div><div class="forecast-text"><div class="l1">Сьогоднішній розряд</div><div class="l2">~${fmt(stateOf(this._hass, this._e("discharge_time_daily")), 1)} год</div></div></div>` : ""}
-          ${this._e("discharge_time_weekly") ? `<div class="forecast-card"><div class="icon-circle">${haIcon("ti-clock-hour-4",20,"#4b9bf0")}</div><div class="forecast-text"><div class="l1">Середній за тиждень</div><div class="l2">~${fmt(stateOf(this._hass, this._e("discharge_time_weekly")), 1)} год</div></div></div>` : ""}
-          ${this._e("discharge_time_monthly") ? `<div class="forecast-card"><div class="icon-circle">${haIcon("ti-clock-hour-4",20,"#4b9bf0")}</div><div class="forecast-text"><div class="l1">Середній за місяць</div><div class="l2">~${fmt(stateOf(this._hass, this._e("discharge_time_monthly")), 1)} год</div></div></div>` : ""}
+          ${this._e("discharge_time_daily") ? `<div class="forecast-card"${moreInfoAttr(this._e("discharge_time_daily"))}><div class="icon-circle">${haIcon("ti-clock-hour-4",20,"#4b9bf0")}</div><div class="forecast-text"><div class="l1">Сьогоднішній розряд</div><div class="l2">~${fmt(stateOf(this._hass, this._e("discharge_time_daily")), 1)} год</div></div></div>` : ""}
+          ${this._e("discharge_time_weekly") ? `<div class="forecast-card"${moreInfoAttr(this._e("discharge_time_weekly"))}><div class="icon-circle">${haIcon("ti-clock-hour-4",20,"#4b9bf0")}</div><div class="forecast-text"><div class="l1">Середній за тиждень</div><div class="l2">~${fmt(stateOf(this._hass, this._e("discharge_time_weekly")), 1)} год</div></div></div>` : ""}
+          ${this._e("discharge_time_monthly") ? `<div class="forecast-card"${moreInfoAttr(this._e("discharge_time_monthly"))}><div class="icon-circle">${haIcon("ti-clock-hour-4",20,"#4b9bf0")}</div><div class="forecast-text"><div class="l1">Середній за місяць</div><div class="l2">~${fmt(stateOf(this._hass, this._e("discharge_time_monthly")), 1)} год</div></div></div>` : ""}
         </div>` : ""}
 
         ${this._renderHistoryBars()}
 
         <h2 class="section-title">Діагностика</h2>
         <div class="diag-grid">
-          ${stored !== undefined ? `<div class="diag-card"><div class="diag-icon">${haIcon("ti-battery-vertical-filled",20,"#1D9E75")}</div><div class="diag-text"><div class="l1">Stored Energy</div><div class="l2">${fmt(stored, 0)} Wh</div></div></div>` : ""}
-          ${stateOf(this._hass, this._e("runtime")) !== undefined ? `<div class="diag-card"><div class="diag-icon">${haIcon("ti-clock-hour-4",20,"#4b9bf0")}</div><div class="diag-text"><div class="l1">Runtime (BMS)</div><div class="l2">${fmt(stateOf(this._hass, this._e("runtime")), 0)} s / ~${secondsToHuman(Number(stateOf(this._hass, this._e("runtime"))))}</div></div></div>` : ""}
-          ${balanceCur !== undefined ? `<div class="diag-card"><div class="diag-icon">${haIcon("ti-scale",20,"#EF9F27")}</div><div class="diag-text"><div class="l1">Balance Current</div><div class="l2">${fmt(balanceCur, 2)} A</div></div></div>` : ""}
-          ${cycles !== undefined ? `<div class="diag-card"><div class="diag-icon">${haIcon("ti-refresh",20,"#1D9E75")}</div><div class="diag-text"><div class="l1">Package Cycles</div><div class="l2">${fmt(cycles, 0)}</div></div></div>` : ""}
-          <div class="diag-card"><div class="diag-icon">${haIcon("ti-battery",20,"#E24B4A")}</div><div class="diag-text"><div class="l1">Package Voltage</div><div class="l2">${fmt(voltage, 2)} V</div></div></div>
-          <div class="diag-card"><div class="diag-icon">${haIcon("ti-wave-sine",20,"#4b9bf0")}</div><div class="diag-text"><div class="l1">Package Current</div><div class="l2">${fmt(current, 1)} A</div></div></div>
-          <div class="diag-card"><div class="diag-icon">${haIcon("ti-chart-donut-3",20,"#4b9bf0")}</div><div class="diag-text"><div class="l1">Package SOC</div><div class="l2">${fmt(soc, 0)}%</div></div></div>
-          ${cellBitmask !== undefined && cellBitmask !== null && cellBitmask !== "" ? `<div class="diag-card"><div class="diag-icon">${haIcon("ti-grid-dots",20,"#4b9bf0")}</div><div class="diag-text"><div class="l1">Cell Bitmask</div><div class="l2">${cellBitmask}</div></div></div>` : ""}
+          ${stored !== undefined ? `<div class="diag-card"${moreInfoAttr(this._e("cycle_capacity"))}><div class="diag-icon">${haIcon("ti-battery-vertical-filled",20,"#1D9E75")}</div><div class="diag-text"><div class="l1">Stored Energy</div><div class="l2">${fmt(stored, 0)} Wh</div></div></div>` : ""}
+          ${stateOf(this._hass, this._e("runtime")) !== undefined ? `<div class="diag-card"${moreInfoAttr(this._e("runtime"))}><div class="diag-icon">${haIcon("ti-clock-hour-4",20,"#4b9bf0")}</div><div class="diag-text"><div class="l1">Runtime (BMS)</div><div class="l2">${fmt(stateOf(this._hass, this._e("runtime")), 0)} s / ~${secondsToHuman(Number(stateOf(this._hass, this._e("runtime"))))}</div></div></div>` : ""}
+          ${balanceCur !== undefined ? `<div class="diag-card"${moreInfoAttr(this._e("current"))}><div class="diag-icon">${haIcon("ti-scale",20,"#EF9F27")}</div><div class="diag-text"><div class="l1">Balance Current</div><div class="l2">${fmt(balanceCur, 2)} A</div></div></div>` : ""}
+          ${cycles !== undefined ? `<div class="diag-card"${moreInfoAttr(this._e("charge_cycles"))}><div class="diag-icon">${haIcon("ti-refresh",20,"#1D9E75")}</div><div class="diag-text"><div class="l1">Package Cycles</div><div class="l2">${fmt(cycles, 0)}</div></div></div>` : ""}
+          <div class="diag-card"${moreInfoAttr(this._e("voltage"))}><div class="diag-icon">${haIcon("ti-battery",20,"#E24B4A")}</div><div class="diag-text"><div class="l1">Package Voltage</div><div class="l2">${fmt(voltage, 2)} V</div></div></div>
+          <div class="diag-card"${moreInfoAttr(this._e("current"))}><div class="diag-icon">${haIcon("ti-wave-sine",20,"#4b9bf0")}</div><div class="diag-text"><div class="l1">Package Current</div><div class="l2">${fmt(current, 1)} A</div></div></div>
+          <div class="diag-card"${moreInfoAttr(this._e("soc"))}><div class="diag-icon">${haIcon("ti-chart-donut-3",20,"#4b9bf0")}</div><div class="diag-text"><div class="l1">Package SOC</div><div class="l2">${fmt(soc, 0)}%</div></div></div>
+          ${cellBitmask !== undefined && cellBitmask !== null && cellBitmask !== "" ? `<div class="diag-card"${moreInfoAttr(this._e("balancer"))}><div class="diag-icon">${haIcon("ti-grid-dots",20,"#4b9bf0")}</div><div class="diag-text"><div class="l1">Cell Bitmask</div><div class="l2">${cellBitmask}</div></div></div>` : ""}
         </div>
       </div>
     `;
@@ -1844,17 +1914,17 @@ class HaBmsBleCard extends HTMLElement {
           </div>
         </div>
         <div class="top-row">
-          <div class="battery-box" style="width:140px;">
+          <div class="battery-box" style="width:140px;"${moreInfoAttr(this._e("soc"))}>
             ${this._renderBatteryShape(soc, "mini")}
             <div class="charge-badge" style="font-size:12px;padding:6px 10px;">${status.label}</div>
           </div>
           <div class="stat-col">
-            <div class="stat-box"><div class="val">${fmt(voltage, 2)} V</div><div class="lbl">Напруга</div></div>
-            <div class="stat-box"><div class="val">${fmt(current, 1)} A</div><div class="lbl">Струм</div></div>
+            <div class="stat-box"${moreInfoAttr(this._e("voltage"))}><div class="val">${fmt(voltage, 2)} V</div><div class="lbl">Напруга</div></div>
+            <div class="stat-box"${moreInfoAttr(this._e("current"))}><div class="val">${fmt(current, 1)} A</div><div class="lbl">Струм</div></div>
           </div>
           <div class="stat-col">
-            <div class="stat-box"><div class="val">${fmt(power, 0)} W</div><div class="lbl">Потужність</div></div>
-            <div class="stat-box"><div class="val">${fmt(temp, 1)} °C</div><div class="lbl">Температура</div></div>
+            <div class="stat-box"${moreInfoAttr(this._e("power"))}><div class="val">${fmt(power, 0)} W</div><div class="lbl">Потужність</div></div>
+            <div class="stat-box"${moreInfoAttr(this._e("temperature"))}><div class="val">${fmt(temp, 1)} °C</div><div class="lbl">Температура</div></div>
           </div>
         </div>
       </div>
@@ -1864,6 +1934,33 @@ class HaBmsBleCard extends HTMLElement {
   _toggleOverlay(open) {
     this._expanded = open;
     this._render();
+  }
+
+  /** Відкриває стандартний діалог "деталі сутності" HA (той самий, що й
+   *  клік по entity в звичайних картках) — подія "hass-more-info", яку
+   *  ловить дашборд. Дає нативну історію/графік без переліплення колеса. */
+  _fireMoreInfo(entityId) {
+    if (!entityId) return;
+    this.dispatchEvent(new CustomEvent("hass-more-info", { detail: { entityId }, bubbles: true, composed: true }));
+  }
+
+  /** Підключає клік/Enter на всіх [data-more-info] елементах у поточному
+   *  DOM картки (і міні-, і повний вигляд рендеряться в один innerHTML,
+   *  тож один виклик після _render() покриває обидва). */
+  _wireMoreInfo() {
+    this.querySelectorAll("[data-more-info]").forEach((el) => {
+      el.addEventListener("click", (ev) => {
+        ev.stopPropagation(); // не відкривати/закривати сповна overlay поверх діалогу сутності
+        this._fireMoreInfo(el.dataset.moreInfo);
+      });
+      el.addEventListener("keydown", (ev) => {
+        if (ev.key === "Enter" || ev.key === " ") {
+          ev.preventDefault();
+          ev.stopPropagation();
+          this._fireMoreInfo(el.dataset.moreInfo);
+        }
+      });
+    });
   }
 
   _styles() {
@@ -1949,6 +2046,22 @@ class HaBmsBleCard extends HTMLElement {
         .badge.green b { color:var(--green); }
         .badge.amber b { color:var(--amber); }
         .badge.blue b { color:var(--blue); }
+
+        /* Клікабельні значення — відкривають нативний діалог історії
+           сутності HA (подія hass-more-info), натхнення від jk-bms-card. */
+        [data-more-info] { cursor:pointer; border-radius:10px; transition:background-color 0.15s ease; outline:none; }
+        [data-more-info]:hover, [data-more-info]:focus-visible { background-color:rgba(255,255,255,0.05); }
+
+        /* Підсвітка комірок, які зараз активно балансуються (з bitmask
+           атрибута balancer) — аналог balancer_status_bitmask у jk-bms-card. */
+        @keyframes bms-balance-pulse { 0%, 100% { opacity:1; } 50% { opacity:0.45; } }
+        .cell-row.balancing .cell-name { color:var(--green); font-weight:700; }
+        .cell-row.balancing .cell-fill { animation: bms-balance-pulse 1.4s ease-in-out infinite; }
+        .balance-badge {
+          display:inline-flex; align-items:center; gap:4px; margin-left:8px; padding:2px 8px;
+          border-radius:8px; background:var(--green-dim); color:var(--green); font-size:11px; font-weight:600;
+          vertical-align:middle;
+        }
 
         .discharge-box {
           background:var(--panel); border:1px solid var(--border); border-radius:16px;
@@ -2088,6 +2201,7 @@ class HaBmsBleCard extends HTMLElement {
 
     if (this._config.display_mode === "inline") {
       this.innerHTML = `${style}<ha-card class="bms-card">${this._renderFullView()}</ha-card>`;
+      this._wireMoreInfo();
       return;
     }
 
@@ -2119,6 +2233,7 @@ class HaBmsBleCard extends HTMLElement {
       });
     }
     if (closeBtn) closeBtn.addEventListener("click", () => this._toggleOverlay(false));
+    this._wireMoreInfo();
   }
 }
 
@@ -2142,11 +2257,14 @@ if (typeof module !== "undefined" && module.exports) {
     batteryFillColor,
     dischargeOnlyTemplate,
     cellVoltageFraction,
+    activeBalancingCells,
+    moreInfoAttr,
     CELL_VOLTAGE_RANGE,
     DEFAULT_THRESHOLDS,
     BMS_BLE_DOMAIN,
     findBmsBleDeviceIds,
     autoDiscoverEntities,
+    HaBmsBleCard,
     HaBmsBleCardEditor,
     ENTITY_FIELD_GROUPS,
     discoverFromFullRegistry,
