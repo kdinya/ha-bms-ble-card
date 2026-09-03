@@ -2013,9 +2013,6 @@ class HaBmsBleCard extends HTMLElement {
           </div>
           <div class="flow-battery"${moreInfoAttr(this._e("soc"))}>
             ${glassBatterySvg(this._uid, socPct)}
-            <div class="charge-badge">
-              ${haIcon(status.icon, 16)} ${status.label}${balancingOn ? ` · ${haIcon("ti-topology-star-3", 14)}` : ""}
-            </div>
             <div class="flow-battery-readout">
               <div class="v">${fmt(voltage, 1)} V</div>
               <div class="a">${current !== undefined && current !== null ? `${Number(current) > 0 ? "+" : ""}${fmt(current, 1)} A` : "—"}</div>
@@ -2030,6 +2027,9 @@ class HaBmsBleCard extends HTMLElement {
             <div class="node-lbl">НАВАНТАЖЕННЯ</div>
             <div class="node-vals">Будинок<br>${flowState === "discharging" ? `${fmtKw(power)} кВт` : "—"}</div>
           </div>
+        </div>
+        <div class="charge-badge">
+          ${haIcon(status.icon, 16)} ${status.label}${balancingOn ? ` · ${haIcon("ti-topology-star-3", 14)}` : ""}
         </div>
 
         <div class="discharge-box">
@@ -2358,7 +2358,8 @@ class HaBmsBleCard extends HTMLElement {
         .bms-battery-shape-flow .battery-fill .soc-label { font-size:14px; }
         .charge-badge {
           display:flex; align-items:center; gap:6px; background:var(--green-dim); color:var(--green);
-          padding:8px 14px; border-radius:10px; font-size:14px; font-weight:600; width:100%; justify-content:center;
+          padding:8px 14px; border-radius:10px; font-size:14px; font-weight:600;
+          width:max-content; max-width:100%; margin:12px auto 0; justify-content:center;
         }
 
         .stat-col { display:flex; flex-direction:column; gap:10px; flex:1; min-width:140px; }
