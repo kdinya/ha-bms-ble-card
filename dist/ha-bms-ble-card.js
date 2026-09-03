@@ -7,7 +7,7 @@
  * https://github.com/kdinya/ha-bms-ble-card
  */
 
-const CARD_VERSION = "3.0.0-beta.14";
+const CARD_VERSION = "3.0.0-beta.15";
 
 console.info(
   `%c HA-BMS-BLE-CARD %c v${CARD_VERSION} `,
@@ -2032,7 +2032,7 @@ class HaBmsBleCard extends HTMLElement {
           <div class="discharge-top">
             <div class="icon-circle" style="background:${statusSc.bg}">${haIcon(status.icon,20,statusSc.fg)}</div>
             <div class="discharge-text">
-              <div class="l1">${status.label}${balancingOn ? ` · ${haIcon("ti-topology-star-3", 12)} Балансування${st ? ` (${st.min.toFixed(3)}–${st.max.toFixed(3)} В, Δ${st.delta.toFixed(3)} В)` : ""}` : ""}</div>
+              <div class="l1">${status.label}${balancingOn ? ` · ${haIcon("ti-topology-star-3", 12)} Балансування${st ? ` (${st.cells.map((v) => (Number.isFinite(v) ? v.toFixed(3) : "—")).join(", ")} В, Δ${st.delta.toFixed(3)} В)` : ""}` : ""}</div>
               ${showEta ? `<div class="l2">${eta.label}${eta.seconds !== undefined ? ": ~" + secondsToHuman(eta.seconds) : ""}</div>` : ""}
             </div>
           </div>
@@ -2224,7 +2224,7 @@ class HaBmsBleCard extends HTMLElement {
            навантаження справа, з'єднані зігнутими стрілками з наконечником.
            На вузьких екранах ряд складається в колонку, а стрілки
            перемикаються на вертикальний варіант тим самим SVG-принципом. */
-        .flow-status-wrap { display:flex; flex-direction:column; margin-bottom:14px; }
+        .flow-status-wrap { display:flex; flex-direction:column; margin-bottom:14px; zoom:1.3; }
         .flow-row { display:flex; align-items:center; justify-content:center; gap:6px; margin:10px 0 16px; }
         .flow-node { display:flex; flex-direction:column; align-items:center; gap:6px; width:104px; flex-shrink:0; }
         .flow-icon-circle {
