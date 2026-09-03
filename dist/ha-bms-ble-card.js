@@ -7,7 +7,7 @@
  * https://github.com/kdinya/ha-bms-ble-card
  */
 
-const CARD_VERSION = "3.0.0-beta.8";
+const CARD_VERSION = "3.0.0-beta.10";
 
 console.info(
   `%c HA-BMS-BLE-CARD %c v${CARD_VERSION} `,
@@ -32,6 +32,14 @@ function fmt(value, digits = 2, unit = "") {
   const num = Number(value);
   if (Number.isNaN(num)) return `${value}${unit}`;
   return `${num.toFixed(digits)}${unit}`;
+}
+
+/** Потужність (Вт) у кВт з одним десятковим знаком, для вузлів
+ *  "Мережа"/"Навантаження" у flow-row. */
+function fmtKw(watts) {
+  const num = Number(watts);
+  if (!Number.isFinite(num)) return "—";
+  return (Math.abs(num) / 1000).toFixed(1);
 }
 
 function stateOf(hass, entityId) {
@@ -222,6 +230,160 @@ function flowArrowSvg(vertical, active, colorHex) {
     <path class="flow-arrow-path ${dashClass}" d="M4,36 C28,36 28,14 50,14 L78,14" fill="none" stroke="${stroke}" stroke-width="5.5" stroke-linecap="round"/>
     <polygon class="flow-arrow-head" points="77,3 98,14 77,25" fill="${stroke}"/>
   </svg>`;
+}
+
+/**
+ * Колір рідини в "скляній банці" залежно від SOC — три пороги, як у
+ * референсному прев'ю (>50% зелений, >20% бурштиновий, інакше червоний).
+ */
+function batteryFillColorKey(percent) {
+  if (percent > 50) return "green";
+  if (percent > 20) return "amber";
+  return "red";
+}
+
+const BATTERY_LIQUID_COLORS = {
+  green: { fg: ["#d0ff90", "#70f040", "#30e038", "#18c030", "#068018"], gl: ["#c0ff90", "#40e050", "#10a030"], sf: ["#f0ffd0", "#90f050", "#30d038"], sec: "#054018", shine: "#f8ffe8" },
+  amber: { fg: ["#ffe890", "#f0c848", "#e8a828", "#d08818", "#8a5010"], gl: ["#ffd870", "#e8a828", "#c07818"], sf: ["#fff8d0", "#f0c858", "#d09828"], sec: "#5a3010", shine: "#fffce8" },
+  red: { fg: ["#ff9888", "#f05848", "#e03830", "#c02020", "#701010"], gl: ["#ff8878", "#e04838", "#a02020"], sf: ["#ffc8b8", "#f06858", "#d03830"], sec: "#4a1010", shine: "#ffe0d8" },
+};
+
+/**
+ * Скляна банка-акумулятор (LiFePO4 jar) — точна SVG-копія референсного
+ * прев'ю (ковпачок, скло, рідина з меніском і підсвіткою поверхні).
+ * Усі id всередині <defs> namespaced через `uid` (this._uid картки) —
+ * інакше кілька екземплярів картки на одному дашборді конфліктували б
+ * через дублікати id ґрадієнтів/clipPath у спільному DOM.
+ */
+function glassBatterySvg(uid, percent) {
+  const p = Math.max(0, Math.min(100, Number(percent) || 0));
+  const BODY_TOP = 32, BODY_BOTTOM = 220, BODY_H = BODY_BOTTOM - BODY_TOP;
+  const fillH = (p / 100) * BODY_H;
+  const y = BODY_BOTTOM - fillH;
+  const c = BATTERY_LIQUID_COLORS[batteryFillColorKey(p)];
+  const id = (name) => `${name}-${uid}`;
+  return `
+    <svg class="battery-svg" viewBox="0 0 160 240" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+      <defs>
+        <linearGradient id="${id("capSide")}" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0%" stop-color="#0d1520"/><stop offset="10%" stop-color="#1a2838"/>
+          <stop offset="25%" stop-color="#3a5068"/><stop offset="40%" stop-color="#6a849c"/>
+          <stop offset="50%" stop-color="#90a8bc"/><stop offset="60%" stop-color="#5a748c"/>
+          <stop offset="75%" stop-color="#2a4058"/><stop offset="90%" stop-color="#152030"/>
+          <stop offset="100%" stop-color="#0a1018"/>
+        </linearGradient>
+        <linearGradient id="${id("capDome")}" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#8aa0b4"/><stop offset="35%" stop-color="#3a5068"/>
+          <stop offset="100%" stop-color="#121c28"/>
+        </linearGradient>
+        <linearGradient id="${id("nipple")}" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#a8bcc8"/><stop offset="40%" stop-color="#4a6078"/>
+          <stop offset="100%" stop-color="#1a2838"/>
+        </linearGradient>
+        <linearGradient id="${id("glassGrad")}" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0%" stop-color="#000204"/><stop offset="4%" stop-color="#1a3040"/>
+          <stop offset="10%" stop-color="#0a1520"/><stop offset="22%" stop-color="#02060a"/>
+          <stop offset="50%" stop-color="#0a1218"/><stop offset="78%" stop-color="#02060a"/>
+          <stop offset="90%" stop-color="#0a1520"/><stop offset="96%" stop-color="#1a3040"/>
+          <stop offset="100%" stop-color="#000204"/>
+        </linearGradient>
+        <linearGradient id="${id("fillGrad")}" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="${c.fg[0]}"/><stop offset="5%" stop-color="${c.fg[1]}"/>
+          <stop offset="18%" stop-color="${c.fg[2]}"/><stop offset="50%" stop-color="${c.fg[3]}"/>
+          <stop offset="100%" stop-color="${c.fg[4]}"/>
+        </linearGradient>
+        <radialGradient id="${id("fillGlow")}" cx="50%" cy="30%" r="60%">
+          <stop offset="0%" stop-color="${c.gl[0]}" stop-opacity="0.7"/>
+          <stop offset="40%" stop-color="${c.gl[1]}" stop-opacity="0.28"/>
+          <stop offset="100%" stop-color="${c.gl[2]}" stop-opacity="0"/>
+        </radialGradient>
+        <linearGradient id="${id("surfaceGrad")}" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="${c.sf[0]}" stop-opacity="1"/>
+          <stop offset="35%" stop-color="${c.sf[1]}" stop-opacity="0.55"/>
+          <stop offset="100%" stop-color="${c.sf[2]}" stop-opacity="0"/>
+        </linearGradient>
+        <filter id="${id("outerGlow")}" x="-50%" y="-50%" width="200%" height="200%">
+          <feGaussianBlur stdDeviation="5" result="blur"/>
+          <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+        </filter>
+        <clipPath id="${id("bodyClip")}">
+          <path d="M28 48 C28 36, 42 32, 55 32 L105 32 C118 32, 132 36, 132 48 L132 200 C132 214, 118 220, 105 220 L55 220 C42 220, 28 214, 28 200 Z"/>
+        </clipPath>
+      </defs>
+
+      <ellipse cx="80" cy="230" rx="42" ry="5" fill="#000" opacity="0.55"/>
+
+      <ellipse cx="80" cy="8" rx="14" ry="5.5" fill="url(#${id("nipple")})" stroke="#0a1018" stroke-width="1"/>
+      <ellipse cx="80" cy="6" rx="11" ry="3.2" fill="#c0d4e0" opacity="0.4"/>
+      <ellipse cx="80" cy="5.2" rx="7" ry="1.8" fill="#e0eef8" opacity="0.25"/>
+
+      <path d="M40 18 C40 12, 52 8, 64 8 L96 8 C108 8, 120 12, 120 18 L120 38 C120 44, 108 48, 96 48 L64 48 C52 48, 40 44, 40 38 Z"
+            fill="url(#${id("capSide")})" stroke="#060c12" stroke-width="1.2"/>
+      <ellipse cx="80" cy="16" rx="38" ry="8" fill="url(#${id("capDome")})"/>
+      <ellipse cx="72" cy="14" rx="14" ry="3.5" fill="#b0c8d8" opacity="0.3"/>
+      <ellipse cx="80" cy="46" rx="38" ry="5" fill="none" stroke="#1a2838" stroke-width="1.5" opacity="0.8"/>
+      <ellipse cx="80" cy="44.5" rx="36" ry="3.5" fill="none" stroke="#5a748c" stroke-width="0.7" opacity="0.45"/>
+
+      <path d="M28 48 C28 36, 42 32, 55 32 L105 32 C118 32, 132 36, 132 48 L132 200 C132 214, 118 220, 105 220 L55 220 C42 220, 28 214, 28 200 Z"
+            fill="url(#${id("glassGrad")})" stroke="#3a5068" stroke-width="2.5"/>
+      <path d="M32 50 C32 40, 44 36, 56 36 L104 36 C116 36, 128 40, 128 50 L128 198 C128 210, 116 216, 104 216 L56 216 C44 216, 32 210, 32 198 Z"
+            fill="none" stroke="rgba(100,140,170,0.22)" stroke-width="1.2"/>
+
+      <g clip-path="url(#${id("bodyClip")})">
+        <rect x="26" y="${y}" width="108" height="${fillH}" fill="url(#${id("fillGrad")})"/>
+        <ellipse cx="80" cy="135" rx="52" ry="68" fill="url(#${id("fillGlow")})"/>
+        <ellipse cx="80" cy="${y}" rx="52" ry="10" fill="url(#${id("surfaceGrad")})" filter="url(#${id("outerGlow")})"/>
+        <ellipse cx="80" cy="${y - 2.5}" rx="44" ry="4.5" fill="${c.shine}" opacity="0.45"/>
+        <line x1="30" y1="112" x2="130" y2="112" stroke="${c.sec}" stroke-width="1.8" opacity="0.38"/>
+        <line x1="30" y1="148" x2="130" y2="148" stroke="${c.sec}" stroke-width="1.8" opacity="0.38"/>
+        <line x1="30" y1="184" x2="130" y2="184" stroke="${c.sec}" stroke-width="1.8" opacity="0.38"/>
+        <rect x="36" y="38" width="12" height="180" fill="rgba(255,255,255,0.11)" transform="skewX(-6)" rx="4"/>
+        <rect x="108" y="38" width="6" height="180" fill="rgba(255,255,255,0.05)" transform="skewX(-6)" rx="3"/>
+        <rect x="40" y="50" width="4" height="160" fill="rgba(160,200,240,0.08)" transform="skewX(-3)"/>
+      </g>
+
+      <path d="M28 52 C28 38, 44 34, 56 34 L104 34 C116 34, 132 38, 132 52" fill="none" stroke="rgba(160,190,220,0.4)" stroke-width="1.8"/>
+      <path d="M28 196 C28 210, 44 216, 56 216 L104 216 C116 216, 132 210, 132 196" fill="none" stroke="rgba(60,90,110,0.35)" stroke-width="1.2"/>
+
+      <text x="80" y="152" text-anchor="middle" font-size="44" font-weight="800" fill="#ffffff" style="filter:drop-shadow(0 2px 4px rgba(0,0,0,0.55));">
+        <tspan>${p.toFixed(0)}</tspan><tspan font-size="28" dy="-4">%</tspan>
+      </text>
+    </svg>`;
+}
+
+/** Іконка ЛЕП/трансформаторної опори для вузла "Мережа" у flow-row —
+ *  точна копія лінійної графіки з референсного прев'ю. */
+function gridPylonSvg() {
+  return `
+    <svg class="node-icon" viewBox="0 0 100 100" aria-hidden="true">
+      <g stroke="#9fb3c4" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M50 8 L50 88"/>
+        <path d="M38 8 L62 8"/>
+        <path d="M20 30 L80 30"/>
+        <path d="M28 50 L72 50"/>
+        <path d="M50 8 L20 30 M50 8 L80 30"/>
+        <path d="M50 30 L28 50 M50 30 L72 50"/>
+        <path d="M50 50 L34 88 M50 50 L66 88"/>
+        <path d="M22 88 L78 88"/>
+        <path d="M14 22 L26 22 M74 22 L86 22"/>
+        <path d="M14 22 L20 30 M26 22 L20 30 M74 22 L80 30 M86 22 L80 30"/>
+      </g>
+    </svg>`;
+}
+
+/** Іконка будинку для вузла "Навантаження" у flow-row — точна копія
+ *  графіки з референсного прев'ю. */
+function houseLoadSvg() {
+  return `
+    <svg class="node-icon" viewBox="0 0 100 100" aria-hidden="true">
+      <path d="M50 12 L92 46 L84 46 L84 88 L16 88 L16 46 L8 46 Z" fill="#33414c" stroke="#1c2830" stroke-width="2" stroke-linejoin="round"/>
+      <rect x="60" y="14" width="10" height="16" fill="#33414c" stroke="#1c2830" stroke-width="1.5"/>
+      <rect x="30" y="56" width="22" height="22" rx="2" fill="#f4b942" stroke="#7a5b17" stroke-width="1.5"/>
+      <line x1="41" y1="56" x2="41" y2="78" stroke="#7a5b17" stroke-width="1.5"/>
+      <line x1="30" y1="67" x2="52" y2="67" stroke="#7a5b17" stroke-width="1.5"/>
+      <rect x="58" y="66" width="14" height="22" rx="1.5" fill="#20262b" stroke="#101418" stroke-width="1.5"/>
+      <circle cx="68" cy="77" r="1.3" fill="#8a97a2"/>
+    </svg>`;
 }
 
 /* ----------------------------------------------------------------------
@@ -1422,6 +1584,7 @@ class HaBmsBleCard extends HTMLElement {
     this._config = null;
     this._hass = null;
     this._expanded = false;
+    this._activeTab = "home";
     this._uid = Math.random().toString(36).slice(2, 9);
     this._resolvedEntities = {};
   }
@@ -1734,6 +1897,7 @@ class HaBmsBleCard extends HTMLElement {
   }
 
   _renderFullView() {
+    const activeTab = this._activeTab || "home";
     const soc = Number(stateOf(this._hass, this._e("soc")));
     const voltage = stateOf(this._hass, this._e("voltage"));
     const current = stateOf(this._hass, this._e("current"));
@@ -1836,19 +2000,19 @@ class HaBmsBleCard extends HTMLElement {
           </div>
         </div>
 
+        <div class="bms-tab-pane ${activeTab === "home" ? "active" : ""}" data-pane="home">
         <div class="flow-row">
-          <div class="flow-node">
-            <div class="flow-icon-circle ${flowState === "charging" ? "flow-active-charge" : ""}">${haIcon("ti-transmission-tower", 32, flowState === "charging" ? "#1D9E75" : "#8b96a3")}</div>
-            <div class="flow-label">Заряд</div>
-            <div class="flow-state ${flowState === "charging" ? "on" : ""}">${flowState === "charging" ? "ON" : "OFF"}</div>
-            <div class="flow-val">${flowState === "charging" ? `${fmt(power, 0)} W` : "—"}</div>
+          <div class="flow-node grid-node">
+            ${gridPylonSvg()}
+            <div class="node-lbl">МЕРЕЖА</div>
+            <div class="node-vals">230 В · 50 Гц<br>${flowState === "charging" ? `${fmtKw(power)} кВт` : "—"}</div>
           </div>
           <div class="flow-connector-wrap">
             ${flowArrowSvg(false, flowState === "charging", "#1D9E75")}
             ${flowArrowSvg(true, flowState === "charging", "#1D9E75")}
           </div>
           <div class="flow-battery"${moreInfoAttr(this._e("soc"))}>
-            ${this._renderBatteryShape(soc, "flow", flowState)}
+            ${glassBatterySvg(this._uid, socPct)}
             <div class="charge-badge">
               ${haIcon(status.icon, 16)} ${status.label}${balancingOn ? ` · ${haIcon("ti-topology-star-3", 14)}` : ""}
             </div>
@@ -1861,22 +2025,11 @@ class HaBmsBleCard extends HTMLElement {
             ${flowArrowSvg(false, flowState === "discharging", "#EF9F27")}
             ${flowArrowSvg(true, flowState === "discharging", "#EF9F27")}
           </div>
-          <div class="flow-node">
-            <div class="flow-icon-circle ${flowState === "discharging" ? "flow-active-discharge" : ""}">${haIcon("ti-home-bolt", 32, flowState === "discharging" ? "#EF9F27" : "#8b96a3")}</div>
-            <div class="flow-label">Розряд</div>
-            <div class="flow-state ${flowState === "discharging" ? "on-discharge" : ""}">${flowState === "discharging" ? "ON" : "OFF"}</div>
-            <div class="flow-val">${flowState === "discharging" ? `${fmt(Math.abs(Number(power)), 0)} W` : "—"}</div>
+          <div class="flow-node load-node">
+            ${houseLoadSvg()}
+            <div class="node-lbl">НАВАНТАЖЕННЯ</div>
+            <div class="node-vals">Будинок<br>${flowState === "discharging" ? `${fmtKw(power)} кВт` : "—"}</div>
           </div>
-        </div>
-
-        <div class="top-row">
-          <div class="stat-col">
-            <div class="stat-box"${moreInfoAttr(this._e("voltage"))}><div class="val">${fmt(voltage, 2)} V</div><div class="lbl">Напруга</div></div>
-            <div class="stat-box"${moreInfoAttr(this._e("current"))}><div class="val ${currentGreen ? "green" : ""}">${fmt(current, 1)} A</div><div class="lbl">Струм</div></div>
-            <div class="stat-box"${moreInfoAttr(this._e("power"))}><div class="val ${currentGreen ? "green" : ""}">${fmt(power, 0)} W</div><div class="lbl">Потужність</div></div>
-            <div class="stat-box"${moreInfoAttr(this._e("temperature"))}><div class="val">${fmt(temp, 1)} °C</div><div class="lbl">Температура</div></div>
-          </div>
-          ${cellsHtml}
         </div>
 
         <div class="discharge-box">
@@ -1892,9 +2045,23 @@ class HaBmsBleCard extends HTMLElement {
             <div class="progress-pct">${socPct.toFixed(0)}%</div>
           </div>
         </div>
+        </div>
+
+        <div class="bms-tab-pane ${activeTab === "params" ? "active" : ""}" data-pane="params">
+        <div class="top-row">
+          <div class="stat-col">
+            <div class="stat-box"${moreInfoAttr(this._e("voltage"))}><div class="val">${fmt(voltage, 2)} V</div><div class="lbl">Напруга</div></div>
+            <div class="stat-box"${moreInfoAttr(this._e("current"))}><div class="val ${currentGreen ? "green" : ""}">${fmt(current, 1)} A</div><div class="lbl">Струм</div></div>
+            <div class="stat-box"${moreInfoAttr(this._e("power"))}><div class="val ${currentGreen ? "green" : ""}">${fmt(power, 0)} W</div><div class="lbl">Потужність</div></div>
+            <div class="stat-box"${moreInfoAttr(this._e("temperature"))}><div class="val">${fmt(temp, 1)} °C</div><div class="lbl">Температура</div></div>
+          </div>
+          ${cellsHtml}
+        </div>
 
         <div class="functions-grid">${funcGrid}</div>
+        </div>
 
+        <div class="bms-tab-pane ${activeTab === "history" ? "active" : ""}" data-pane="history">
         <div class="metrics-row">
           ${Number.isFinite(designN) ? `<div class="metric"><div class="val">${fmt(designN, 0)} <span>Ah</span></div><div class="lbl">Ємність</div></div>` : ""}
           ${usedAh !== undefined ? `<div class="metric"><div class="val">${fmt(usedAh, 1)} <span>Ah</span></div><div class="lbl">Використано</div></div>` : ""}
@@ -1906,7 +2073,9 @@ class HaBmsBleCard extends HTMLElement {
         </div>
 
         ${this._renderHistoryBars()}
+        </div>
 
+        <div class="bms-tab-pane ${activeTab === "settings" ? "active" : ""}" data-pane="settings">
         <h2 class="section-title">Діагностика</h2>
         <div class="diag-grid">
           ${stored !== undefined ? `<div class="diag-card"${moreInfoAttr(this._e("cycle_capacity"))}><div class="diag-icon">${haIcon("ti-battery-vertical-filled",20,"#1D9E75")}</div><div class="diag-text"><div class="l1">Stored Energy</div><div class="l2">${fmt(stored, 0)} Wh</div></div></div>` : ""}
@@ -1917,6 +2086,26 @@ class HaBmsBleCard extends HTMLElement {
           <div class="diag-card"${moreInfoAttr(this._e("current"))}><div class="diag-icon">${haIcon("ti-wave-sine",20,"#4b9bf0")}</div><div class="diag-text"><div class="l1">Package Current</div><div class="l2">${fmt(current, 1)} A</div></div></div>
           <div class="diag-card"${moreInfoAttr(this._e("soc"))}><div class="diag-icon">${haIcon("ti-chart-donut-3",20,"#4b9bf0")}</div><div class="diag-text"><div class="l1">Package SOC</div><div class="l2">${fmt(soc, 0)}%</div></div></div>
           ${cellBitmask !== undefined && cellBitmask !== null && cellBitmask !== "" ? `<div class="diag-card"${moreInfoAttr(this._e("balancer"))}><div class="diag-icon">${haIcon("ti-grid-dots",20,"#4b9bf0")}</div><div class="diag-text"><div class="l1">Cell Bitmask</div><div class="l2">${cellBitmask}</div></div></div>` : ""}
+        </div>
+        </div>
+
+        <div class="nav-bar">
+          <div class="nav-item ${activeTab === "home" ? "active" : ""}" data-tab="home">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 11 L12 4 L20 11 M6 10 V20 H18 V10" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <span>ГОЛОВНА</span>
+          </div>
+          <div class="nav-item ${activeTab === "params" ? "active" : ""}" data-tab="params">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1.1l2-1.6-2-3.4-2.4 1a7 7 0 0 0-1.9-1.1L14.2 3H9.8l-.4 2.8a7 7 0 0 0-1.9 1.1l-2.4-1-2 3.4 2 1.6A7 7 0 0 0 5 12c0 .4 0 .7.1 1.1l-2 1.6 2 3.4 2.4-1c.6.5 1.2.8 1.9 1.1l.4 2.8h4.4l.4-2.8c.7-.3 1.3-.6 1.9-1.1l2.4 1 2-3.4-2-1.6c.1-.4.1-.7.1-1.1z"/></svg>
+            <span>ПАРАМЕТРИ</span>
+          </div>
+          <div class="nav-item ${activeTab === "history" ? "active" : ""}" data-tab="history">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19V5M4 19h16" stroke-linecap="round"/><path d="M6 15l4-4 3 3 5-6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <span>ІСТОРІЯ</span>
+          </div>
+          <div class="nav-item ${activeTab === "settings" ? "active" : ""}" data-tab="settings">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+            <span>НАЛАШТ.</span>
+          </div>
         </div>
       </div>
     `;
@@ -1987,6 +2176,21 @@ class HaBmsBleCard extends HTMLElement {
     });
   }
 
+  /** Клік по пунктах нижньої навігації (Головна/Параметри/Історія/
+   *  Налаштування) перемикає активну вкладку картки і перерендерює її. */
+  _wireTabs() {
+    this.querySelectorAll(".nav-item[data-tab]").forEach((el) => {
+      el.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        const tab = el.dataset.tab;
+        if (tab && tab !== this._activeTab) {
+          this._activeTab = tab;
+          this._render();
+        }
+      });
+    });
+  }
+
   _styles() {
     /* CSS ported from bms-dashboard.html reference */
     return `
@@ -2036,23 +2240,43 @@ class HaBmsBleCard extends HTMLElement {
         }
         .flow-icon-circle.flow-active-charge { border-color:var(--green); box-shadow:0 0 18px rgba(29,158,117,0.5), inset 0 1px 2px rgba(255,255,255,0.12); }
         .flow-icon-circle.flow-active-discharge { border-color:var(--amber); box-shadow:0 0 18px rgba(239,159,39,0.45), inset 0 1px 2px rgba(255,255,255,0.12); }
-        .flow-label { font-size:14px; color:var(--muted); font-weight:600; letter-spacing:0.02em; }
-        .flow-state { font-size:12px; font-weight:700; color:var(--muted-2); }
-        .flow-state.on { color:var(--green); }
-        .flow-state.on-discharge { color:var(--amber); }
-        .flow-val { font-size:16px; font-weight:700; }
+        /* Вузли "Мережа"/"Навантаження" — точна копія стилю референсного
+           прев'ю: іконка без кола-обгортки, підпис і значення під нею. */
+        .node-icon { width:56px; height:56px; flex-shrink:0; }
+        .node-lbl { font-size:13px; font-weight:700; letter-spacing:0.4px; color:#dfe7ee; margin-top:2px; white-space:nowrap; }
+        .node-vals { font-size:12.5px; color:var(--muted); line-height:1.45; text-align:center; }
         .flow-battery { display:flex; flex-direction:column; align-items:center; gap:10px; flex-shrink:0; }
+        .battery-svg { width:104px; height:156px; }
         .flow-battery-readout { display:flex; flex-direction:column; align-items:center; gap:1px; }
         .flow-battery-readout .v { font-size:17px; font-weight:700; }
         .flow-battery-readout .a { font-size:14px; color:var(--muted); }
+
+        /* Нижня навігація вкладок — реальні перемикачі вмісту картки, як
+           у референсному прев'ю (Головна/Параметри/Історія/Налаштування). */
+        .bms-tab-pane { display:none; }
+        .bms-tab-pane.active { display:block; }
+        .nav-bar {
+          margin-top:16px; padding-top:12px; border-top:1px solid var(--border);
+          display:flex; justify-content:space-around; align-items:stretch; gap:2px;
+        }
+        .nav-item {
+          display:flex; flex-direction:column; align-items:center; justify-content:center;
+          gap:4px; padding:6px 4px; border-radius:10px; color:#8fa0ad; font-size:11px; font-weight:700;
+          letter-spacing:0.3px; cursor:pointer; flex:1 1 0; min-width:0;
+          border:1px solid transparent; user-select:none; transition:background 0.15s, color 0.15s, border-color 0.15s;
+        }
+        .nav-item:hover { color:#b0c0d0; }
+        .nav-item.active { background:rgba(56,150,231,0.12); color:#4fb3f6; border-color:rgba(79,179,246,0.35); }
+        .nav-item svg { width:20px; height:20px; flex-shrink:0; }
+        .nav-item span { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%; }
 
         .flow-connector-wrap { width:74px; height:64px; flex-shrink:0; display:flex; align-items:center; justify-content:center; }
         .flow-arrow { width:100%; height:100%; overflow:visible; }
         .flow-arrow-v { display:none; }
         .flow-arrow-path { transition: stroke 0.3s ease; }
         .flow-arrow-head { transition: fill 0.3s ease; }
-        @keyframes bms-arrow-flow { from { stroke-dashoffset:0; } to { stroke-dashoffset:-24; } }
-        .flow-arrow-path.flow-arrow-active { stroke-dasharray:13 11; animation: bms-arrow-flow 0.7s linear infinite; }
+        @keyframes bms-arrow-flow { 0% { stroke-dashoffset:0; opacity:1; } 50% { opacity:0.85; } 100% { stroke-dashoffset:-48; opacity:1; } }
+        .flow-arrow-path.flow-arrow-active { stroke-dasharray:12 10 4 10; animation: bms-arrow-flow 0.7s linear infinite; filter:drop-shadow(0 0 5px rgba(57,231,95,0.6)); }
         @media (prefers-reduced-motion: reduce) {
           .flow-arrow-path.flow-arrow-active { animation:none; }
         }
@@ -2330,6 +2554,7 @@ class HaBmsBleCard extends HTMLElement {
     if (this._config.display_mode === "inline") {
       this.innerHTML = `${style}<ha-card class="bms-card">${this._renderFullView()}</ha-card>`;
       this._wireMoreInfo();
+      this._wireTabs();
       return;
     }
 
@@ -2362,6 +2587,7 @@ class HaBmsBleCard extends HTMLElement {
     }
     if (closeBtn) closeBtn.addEventListener("click", () => this._toggleOverlay(false));
     this._wireMoreInfo();
+    this._wireTabs();
   }
 }
 
