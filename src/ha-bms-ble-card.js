@@ -7,7 +7,7 @@
  * https://github.com/kdinya/ha-bms-ble-card
  */
 
-const CARD_VERSION = "3.0.0-beta.17";
+const CARD_VERSION = "3.0.0-beta.18";
 
 console.info(
   `%c HA-BMS-BLE-CARD %c v${CARD_VERSION} `,
@@ -1983,9 +1983,6 @@ class HaBmsBleCard extends HTMLElement {
     const currentGreen = Number.isFinite(currentN) && Math.abs(currentN) > 0.3;
 
     const linkN = Number(link);
-    const signalIcon = !Number.isFinite(linkN) ? "mdi:wifi-strength-outline"
-      : linkN >= 80 ? "mdi:wifi-strength-4" : linkN >= 50 ? "mdi:wifi-strength-3"
-      : linkN >= 25 ? "mdi:wifi-strength-2" : "mdi:wifi-strength-1";
     const signalColor = !Number.isFinite(linkN) ? "#8b96a3" : linkN >= 50 ? "#1D9E75" : linkN >= 25 ? "#EF9F27" : "#E24B4A";
     const nowStr = new Date().toLocaleTimeString("uk-UA", { hour: "2-digit", minute: "2-digit" });
 
@@ -1994,11 +1991,10 @@ class HaBmsBleCard extends HTMLElement {
         <div class="header">
           <div>
             <h1>${this._batteryName()} ${haIcon("ti-bluetooth", 18, "#4b9bf0")}</h1>
-            <div class="status"><span class="dot"></span> ${status.color === "danger" ? "Проблема" : "Підключено"}</div>
           </div>
           <div class="hdr-right"${moreInfoAttr(this._e("link_quality") || this._e("rssi"))}>
             <span class="hdr-clock">${nowStr}</span>
-            <ha-icon icon="${signalIcon}" style="color:${signalColor};--mdc-icon-size:20px"></ha-icon>
+            <ha-icon icon="mdi:bluetooth" style="color:${signalColor};--mdc-icon-size:20px"></ha-icon>
           </div>
         </div>
 
@@ -2216,7 +2212,7 @@ class HaBmsBleCard extends HTMLElement {
         }
         ha-icon { --mdc-icon-size: 20px; }
         .header { display:flex; align-items:flex-start; justify-content:space-between; margin-bottom:18px; gap:10px; }
-        .header h1 { font-size:22px; margin:0 0 6px 0; font-weight:700; display:flex; align-items:center; gap:8px; }
+        .header h1 { font-size:16px; margin:0 0 6px 0; font-weight:700; display:flex; align-items:center; gap:8px; }
         .hdr-right { display:flex; align-items:center; gap:8px; flex-shrink:0; padding-top:2px; }
         .hdr-clock { font-size:14px; color:var(--muted); font-weight:600; }
         .status { display:flex; align-items:center; gap:6px; color:var(--green); font-size:14px; font-weight:500; }
