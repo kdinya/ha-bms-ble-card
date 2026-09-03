@@ -288,11 +288,12 @@ console.log("Discovered:", Object.keys(discovered).sort().join(", "));
   card._hass = hassCharging;
   card._resolvedEntities = mod.autoDiscoverEntities(hassCharging, deviceId);
   const htmlCharging = card._renderFullView();
-  assert.match(htmlCharging, /battery-fill bms-flow-charging/, "заряд: клас анімації потоку на battery-fill");
-  assert.match(htmlCharging, /battery-shell[^"]*bms-flow-charging/, "заряд: клас анімації світіння на battery-shell");
-  assert.ok(!htmlCharging.includes("bms-flow-discharging"), "під час заряду немає класу розряду");
+  // Батарея в повному (flow) вигляді тепер — скляна SVG-банка (glass jar),
+  // а не CSS battery-fill; анімація потоку живе на з'єднувальних стрілках.
+  assert.match(htmlCharging, /class="battery-svg"/, "повний вигляд: SVG-батарея (скляна банка) присутня");
+  assert.match(htmlCharging, /flow-arrow-path flow-arrow-active[\s\S]{0,200}stroke="#1D9E75"/, "заряд: активна (зелена) стрілка до батареї");
 
-  // 2) charging: off, струм явно від'ємний → статус "Розряджається" → bms-flow-discharging.
+  // 2) charging: off, струм явно від'ємний → статус "Розряджається".
   const hassDischarging = {
     ...mockHass,
     states: {
@@ -304,10 +305,9 @@ console.log("Discovered:", Object.keys(discovered).sort().join(", "));
   card._hass = hassDischarging;
   card._resolvedEntities = mod.autoDiscoverEntities(hassDischarging, deviceId);
   const htmlDischarging = card._renderFullView();
-  assert.match(htmlDischarging, /battery-fill bms-flow-discharging/, "розряд: клас анімації потоку на battery-fill");
-  assert.ok(!htmlDischarging.includes("bms-flow-charging"), "під час розряду немає класу заряду");
+  assert.match(htmlDischarging, /flow-arrow-path flow-arrow-active[\s\S]{0,200}stroke="#EF9F27"/, "розряд: активна (бурштинова) стрілка від батареї");
 
-  // 3) простій (струм ~0, charging off) → жодної анімації.
+  // 3) простій (струм ~0, charging off) → жодна стрілка не анімована.
   const hassIdle = {
     ...mockHass,
     states: {
@@ -319,7 +319,7 @@ console.log("Discovered:", Object.keys(discovered).sort().join(", "));
   card._hass = hassIdle;
   card._resolvedEntities = mod.autoDiscoverEntities(hassIdle, deviceId);
   const htmlIdle = card._renderFullView();
-  assert.ok(!htmlIdle.includes("bms-flow-charging") && !htmlIdle.includes("bms-flow-discharging"), "у простої анімації немає");
+  assert.ok(!htmlIdle.includes("flow-arrow-active"), "у простої анімація стрілок відсутня");
 
   // Те саме має працювати і в компактному (mini) вигляді картки.
   card._hass = hassCharging;
@@ -347,8 +347,10 @@ console.log("Discovered:", Object.keys(discovered).sort().join(", "));
   const htmlCharging = card._renderFullView();
 
   assert.match(htmlCharging, /class="flow-row"/, "flow-row присутній");
-  assert.match(htmlCharging, /flow-icon-circle flow-active-charge/, "ліва іконка (заряд) активна під час заряду");
-  assert.ok(!htmlCharging.includes("flow-active-discharge"), "права іконка НЕ активна під час заряду");
+  // Вузли джерела/споживача тепер підписані як "МЕРЕЖА"/"НАВАНТАЖЕННЯ"
+  // (точна копія референсного прев'ю), а не Заряд/Розряд з іконкою-колом.
+  assert.match(htmlCharging, /class="node-lbl">МЕРЕЖА</, "лівий вузол підписаний МЕРЕЖА");
+  assert.match(htmlCharging, /class="node-lbl">НАВАНТАЖЕННЯ</, "правий вузол підписаний НАВАНТАЖЕННЯ");
   // Стрілки-конектори (SVG, зігнута крива + наконечник) — анімований
   // клас має бути ЛИШЕ на стрілці до батареї (заряд), не до навантаження.
   const arrowMatches = [...htmlCharging.matchAll(/<svg class="flow-arrow (flow-arrow-h|flow-arrow-v)"[\s\S]*?<\/svg>/g)];
@@ -356,10 +358,18 @@ console.log("Discovered:", Object.keys(discovered).sort().join(", "));
   const activeArrows = arrowMatches.filter((m) => m[0].includes("flow-arrow-active"));
   assert.equal(activeArrows.length, 2, "активні (заряд) — рівно h+v пара одного конектора");
   assert.ok(activeArrows.every((m) => m[0].includes('stroke="#1D9E75"')), "активна стрілка заряду зеленого кольору");
-  // Батарея тепер саме в flow-row (клас flow-battery), старого окремого
-  // battery-box більше немає.
-  assert.match(htmlCharging, /<div class="flow-battery"[^>]*>[\s\S]{0,50}battery-shell bms-battery-shape-flow/, "батарея відрендерена всередині flow-battery");
+  // Батарея тепер саме в flow-row (клас flow-battery), і це скляна SVG-банка.
+  assert.match(htmlCharging, /<div class="flow-battery"[^>]*>[\s\S]{0,50}<svg class="battery-svg"/, "батарея (SVG) відрендерена всередині flow-battery");
   assert.ok(!htmlCharging.includes('class="battery-box"'), "старого окремого battery-box більше немає");
+
+  // Нова нижня навігація (Головна/Параметри/Історія/Налаштування) —
+  // реальні перемикачі вмісту картки, як просив користувач.
+  assert.match(htmlCharging, /class="nav-bar"/, "нижня навігація присутня");
+  ["home", "params", "history", "settings"].forEach((tab) => {
+    assert.ok(htmlCharging.includes(`data-tab="${tab}"`), `вкладка ${tab} присутня в nav-bar`);
+    assert.ok(htmlCharging.includes(`data-pane="${tab}"`), `панель контенту ${tab} присутня`);
+  });
+  assert.match(htmlCharging, /nav-item active" data-tab="home"/, "за замовчуванням активна вкладка Головна");
 
   // Видалені за проханням користувача блоки не повинні з'являтися взагалі.
   assert.ok(!htmlCharging.includes("Використано ємності"), "блок 'Використано ємності' видалено");
