@@ -2284,21 +2284,24 @@ class HaBmsBleCard extends HTMLElement {
            по центру, навантаження справа) — лише розміри та відступи
            зменшуються, щоб усе влізло в один рядок без переносу. */
         @media (max-width: 480px) {
-          .flow-row { gap:2px; }
-          .flow-node { width:58px; gap:3px; }
+          .flow-row { gap:2px; justify-content:space-between; }
+          .flow-node { width:auto; flex:1 1 0; min-width:0; gap:3px; }
           .node-icon { width:30px; height:30px; }
           .node-lbl { font-size:9px; white-space:normal; line-height:1.15; overflow-wrap:anywhere; word-break:break-word; }
           .node-vals { font-size:8.5px; line-height:1.3; }
           .battery-svg { width:64px; height:96px; }
-          .flow-battery { gap:6px; }
+          .flow-battery { flex:1 1 0; min-width:0; max-width:none; gap:6px; }
           .flow-battery-readout .v { font-size:12px; }
           .flow-battery-readout .a { font-size:10.5px; }
-          .flow-connector-wrap { width:22px; height:32px; }
-          .charge-badge { font-size:10px; padding:5px 4px; white-space:normal; word-break:break-word; overflow-wrap:anywhere; gap:3px; }
-          .flow-battery { max-width:64px; }
+          .flow-connector-wrap { width:22px; height:32px; flex:0 0 auto; }
+          .charge-badge {
+            font-size:clamp(9px, 2.8vw, 12px); padding:5px 8px; gap:3px;
+            white-space:nowrap; width:max-content; max-width:100%;
+            overflow:hidden; text-overflow:ellipsis;
+          }
         }
         @media (max-width: 360px) {
-          .flow-node { width:48px; }
+          .flow-node { width:auto; }
           .node-icon { width:26px; height:26px; }
           .battery-svg { width:54px; height:82px; }
           .flow-connector-wrap { width:16px; height:28px; }
