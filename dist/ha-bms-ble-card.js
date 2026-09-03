@@ -7,7 +7,7 @@
  * https://github.com/kdinya/ha-bms-ble-card
  */
 
-const CARD_VERSION = "3.0.0-beta.12";
+const CARD_VERSION = "3.0.0-beta.13";
 
 console.info(
   `%c HA-BMS-BLE-CARD %c v${CARD_VERSION} `,
@@ -1916,6 +1916,7 @@ class HaBmsBleCard extends HTMLElement {
     const statusSc = this._statusColorVars(status.color);
     const flowState = chargeFlowState(status.label);
     const eta = this._etaInfo();
+    const showEta = status.color === "success" || status.color === "warning";
     const socPct = Number.isFinite(soc) ? Math.max(0, Math.min(100, soc)) : 0;
     const designN = Number(design);
     let remainingAh;
@@ -2031,8 +2032,8 @@ class HaBmsBleCard extends HTMLElement {
           <div class="discharge-top">
             <div class="icon-circle" style="background:${statusSc.bg}">${haIcon(status.icon,20,statusSc.fg)}</div>
             <div class="discharge-text">
-              <div class="l1">${status.label}${balancingOn ? ` · ${haIcon("ti-topology-star-3", 12)} Балансування` : ""}</div>
-              <div class="l2">${eta.label}${eta.seconds !== undefined ? ": ~" + secondsToHuman(eta.seconds) : ""}</div>
+              <div class="l1">${status.label}${balancingOn ? ` · ${haIcon("ti-topology-star-3", 12)} Балансування${st ? ` (${st.min.toFixed(3)}–${st.max.toFixed(3)} В, Δ${st.delta.toFixed(3)} В)` : ""}` : ""}</div>
+              ${showEta ? `<div class="l2">${eta.label}${eta.seconds !== undefined ? ": ~" + secondsToHuman(eta.seconds) : ""}</div>` : ""}
             </div>
           </div>
           <div class="progress-row">
@@ -2236,16 +2237,17 @@ class HaBmsBleCard extends HTMLElement {
         .flow-icon-circle.flow-active-discharge { border-color:var(--amber); box-shadow:0 0 18px rgba(239,159,39,0.45), inset 0 1px 2px rgba(255,255,255,0.12); }
         /* Вузли "Мережа"/"Навантаження" — точна копія стилю референсного
            прев'ю: іконка без кола-обгортки, підпис і значення під нею. */
-        .node-icon { width:56px; height:56px; flex-shrink:0; }
+        .node-icon { width:67px; height:67px; flex-shrink:0; }
         .node-lbl {
           font-size:13px; font-weight:700; letter-spacing:0.4px; color:#dfe7ee; margin-top:2px;
           white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%;
         }
         /* На неширокому екрані (>480px) підписи "МЕРЕЖА"/"НАВАНТАЖЕННЯ" мають
-           показуватись повністю, без обрізання, і трохи крупніше (×1.2). */
+           показуватись повністю, без обрізання (зменшено ×1.2 назад, до
+           ~10.8px, за проханням користувача). */
         @media (min-width:481px) {
           .flow-node { width:130px; }
-          .node-lbl { font-size:15.6px; overflow:visible; text-overflow:clip; }
+          .node-lbl { font-size:10.8px; overflow:visible; text-overflow:clip; }
           .flow-status-wrap { width:fit-content; max-width:100%; margin-left:auto; margin-right:auto; }
           .flow-status-wrap .discharge-box { width:100%; }
         }
