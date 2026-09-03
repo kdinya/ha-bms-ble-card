@@ -7,7 +7,7 @@
  * https://github.com/kdinya/ha-bms-ble-card
  */
 
-const CARD_VERSION = "3.0.0-beta.10";
+const CARD_VERSION = "3.0.0-beta.12";
 
 console.info(
   `%c HA-BMS-BLE-CARD %c v${CARD_VERSION} `,
@@ -1913,6 +1913,7 @@ class HaBmsBleCard extends HTMLElement {
     const balanceCur = this._balanceCurrentA();
     const cellBitmask = this._cellBitmask();
     const status = this._statusInfo();
+    const statusSc = this._statusColorVars(status.color);
     const flowState = chargeFlowState(status.label);
     const eta = this._etaInfo();
     const socPct = Number.isFinite(soc) ? Math.max(0, Math.min(100, soc)) : 0;
@@ -1990,7 +1991,6 @@ class HaBmsBleCard extends HTMLElement {
     return `
       <div class="bms-full">
         <div class="header">
-          <div class="hdr-unit-badge">${this._config.unit_number || "1"}</div>
           <div>
             <h1>${this._batteryName()} ${haIcon("ti-bluetooth", 18, "#4b9bf0")}</h1>
             <div class="status"><span class="dot"></span> ${status.color === "danger" ? "Проблема" : "Підключено"}</div>
@@ -2002,6 +2002,7 @@ class HaBmsBleCard extends HTMLElement {
         </div>
 
         <div class="bms-tab-pane ${activeTab === "home" ? "active" : ""}" data-pane="home">
+        <div class="flow-status-wrap">
         <div class="flow-row">
           <div class="flow-node grid-node">
             ${gridPylonSvg()}
@@ -2025,16 +2026,13 @@ class HaBmsBleCard extends HTMLElement {
             <div class="node-lbl">НАВАНТАЖЕННЯ</div>
           </div>
         </div>
-        <div class="charge-badge">
-          ${haIcon(status.icon, 16)} ${status.label}${balancingOn ? ` · ${haIcon("ti-topology-star-3", 14)}` : ""}
-        </div>
 
-        <div class="discharge-box">
+        <div class="discharge-box"${moreInfoAttr(this._e("problem") || this._e("charging"))}>
           <div class="discharge-top">
-            <div class="icon-circle">${haIcon("ti-clock-hour-4",20,"#c7d0da")}</div>
+            <div class="icon-circle" style="background:${statusSc.bg}">${haIcon(status.icon,20,statusSc.fg)}</div>
             <div class="discharge-text">
-              <div class="l1">${eta.label}</div>
-              <div class="l2">${eta.seconds !== undefined ? "~" + secondsToHuman(eta.seconds) : "—"}</div>
+              <div class="l1">${status.label}${balancingOn ? ` · ${haIcon("ti-topology-star-3", 12)} Балансування` : ""}</div>
+              <div class="l2">${eta.label}${eta.seconds !== undefined ? ": ~" + secondsToHuman(eta.seconds) : ""}</div>
             </div>
           </div>
           <div class="progress-row">
@@ -2043,6 +2041,8 @@ class HaBmsBleCard extends HTMLElement {
           </div>
         </div>
         </div>
+        </div>
+
 
         <div class="bms-tab-pane ${activeTab === "params" ? "active" : ""}" data-pane="params">
         <div class="top-row">
@@ -2211,10 +2211,6 @@ class HaBmsBleCard extends HTMLElement {
         ha-icon { --mdc-icon-size: 20px; }
         .header { display:flex; align-items:flex-start; justify-content:space-between; margin-bottom:18px; gap:10px; }
         .header h1 { font-size:22px; margin:0 0 6px 0; font-weight:700; display:flex; align-items:center; gap:8px; }
-        .hdr-unit-badge {
-          width:26px; height:26px; border-radius:6px; background:#e9edf1; color:#0b1116;
-          font-weight:800; font-size:14px; display:flex; align-items:center; justify-content:center; flex-shrink:0;
-        }
         .hdr-right { display:flex; align-items:center; gap:8px; flex-shrink:0; padding-top:2px; }
         .hdr-clock { font-size:14px; color:var(--muted); font-weight:600; }
         .status { display:flex; align-items:center; gap:6px; color:var(--green); font-size:14px; font-weight:500; }
@@ -2227,7 +2223,8 @@ class HaBmsBleCard extends HTMLElement {
            навантаження справа, з'єднані зігнутими стрілками з наконечником.
            На вузьких екранах ряд складається в колонку, а стрілки
            перемикаються на вертикальний варіант тим самим SVG-принципом. */
-        .flow-row { display:flex; align-items:center; justify-content:center; gap:6px; margin:10px 0 26px; }
+        .flow-status-wrap { display:flex; flex-direction:column; margin-bottom:14px; }
+        .flow-row { display:flex; align-items:center; justify-content:center; gap:6px; margin:10px 0 16px; }
         .flow-node { display:flex; flex-direction:column; align-items:center; gap:6px; width:104px; flex-shrink:0; }
         .flow-icon-circle {
           width:78px; height:78px; border-radius:50%; border:2px solid #4a5764;
@@ -2243,6 +2240,14 @@ class HaBmsBleCard extends HTMLElement {
         .node-lbl {
           font-size:13px; font-weight:700; letter-spacing:0.4px; color:#dfe7ee; margin-top:2px;
           white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%;
+        }
+        /* На неширокому екрані (>480px) підписи "МЕРЕЖА"/"НАВАНТАЖЕННЯ" мають
+           показуватись повністю, без обрізання, і трохи крупніше (×1.2). */
+        @media (min-width:481px) {
+          .flow-node { width:130px; }
+          .node-lbl { font-size:15.6px; overflow:visible; text-overflow:clip; }
+          .flow-status-wrap { width:fit-content; max-width:100%; margin-left:auto; margin-right:auto; }
+          .flow-status-wrap .discharge-box { width:100%; }
         }
         .flow-battery { display:flex; flex-direction:column; align-items:center; gap:10px; flex-shrink:0; }
         .battery-svg { width:156px; height:234px; }
@@ -2432,8 +2437,8 @@ class HaBmsBleCard extends HTMLElement {
         }
 
         .discharge-box {
-          background:var(--panel); border:1px solid var(--border); border-radius:16px;
-          padding:16px 18px; margin-bottom:14px; display:flex; flex-direction:column; gap:10px;
+          background:var(--panel); border:1px solid var(--border); border-radius:14px;
+          padding:12px 14px; display:flex; flex-direction:column; gap:8px;
         }
         .discharge-top { display:flex; align-items:center; gap:12px; }
         .icon-circle {
