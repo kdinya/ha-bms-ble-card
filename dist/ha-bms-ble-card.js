@@ -7,7 +7,7 @@
  * https://github.com/kdinya/ha-bms-ble-card
  */
 
-const CARD_VERSION = "3.0.0-beta.15";
+const CARD_VERSION = "3.0.0-beta.16";
 
 console.info(
   `%c HA-BMS-BLE-CARD %c v${CARD_VERSION} `,
@@ -2222,11 +2222,22 @@ class HaBmsBleCard extends HTMLElement {
         /* Flow-діаграма заряд/розряд навколо батареї: іконка джерела зліва,
            наша батарея (з анімацією потоку) в центрі замість кола, іконка
            навантаження справа, з'єднані зігнутими стрілками з наконечником.
-           На вузьких екранах ряд складається в колонку, а стрілки
-           перемикаються на вертикальний варіант тим самим SVG-принципом. */
-        .flow-status-wrap { display:flex; flex-direction:column; margin-bottom:14px; zoom:1.3; }
-        .flow-row { display:flex; align-items:center; justify-content:center; gap:6px; margin:10px 0 16px; }
-        .flow-node { display:flex; flex-direction:column; align-items:center; gap:6px; width:104px; flex-shrink:0; }
+           Розміри вузлів масштабуються ПРОПОРЦІЙНО через flexbox
+           (flex-basis = цільовий розмір "на весь зріст" ×1.3, min-width =
+           нижня межа стиснення) замість CSS zoom + фіксованих px на
+           кожен @media-брейкпоінт: раніше zoom масштабував уже готовий
+           layout цілком, через що на портретних екранах різні елементи
+           "стискались" по-різному (деякі — по фіксованому брейкпоінту,
+           деякі — по flex), а на альбомних — рядок "мережа/батарея/
+           навантаження" переставав влазити в картку й обрізався. Тепер усі
+           вузли одного ряду стискаються з тим самим коефіцієнтом і ніколи
+           не виходять за межі картки, на будь-якій орієнтації екрана. */
+        .flow-status-wrap { display:flex; flex-direction:column; margin-bottom:14px; }
+        .flow-row { display:flex; align-items:center; justify-content:center; gap:4px; margin:10px 0 16px; width:100%; }
+        .flow-node {
+          display:flex; flex-direction:column; align-items:center; gap:4px;
+          flex:1 1 135px; min-width:54px; max-width:135px;
+        }
         .flow-icon-circle {
           width:78px; height:78px; border-radius:50%; border:2px solid #4a5764;
           background:radial-gradient(circle at 35% 30%, #232c34, #0a0f14);
@@ -2236,24 +2247,30 @@ class HaBmsBleCard extends HTMLElement {
         .flow-icon-circle.flow-active-charge { border-color:var(--green); box-shadow:0 0 18px rgba(29,158,117,0.5), inset 0 1px 2px rgba(255,255,255,0.12); }
         .flow-icon-circle.flow-active-discharge { border-color:var(--amber); box-shadow:0 0 18px rgba(239,159,39,0.45), inset 0 1px 2px rgba(255,255,255,0.12); }
         /* Вузли "Мережа"/"Навантаження" — точна копія стилю референсного
-           прев'ю: іконка без кола-обгортки, підпис і значення під нею. */
-        .node-icon { width:67px; height:67px; flex-shrink:0; }
+           прев'ю: іконка без кола-обгортки, підпис і значення під нею.
+           width у % від .flow-node — іконка стискається тим самим
+           коефіцієнтом, що й сам вузол (flexbox рахує % відносно вже
+           стиснутої ширини батька), тож нічого не "розсинхронізується". */
+        .node-icon { width:64%; height:auto; flex-shrink:0; }
         .node-lbl {
-          font-size:13px; font-weight:700; letter-spacing:0.4px; color:#dfe7ee; margin-top:2px;
+          font-size:clamp(9px, 3vw, 13px); font-weight:700; letter-spacing:0.4px; color:#dfe7ee; margin-top:2px;
           white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%;
         }
-        /* На неширокому екрані (>480px) підписи "МЕРЕЖА"/"НАВАНТАЖЕННЯ" мають
-           показуватись повністю, без обрізання (зменшено ×1.2 назад, до
-           ~10.8px, за проханням користувача). */
+        .flow-battery {
+          display:flex; flex-direction:column; align-items:center; gap:8px;
+          flex:1 1 203px; min-width:70px; max-width:210px;
+        }
+        .battery-svg { width:100%; height:auto; }
+        .connector-info { font-size:clamp(7px, 2.2vw, 13.6px); font-weight:600; color:var(--muted); text-align:center; line-height:1.25; white-space:nowrap; }
+        /* На ширших екранах (планшет/десктоп/телефон горизонтально) блок
+           не розтягується на всю ширину картки, а лишається по центру,
+           з тою шириною, яку фактично займає ряд мережа/батарея/
+           навантаження. Розмір самих вузлів це вже не зачіпає — про
+           це піклується flex-basis/max-width вище. */
         @media (min-width:481px) {
-          .flow-node { width:130px; }
-          .node-lbl { font-size:10.8px; overflow:visible; text-overflow:clip; }
           .flow-status-wrap { width:fit-content; max-width:100%; margin-left:auto; margin-right:auto; }
           .flow-status-wrap .discharge-box { width:100%; }
         }
-        .flow-battery { display:flex; flex-direction:column; align-items:center; gap:10px; flex-shrink:0; }
-        .battery-svg { width:156px; height:234px; }
-        .connector-info { font-size:10.5px; font-weight:600; color:var(--muted); text-align:center; line-height:1.25; white-space:nowrap; }
 
         /* Нижня навігація вкладок — реальні перемикачі вмісту картки, як
            у референсному прев'ю (Головна/Параметри/Історія/Налаштування). */
@@ -2274,8 +2291,11 @@ class HaBmsBleCard extends HTMLElement {
         .nav-item svg { width:20px; height:20px; flex-shrink:0; }
         .nav-item span { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%; }
 
-        .flow-connector-wrap { width:74px; flex-shrink:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px; }
-        .flow-arrow { width:100%; height:64px; overflow:visible; flex-shrink:0; }
+        .flow-connector-wrap {
+          flex:0 1 96px; min-width:20px; max-width:96px;
+          display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px;
+        }
+        .flow-arrow { width:100%; height:clamp(26px, 9vw, 83px); overflow:visible; flex-shrink:0; }
         .flow-arrow-v { display:none; }
         .flow-arrow-path { transition: stroke 0.3s ease; }
         .flow-arrow-head { transition: fill 0.3s ease; }
@@ -2284,32 +2304,18 @@ class HaBmsBleCard extends HTMLElement {
         @media (prefers-reduced-motion: reduce) {
           .flow-arrow-path.flow-arrow-active { animation:none; }
         }
-        /* На вузькому екрані рядок лишається рядком (мережа зліва, батарея
-           по центру, навантаження справа) — лише розміри та відступи
-           зменшуються, щоб усе влізло в один рядок без переносу. */
+        /* Ряд "мережа/батарея/навантаження" лишається рядком на будь-якій
+           ширині — вузли (.flow-node/.flow-connector-wrap/.flow-battery)
+           самі пропорційно стискаються через flex-basis/min-width вище,
+           тож окремого набору фіксованих px на вузький екран більше не
+           потрібно (і немає ризику, що на ширшому екрані сума
+           фіксованих ширин перевищить ширину картки). */
         @media (max-width: 480px) {
-          .flow-row { gap:2px; justify-content:space-between; }
-          .flow-node { width:auto; flex:1 1 0; min-width:0; gap:3px; }
-          .node-icon { width:30px; height:30px; }
-          .node-lbl { font-size:9px; }
-          .battery-svg { width:96px; height:144px; }
-          .flow-battery { flex:1 1 0; min-width:0; max-width:none; gap:6px; }
-          .flow-connector-wrap { width:auto; min-width:22px; flex:0 0 auto; }
-          .flow-arrow { height:32px; }
-          .connector-info { font-size:8px; }
           .charge-badge {
             font-size:clamp(9px, 2.8vw, 12px); padding:5px 8px; gap:3px;
             white-space:nowrap; width:max-content; max-width:100%;
             overflow:hidden; text-overflow:ellipsis;
           }
-        }
-        @media (max-width: 360px) {
-          .flow-node { width:auto; }
-          .node-icon { width:26px; height:26px; }
-          .battery-svg { width:81px; height:123px; }
-          .flow-connector-wrap { min-width:16px; }
-          .flow-arrow { height:28px; }
-          .connector-info { font-size:7px; }
         }
         .battery-box {
           background:var(--panel); border:1px solid var(--border); border-radius:16px;
@@ -2440,19 +2446,20 @@ class HaBmsBleCard extends HTMLElement {
 
         .discharge-box {
           background:var(--panel); border:1px solid var(--border); border-radius:14px;
-          padding:12px 14px; display:flex; flex-direction:column; gap:8px;
+          padding:16px 18px; display:flex; flex-direction:column; gap:10px;
         }
-        .discharge-top { display:flex; align-items:center; gap:12px; }
+        .discharge-top { display:flex; align-items:center; gap:16px; }
         .icon-circle {
           width:40px; height:40px; border-radius:50%; background:#1a222c;
           display:flex; align-items:center; justify-content:center; flex-shrink:0;
         }
-        .discharge-text .l1 { font-size:14px; color:var(--muted); }
-        .discharge-text .l2 { font-size:20px; font-weight:700; margin-top:2px; }
-        .progress-row { display:flex; align-items:center; gap:12px; }
-        .progress-track { flex:1; height:9px; background:#1a222c; border-radius:6px; overflow:hidden; }
+        .discharge-top .icon-circle { width:52px; height:52px; }
+        .discharge-text .l1 { font-size:18px; color:var(--muted); }
+        .discharge-text .l2 { font-size:26px; font-weight:700; margin-top:2px; }
+        .progress-row { display:flex; align-items:center; gap:16px; }
+        .progress-track { flex:1; height:12px; background:#1a222c; border-radius:6px; overflow:hidden; }
         .progress-fill { height:100%; background:linear-gradient(90deg,#2fae4e,#57d976); border-radius:6px; }
-        .progress-pct { font-size:14px; color:var(--muted); width:36px; text-align:right; }
+        .progress-pct { font-size:18px; color:var(--muted); width:47px; text-align:right; }
 
         .functions-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-bottom:14px; }
         .func-box {
