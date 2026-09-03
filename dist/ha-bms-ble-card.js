@@ -7,7 +7,7 @@
  * https://github.com/kdinya/ha-bms-ble-card
  */
 
-const CARD_VERSION = "3.0.0-beta.16";
+const CARD_VERSION = "3.0.0-beta.17";
 
 console.info(
   `%c HA-BMS-BLE-CARD %c v${CARD_VERSION} `,
@@ -2032,8 +2032,13 @@ class HaBmsBleCard extends HTMLElement {
           <div class="discharge-top">
             <div class="icon-circle" style="background:${statusSc.bg}">${haIcon(status.icon,20,statusSc.fg)}</div>
             <div class="discharge-text">
-              <div class="l1">${status.label}${balancingOn ? ` · ${haIcon("ti-topology-star-3", 12)} Балансування${st ? ` (${st.cells.map((v) => (Number.isFinite(v) ? v.toFixed(3) : "—")).join(", ")} В, Δ${st.delta.toFixed(3)} В)` : ""}` : ""}</div>
-              ${showEta ? `<div class="l2">${eta.label}${eta.seconds !== undefined ? ": ~" + secondsToHuman(eta.seconds) : ""}</div>` : ""}
+              <div class="l1">${status.label}</div>
+              ${(() => {
+                const etaPart = showEta ? `${eta.label}${eta.seconds !== undefined ? ": ~" + secondsToHuman(eta.seconds) : ""}` : "";
+                const balPart = balancingOn ? `${haIcon("ti-topology-star-3", 12)} Балансування${st ? ` (${st.cells.map((v) => (Number.isFinite(v) ? v.toFixed(3) : "—")).join(", ")} В, Δ${st.delta.toFixed(3)} В)` : ""}` : "";
+                const line2 = [etaPart, balPart].filter(Boolean).join(" · ");
+                return line2 ? `<div class="l2">${line2}</div>` : "";
+              })()}
             </div>
           </div>
           <div class="progress-row">
@@ -2454,8 +2459,8 @@ class HaBmsBleCard extends HTMLElement {
           display:flex; align-items:center; justify-content:center; flex-shrink:0;
         }
         .discharge-top .icon-circle { width:52px; height:52px; }
-        .discharge-text .l1 { font-size:18px; color:var(--muted); }
-        .discharge-text .l2 { font-size:26px; font-weight:700; margin-top:2px; }
+        .discharge-text .l1 { font-size:18px; font-weight:700; }
+        .discharge-text .l2 { font-size:13px; color:var(--muted); margin-top:3px; line-height:1.35; }
         .progress-row { display:flex; align-items:center; gap:16px; }
         .progress-track { flex:1; height:12px; background:#1a222c; border-radius:6px; overflow:hidden; }
         .progress-fill { height:100%; background:linear-gradient(90deg,#2fae4e,#57d976); border-radius:6px; }
