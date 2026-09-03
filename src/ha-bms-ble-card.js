@@ -255,7 +255,7 @@ const BATTERY_LIQUID_COLORS = {
  * інакше кілька екземплярів картки на одному дашборді конфліктували б
  * через дублікати id ґрадієнтів/clipPath у спільному DOM.
  */
-function glassBatterySvg(uid, percent) {
+function glassBatterySvg(uid, percent, voltageLabel) {
   const p = Math.max(0, Math.min(100, Number(percent) || 0));
   const BODY_TOP = 32, BODY_BOTTOM = 220, BODY_H = BODY_BOTTOM - BODY_TOP;
   const fillH = (p / 100) * BODY_H;
@@ -348,6 +348,7 @@ function glassBatterySvg(uid, percent) {
       <text x="80" y="152" text-anchor="middle" font-size="44" font-weight="800" fill="#ffffff" style="filter:drop-shadow(0 2px 4px rgba(0,0,0,0.55));">
         <tspan>${p.toFixed(0)}</tspan><tspan font-size="28" dy="-4">%</tspan>
       </text>
+      ${voltageLabel !== undefined && voltageLabel !== null && voltageLabel !== "—" ? `<text x="80" y="180" text-anchor="middle" font-size="18" font-weight="700" fill="#eafff0" opacity="0.92" style="filter:drop-shadow(0 1px 3px rgba(0,0,0,0.5));">${voltageLabel} V</text>` : ""}
     </svg>`;
 }
 
@@ -2005,27 +2006,23 @@ class HaBmsBleCard extends HTMLElement {
           <div class="flow-node grid-node">
             ${gridPylonSvg()}
             <div class="node-lbl">МЕРЕЖА</div>
-            <div class="node-vals">230 В · 50 Гц<br>${flowState === "charging" ? `${fmtKw(power)} кВт` : "—"}</div>
           </div>
           <div class="flow-connector-wrap">
             ${flowArrowSvg(false, flowState === "charging", "#1D9E75")}
             ${flowArrowSvg(true, flowState === "charging", "#1D9E75")}
+            ${flowState === "charging" ? `<div class="connector-info">${current !== undefined && current !== null ? `${fmt(Math.abs(currentN), 1)} A` : "—"}<br>${fmtKw(power)} кВт</div>` : ""}
           </div>
           <div class="flow-battery"${moreInfoAttr(this._e("soc"))}>
-            ${glassBatterySvg(this._uid, socPct)}
-            <div class="flow-battery-readout">
-              <div class="v">${fmt(voltage, 1)} V</div>
-              <div class="a">${current !== undefined && current !== null ? `${Number(current) > 0 ? "+" : ""}${fmt(current, 1)} A` : "—"}</div>
-            </div>
+            ${glassBatterySvg(this._uid, socPct, fmt(voltage, 1))}
           </div>
           <div class="flow-connector-wrap">
             ${flowArrowSvg(false, flowState === "discharging", "#EF9F27")}
             ${flowArrowSvg(true, flowState === "discharging", "#EF9F27")}
+            ${flowState === "discharging" ? `<div class="connector-info">${current !== undefined && current !== null ? `${fmt(Math.abs(currentN), 1)} A` : "—"}<br>${fmtKw(power)} кВт</div>` : ""}
           </div>
           <div class="flow-node load-node">
             ${houseLoadSvg()}
             <div class="node-lbl">НАВАНТАЖЕННЯ</div>
-            <div class="node-vals">Будинок<br>${flowState === "discharging" ? `${fmtKw(power)} кВт` : "—"}</div>
           </div>
         </div>
         <div class="charge-badge">
@@ -2243,13 +2240,13 @@ class HaBmsBleCard extends HTMLElement {
         /* Вузли "Мережа"/"Навантаження" — точна копія стилю референсного
            прев'ю: іконка без кола-обгортки, підпис і значення під нею. */
         .node-icon { width:56px; height:56px; flex-shrink:0; }
-        .node-lbl { font-size:13px; font-weight:700; letter-spacing:0.4px; color:#dfe7ee; margin-top:2px; white-space:nowrap; }
-        .node-vals { font-size:12.5px; color:var(--muted); line-height:1.45; text-align:center; }
+        .node-lbl {
+          font-size:13px; font-weight:700; letter-spacing:0.4px; color:#dfe7ee; margin-top:2px;
+          white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%;
+        }
         .flow-battery { display:flex; flex-direction:column; align-items:center; gap:10px; flex-shrink:0; }
-        .battery-svg { width:104px; height:156px; }
-        .flow-battery-readout { display:flex; flex-direction:column; align-items:center; gap:1px; }
-        .flow-battery-readout .v { font-size:17px; font-weight:700; }
-        .flow-battery-readout .a { font-size:14px; color:var(--muted); }
+        .battery-svg { width:156px; height:234px; }
+        .connector-info { font-size:10.5px; font-weight:600; color:var(--muted); text-align:center; line-height:1.25; white-space:nowrap; }
 
         /* Нижня навігація вкладок — реальні перемикачі вмісту картки, як
            у референсному прев'ю (Головна/Параметри/Історія/Налаштування). */
@@ -2270,8 +2267,8 @@ class HaBmsBleCard extends HTMLElement {
         .nav-item svg { width:20px; height:20px; flex-shrink:0; }
         .nav-item span { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%; }
 
-        .flow-connector-wrap { width:74px; height:64px; flex-shrink:0; display:flex; align-items:center; justify-content:center; }
-        .flow-arrow { width:100%; height:100%; overflow:visible; }
+        .flow-connector-wrap { width:74px; flex-shrink:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px; }
+        .flow-arrow { width:100%; height:64px; overflow:visible; flex-shrink:0; }
         .flow-arrow-v { display:none; }
         .flow-arrow-path { transition: stroke 0.3s ease; }
         .flow-arrow-head { transition: fill 0.3s ease; }
@@ -2287,13 +2284,12 @@ class HaBmsBleCard extends HTMLElement {
           .flow-row { gap:2px; justify-content:space-between; }
           .flow-node { width:auto; flex:1 1 0; min-width:0; gap:3px; }
           .node-icon { width:30px; height:30px; }
-          .node-lbl { font-size:9px; white-space:normal; line-height:1.15; overflow-wrap:anywhere; word-break:break-word; }
-          .node-vals { font-size:8.5px; line-height:1.3; }
-          .battery-svg { width:64px; height:96px; }
+          .node-lbl { font-size:9px; }
+          .battery-svg { width:96px; height:144px; }
           .flow-battery { flex:1 1 0; min-width:0; max-width:none; gap:6px; }
-          .flow-battery-readout .v { font-size:12px; }
-          .flow-battery-readout .a { font-size:10.5px; }
-          .flow-connector-wrap { width:22px; height:32px; flex:0 0 auto; }
+          .flow-connector-wrap { width:auto; min-width:22px; flex:0 0 auto; }
+          .flow-arrow { height:32px; }
+          .connector-info { font-size:8px; }
           .charge-badge {
             font-size:clamp(9px, 2.8vw, 12px); padding:5px 8px; gap:3px;
             white-space:nowrap; width:max-content; max-width:100%;
@@ -2303,8 +2299,10 @@ class HaBmsBleCard extends HTMLElement {
         @media (max-width: 360px) {
           .flow-node { width:auto; }
           .node-icon { width:26px; height:26px; }
-          .battery-svg { width:54px; height:82px; }
-          .flow-connector-wrap { width:16px; height:28px; }
+          .battery-svg { width:81px; height:123px; }
+          .flow-connector-wrap { min-width:16px; }
+          .flow-arrow { height:28px; }
+          .connector-info { font-size:7px; }
         }
         .battery-box {
           background:var(--panel); border:1px solid var(--border); border-radius:16px;
