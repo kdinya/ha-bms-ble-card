@@ -18,4 +18,4 @@ jobs:
       - name: Syntax check
         run: node --check dist/ha-bms-ble-card.js
       - name: Run unit tests
-        run: node --test test/logic.test.js
+        run: npm test
