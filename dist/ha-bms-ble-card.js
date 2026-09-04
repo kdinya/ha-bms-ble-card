@@ -2673,7 +2673,8 @@ class HaBmsBleCard extends HTMLElement {
           width:40px; height:40px; border-radius:50%; background:#1a222c;
           display:flex; align-items:center; justify-content:center; flex-shrink:0;
         }
-        .discharge-top .icon-circle { width:52px; height:52px; }
+        .discharge-top .icon-circle { width:52px; height:52px; display:flex; align-items:center; justify-content:center; }
+        .discharge-top .icon-circle ha-icon { display:flex; align-items:center; justify-content:center; }
         .discharge-text .l1 { font-size:18px; font-weight:700; }
         .discharge-text .l2 { font-size:13px; color:var(--muted); margin-top:3px; line-height:1.35; }
 
