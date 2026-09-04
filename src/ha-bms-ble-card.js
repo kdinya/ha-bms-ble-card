@@ -7,7 +7,7 @@
  * https://github.com/kdinya/ha-bms-ble-card
  */
 
-const CARD_VERSION = "3.0.0-beta.23";
+const CARD_VERSION = "3.0.0-beta.24";
 
 console.info(
   `%c HA-BMS-BLE-CARD %c v${CARD_VERSION} `,
@@ -1716,6 +1716,7 @@ class HaBmsBleCard extends HTMLElement {
     this._activeTab = "home";
     this._uid = Math.random().toString(36).slice(2, 9);
     this._resolvedEntities = {};
+    this._visible = true;
     let storedLang;
     try { storedLang = window.localStorage.getItem(I18N_LANG_KEY); } catch (e) { storedLang = null; }
     this._lang = storedLang === "en" ? "en" : "uk";
@@ -1743,6 +1744,7 @@ class HaBmsBleCard extends HTMLElement {
 
   set hass(hass) {
     this._hass = hass;
+    if (this._visible === false) return;
     this._maybeFetchDailyHistory();
     this._render();
   }
@@ -1755,10 +1757,30 @@ class HaBmsBleCard extends HTMLElement {
     window.addEventListener("orientationchange", this._onOrient = () => {
       if (this._expanded) this._render();
     });
+    // Коли картка закрита/поза екраном (проскрольована, згорнута
+    // вкладка тощо) — зупиняємо анімації й перестаємо перерендерювати
+    // на кожне оновлення hass, щоб не навантажувати ПК даремно.
+    // Працює лише коли картка видима більш ніж на 39% (або відкритий
+    // fullscreen-попап, який завжди вважаємо активним видом).
+    if (typeof IntersectionObserver !== "undefined") {
+      this._io = new IntersectionObserver((entries) => {
+        const ratio = entries[entries.length - 1].intersectionRatio;
+        const nowVisible = ratio > 0.39 || this._expanded;
+        if (nowVisible === this._visible) return;
+        this._visible = nowVisible;
+        if (this.classList) this.classList.toggle("bms-idle", !this._visible);
+        if (this._visible) {
+          this._maybeFetchDailyHistory();
+          this._render();
+        }
+      }, { threshold: [0, 0.39, 1] });
+      this._io.observe(this);
+    }
   }
 
   disconnectedCallback() {
     if (this._onOrient) window.removeEventListener("orientationchange", this._onOrient);
+    if (this._io) { this._io.disconnect(); this._io = undefined; }
   }
 
   _resolvedDeviceId() {
@@ -2300,6 +2322,10 @@ class HaBmsBleCard extends HTMLElement {
 
   _toggleOverlay(open) {
     this._expanded = open;
+    if (open) {
+      this._visible = true;
+      if (this.classList) this.classList.remove("bms-idle");
+    }
     this._render();
   }
 
@@ -2362,6 +2388,8 @@ class HaBmsBleCard extends HTMLElement {
       <style>
         :host { display:block; max-width:100%; }
         * { box-sizing: border-box; }
+        /* Картка невидима (<39%) — глушимо анімації, щоб не вантажити ПК даремно. */
+        .bms-idle, .bms-idle * { animation: none !important; }
         ha-card.bms-card, .bms-card {
           --bg:#020608; --card:#050e14; --panel:#0a141c; --border:rgba(255,255,255,0.06);
           --text:#f2f4f7; --muted:#8b96a3; --muted-2:#5f6b78;
