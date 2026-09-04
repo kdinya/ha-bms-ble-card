@@ -17,3 +17,4 @@ jobs:
         with:
           files: dist/ha-bms-ble-card.js
           generate_release_notes: true
+          prerelease: ${{ contains(github.ref, '-beta') }}
