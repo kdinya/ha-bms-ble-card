@@ -363,6 +363,34 @@ function flowArrowSvg(vertical, active, colorHex) {
 }
 
 /**
+ * "Дріт" з електроенергією, що біжить по ньому — заміна flowArrowSvg лише
+ * для лівого з'єднувача (Мережа → Батарея), за проханням користувача.
+ * Той самий path/viewBox, що й у flowArrowSvg (щоб лишитись у тих самих
+ * координатах відносно вузлів), але замість пунктирної стрілки — статичний
+ * тонкий провід і 2 світні "іскри", що фізично їдуть вздовж path через SMIL
+ * <animateMotion> (без JS-таймерів). Коли неактивно — просто тьмяний
+ * нерухомий провід, як і раніше в flowArrowSvg.
+ */
+function flowWireSvg(vertical, active, colorHex) {
+  const stroke = active ? colorHex : "#3a4650";
+  const path = vertical ? "M14,4 C14,28 36,28 36,50 L36,78" : "M4,36 C28,36 28,14 50,14 L78,14";
+  const viewBox = vertical ? "0 0 50 100" : "0 0 100 50";
+  const cls = vertical ? "flow-wire flow-wire-v" : "flow-wire flow-wire-h";
+  const sparks = active
+    ? `<circle class="flow-wire-spark" r="3.4" fill="${colorHex}">
+        <animateMotion dur="1.1s" repeatCount="indefinite" path="${path}"/>
+      </circle>
+      <circle class="flow-wire-spark" r="3.4" fill="${colorHex}">
+        <animateMotion dur="1.1s" repeatCount="indefinite" begin="0.55s" path="${path}"/>
+      </circle>`
+    : "";
+  return `<svg class="${cls}" viewBox="${viewBox}" preserveAspectRatio="none" aria-hidden="true">
+    <path class="flow-wire-path" d="${path}" fill="none" stroke="${stroke}" stroke-width="3" stroke-linecap="round"/>
+    ${sparks}
+  </svg>`;
+}
+
+/**
  * Колір рідини в "скляній банці" залежно від SOC — три пороги, як у
  * референсному прев'ю (>50% зелений, >20% бурштиновий, інакше червоний).
  */
@@ -2181,8 +2209,8 @@ class HaBmsBleCard extends HTMLElement {
             <div class="node-lbl">${t("node_grid")}</div>
           </div>
           <div class="flow-connector-wrap">
-            ${flowArrowSvg(false, flowState === "charging", "#1D9E75")}
-            ${flowArrowSvg(true, flowState === "charging", "#1D9E75")}
+            ${flowWireSvg(false, flowState === "charging", "#1D9E75")}
+            ${flowWireSvg(true, flowState === "charging", "#1D9E75")}
             ${flowState === "charging" ? `<div class="connector-info">${current !== undefined && current !== null ? `${fmt(Math.abs(currentN), 1)} A` : "—"}<br>${fmtKw(power)} кВт</div>` : ""}
           </div>
           <div class="flow-battery"${moreInfoAttr(this._e("soc"))}>
@@ -2521,6 +2549,20 @@ class HaBmsBleCard extends HTMLElement {
         @media (prefers-reduced-motion: reduce) {
           .flow-arrow-path.flow-arrow-active { animation:none; }
         }
+        /* Дріт з "іскрами" струму — заміна flow-arrow лише для лівого
+           з'єднувача (Мережа → Батарея). Той самий бокс-розмір, що й
+           .flow-arrow, щоб layout не зсувався. */
+        .flow-wire { width:100%; height:clamp(26px, 9vw, 83px); overflow:visible; flex-shrink:0; }
+        .flow-wire-v { display:none; }
+        .flow-wire-path { transition: stroke 0.3s ease; }
+        .flow-wire-spark { filter:drop-shadow(0 0 5px currentColor); }
+        @media (prefers-reduced-motion: reduce) {
+          .flow-wire-spark { display:none; }
+        }
+        /* SMIL animateMotion не зупиняється через animation:none, тому для
+           узгодження з паузою анімацій при невидимій картці (.bms-idle,
+           вище) ховаємо іскри окремо. */
+        .bms-idle .flow-wire-spark { display:none; }
         /* Ряд "мережа/батарея/навантаження" лишається рядком на будь-якій
            ширині — вузли (.flow-node/.flow-connector-wrap/.flow-battery)
            самі пропорційно стискаються через flex-basis/min-width вище,
