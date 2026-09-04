@@ -2155,14 +2155,14 @@ class HaBmsBleCard extends HTMLElement {
     const currentN = Number(current);
 
     const linkN = Number(link);
-    const signalColor = !Number.isFinite(linkN) ? "#8b96a3" : linkN >= 50 ? "#1D9E75" : linkN >= 25 ? "#EF9F27" : "#E24B4A";
+    const signalColor = !Number.isFinite(linkN) ? "#8b96a3" : linkN >= 50 ? "#4b9bf0" : linkN >= 25 ? "#EF9F27" : "#E24B4A";
     const nowStr = new Date().toLocaleTimeString(this._lang === "en" ? "en-US" : "uk-UA", { hour: "2-digit", minute: "2-digit" });
 
     return `
       <div class="bms-full">
         <div class="header">
           <div>
-            <h1>${this._batteryName()} ${haIcon("ti-bluetooth", 18, "#4b9bf0")}</h1>
+            <h1>${this._batteryName()}</h1>
           </div>
           <div class="hdr-right"${moreInfoAttr(this._e("link_quality") || this._e("rssi"))}>
             <span class="hdr-clock">${nowStr}</span>
