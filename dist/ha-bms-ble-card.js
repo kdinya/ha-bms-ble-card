@@ -7,7 +7,7 @@
  * https://github.com/kdinya/ha-bms-ble-card
  */
 
-const CARD_VERSION = "3.0.0-beta.21";
+const CARD_VERSION = "3.0.0-beta.22";
 
 console.info(
   `%c HA-BMS-BLE-CARD %c v${CARD_VERSION} `,
@@ -2217,9 +2217,6 @@ class HaBmsBleCard extends HTMLElement {
           addRow(t("lbl_rssi"), rssi !== undefined ? `${fmt(rssi, 0)} dBm` : undefined, this._e("rssi"));
           if (st) {
             addRow(t("lbl_cell_count"), String(st.cells.length));
-            addRow(t("lbl_cell_max"), `${st.max.toFixed(3)} V (C${st.maxIdx + 1})`, cellEntityIds && cellEntityIds[st.maxIdx]);
-            addRow(t("lbl_cell_min"), `${st.min.toFixed(3)} V (C${st.minIdx + 1})`, cellEntityIds && cellEntityIds[st.minIdx]);
-            addRow(t("lbl_cell_delta"), `${st.delta.toFixed(3)} V`);
           }
           addRow(t("lbl_cell_bitmask"), cellBitmask !== undefined && cellBitmask !== null && cellBitmask !== "" ? String(cellBitmask) : undefined, this._e("balancer"));
 
@@ -2706,10 +2703,10 @@ class HaBmsBleCard extends HTMLElement {
         .diag-text .l1 { font-size:12.5px; color:var(--muted); }
         .diag-text .l2 { font-size:16px; font-weight:700; margin-top:2px; }
 
-        .info-tiles { display:grid; grid-template-columns:repeat(auto-fill, minmax(128px, 1fr)); gap:10px; margin-bottom:20px; }
+        .info-tiles { display:grid; grid-template-columns:repeat(auto-fit, minmax(250px, 1fr)); gap:10px; margin-bottom:20px; }
         .info-tile {
           background:var(--panel); border:1px solid var(--border); border-radius:14px;
-          padding:10px 12px; display:flex; flex-direction:column; gap:4px; min-width:0; max-width:220px;
+          padding:12px 14px; display:flex; flex-direction:column; gap:4px; min-width:0; max-width:420px;
         }
         .info-tile-lbl { font-size:11.5px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
         .info-tile-val { font-size:15px; font-weight:700; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
