@@ -2670,7 +2670,10 @@ class HaBmsBleCard extends HTMLElement {
         .func-box {
           background:var(--panel); border:1px solid var(--border); border-radius:14px;
           padding:14px 16px; display:flex; align-items:center; gap:12px;
+          min-width:0; box-sizing:border-box;
         }
+        .func-text { min-width:0; flex:1; }
+        .func-text .l1, .func-text .l2 { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
         .func-text .l1 { font-size:13px; color:var(--muted); }
         .func-text .l2 { font-size:15px; font-weight:700; margin-top:2px; }
 
@@ -2812,6 +2815,9 @@ class HaBmsBleCard extends HTMLElement {
           .metrics-row { grid-template-columns:repeat(4,1fr); }
           .usage-grid, .forecast-row, .diag-grid { grid-template-columns:repeat(2,1fr); }
           .battery-box { width:100%; }
+        }
+        @media (max-width:420px) {
+          .functions-grid { grid-template-columns:repeat(1,1fr); }
         }
       </style>
     `;
