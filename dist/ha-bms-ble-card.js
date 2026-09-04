@@ -7,13 +7,141 @@
  * https://github.com/kdinya/ha-bms-ble-card
  */
 
-const CARD_VERSION = "3.0.0-beta.18";
+const CARD_VERSION = "3.0.0-beta.20";
 
 console.info(
   `%c HA-BMS-BLE-CARD %c v${CARD_VERSION} `,
   "color: white; background: #0F6E56; font-weight: 700;",
   "color: #0F6E56; background: white; font-weight: 700;"
 );
+
+/** Словник перекладів інтерфейсу картки. За замовчуванням — українська
+ *  (`uk`), як і було раніше; `en` — англійська. Мова зберігається в
+ *  localStorage і перемикається на вкладці "Налаштування" без
+ *  перезавантаження сторінки (просто перерендерює картку). */
+const I18N = {
+  uk: {
+    nav_home: "ГОЛОВНА",
+    nav_info: "ІНФОРМАЦІЯ",
+    nav_settings: "НАЛАШТ.",
+    status_connected: "Підключено",
+    node_grid: "МЕРЕЖА",
+    node_load: "НАВАНТАЖЕННЯ",
+    status_charging: "Заряджається",
+    status_discharging: "Розряджається",
+    status_problem: "Проблема",
+    status_idle: "У простої",
+    balancing: "Балансування",
+    eta_to_discharge: "До розряду",
+    eta_to_full_charge: "До повного заряду",
+    func_balancer: "Балансир",
+    func_charge_mosfet: "MOSFET заряд",
+    func_discharge_mosfet: "MOSFET розряд",
+    func_heater: "Нагрівач",
+    func_problem: "Проблеми",
+    func_mode: "Режим",
+    state_active: "Активний",
+    state_disabled: "Вимкнено",
+    state_enabled: "Увімкнено",
+    state_yes: "Є",
+    state_no: "Немає",
+    mode_charge: "Заряд",
+    mode_discharge: "Розряд",
+    cells_title: "Комірки",
+    cells_no_data: "Немає даних",
+    cell_max: "Макс",
+    cell_min: "Мін",
+    cell_diff: "Різниця",
+    section_cells: "Комірки",
+    section_functions: "Функції",
+    section_history: "Історія",
+    lbl_voltage: "Напруга",
+    lbl_current: "Струм",
+    lbl_power: "Потужність",
+    lbl_temperature: "Температура",
+    lbl_soc: "Заряд (SOC)",
+    lbl_soh: "SOH",
+    lbl_capacity: "Ємність",
+    lbl_used: "Використано",
+    lbl_remaining: "Залишилось",
+    lbl_cycles: "Цикли",
+    lbl_stored_energy: "Запасена енергія",
+    lbl_runtime: "Час роботи (BMS)",
+    lbl_balance_current: "Струм балансування",
+    lbl_cell_bitmask: "Бітова маска комірок",
+    lbl_link_quality: "Якість звʼязку",
+    lbl_rssi: "RSSI",
+    lbl_cell_count: "Кількість комірок",
+    lbl_cell_delta: "Різниця комірок (Δ)",
+    lbl_cell_max: "Макс. напруга комірки",
+    lbl_cell_min: "Мін. напруга комірки",
+    settings_language: "Мова",
+    settings_language_hint: "Мова інтерфейсу картки",
+    lang_uk: "Українська",
+    lang_en: "English",
+  },
+  en: {
+    nav_home: "HOME",
+    nav_info: "INFO",
+    nav_settings: "SETTINGS",
+    status_connected: "Connected",
+    node_grid: "GRID",
+    node_load: "LOAD",
+    status_charging: "Charging",
+    status_discharging: "Discharging",
+    status_problem: "Problem",
+    status_idle: "Idle",
+    balancing: "Balancing",
+    eta_to_discharge: "Until discharged",
+    eta_to_full_charge: "Until fully charged",
+    func_balancer: "Balancer",
+    func_charge_mosfet: "Charge MOSFET",
+    func_discharge_mosfet: "Discharge MOSFET",
+    func_heater: "Heater",
+    func_problem: "Problems",
+    func_mode: "Mode",
+    state_active: "Active",
+    state_disabled: "Disabled",
+    state_enabled: "Enabled",
+    state_yes: "Yes",
+    state_no: "None",
+    mode_charge: "Charge",
+    mode_discharge: "Discharge",
+    cells_title: "Cells",
+    cells_no_data: "No data",
+    cell_max: "Max",
+    cell_min: "Min",
+    cell_diff: "Diff",
+    section_cells: "Cells",
+    section_functions: "Functions",
+    section_history: "History",
+    lbl_voltage: "Voltage",
+    lbl_current: "Current",
+    lbl_power: "Power",
+    lbl_temperature: "Temperature",
+    lbl_soc: "Charge (SOC)",
+    lbl_soh: "SOH",
+    lbl_capacity: "Capacity",
+    lbl_used: "Used",
+    lbl_remaining: "Remaining",
+    lbl_cycles: "Cycles",
+    lbl_stored_energy: "Stored Energy",
+    lbl_runtime: "Runtime (BMS)",
+    lbl_balance_current: "Balance Current",
+    lbl_cell_bitmask: "Cell Bitmask",
+    lbl_link_quality: "Link Quality",
+    lbl_rssi: "RSSI",
+    lbl_cell_count: "Cell Count",
+    lbl_cell_delta: "Cell Delta (Δ)",
+    lbl_cell_max: "Max Cell Voltage",
+    lbl_cell_min: "Min Cell Voltage",
+    settings_language: "Language",
+    settings_language_hint: "Card interface language",
+    lang_uk: "Українська",
+    lang_en: "English",
+  },
+};
+const I18N_LANG_KEY = "ha-bms-ble-card-lang";
 
 const DEFAULT_THRESHOLDS = {
   cell_delta_warning: 0.02,
@@ -1588,6 +1716,16 @@ class HaBmsBleCard extends HTMLElement {
     this._activeTab = "home";
     this._uid = Math.random().toString(36).slice(2, 9);
     this._resolvedEntities = {};
+    let storedLang;
+    try { storedLang = window.localStorage.getItem(I18N_LANG_KEY); } catch (e) { storedLang = null; }
+    this._lang = storedLang === "en" ? "en" : "uk";
+  }
+
+  /** Переклад одного рядка інтерфейсу за ключем словника I18N, з
+   *  фолбеком на українську, якщо ключа немає в поточній мові. */
+  _t(key) {
+    const dict = I18N[this._lang] || I18N.uk;
+    return dict[key] || I18N.uk[key] || key;
   }
 
   static getConfigElement() {
@@ -1923,13 +2061,22 @@ class HaBmsBleCard extends HTMLElement {
     if (Number.isFinite(designN) && Number.isFinite(socPct)) remainingAh = designN * (socPct / 100);
     const usedAh = Number.isFinite(designN) && remainingAh !== undefined ? designN - remainingAh : undefined;
 
+    const t = (k) => this._t(k);
+    const statusLabelText = (s) => (
+      s.color === "success" ? t("status_charging")
+      : s.color === "warning" ? t("status_discharging")
+      : s.color === "danger" ? t("status_problem")
+      : t("status_idle")
+    );
+    const etaLabelText = status.color === "success" ? t("eta_to_full_charge") : t("eta_to_discharge");
+
     const st = this._cellStats();
     const cellEntityIds = this._cellVoltageEntityIds();
     const bal = stateOf(this._hass, this._e("balancer"));
     const on = (s) => s === "on" || s === "true";
     const balancingOn = on(bal);
     const activeCells = balancingOn ? activeBalancingCells(cellBitmask) : new Set();
-    let cellsHtml = `<div class="cells-box"><div class="cells-title">Комірки</div><p class="bms-muted">Немає даних</p></div>`;
+    let cellsHtml = `<div class="cells-box"><div class="cells-title">${t("cells_title")}</div><p class="bms-muted">${t("cells_no_data")}</p></div>`;
     if (st) {
       const lo = Math.min(st.min - 0.05, 3.05);
       const hi = Math.max(st.max + 0.04, 3.40);
@@ -1947,12 +2094,12 @@ class HaBmsBleCard extends HTMLElement {
       }).join("");
       cellsHtml = `
         <div class="cells-box">
-          <div class="cells-title">Комірки (Δ ${st.delta.toFixed(3)}V)${balancingOn ? `<span class="balance-badge">${haIcon("ti-topology-star-3", 12)} Балансування</span>` : ""}</div>
+          <div class="cells-title">${t("cells_title")} (Δ ${st.delta.toFixed(3)}V)${balancingOn ? `<span class="balance-badge">${haIcon("ti-topology-star-3", 12)} ${t("balancing")}</span>` : ""}</div>
           ${rows}
           <div class="badges-row">
-            <div class="badge green"${moreInfoAttr(cellEntityIds && cellEntityIds[st.maxIdx])}>Макс ${st.max.toFixed(3)} V<b>C${st.maxIdx + 1}</b></div>
-            <div class="badge amber"${moreInfoAttr(cellEntityIds && cellEntityIds[st.minIdx])}>Мін ${st.min.toFixed(3)} V<b>C${st.minIdx + 1}</b></div>
-            <div class="badge blue">Δ ${st.delta.toFixed(3)} V<b>Різниця</b></div>
+            <div class="badge green"${moreInfoAttr(cellEntityIds && cellEntityIds[st.maxIdx])}>${t("cell_max")} ${st.max.toFixed(3)} V<b>C${st.maxIdx + 1}</b></div>
+            <div class="badge amber"${moreInfoAttr(cellEntityIds && cellEntityIds[st.minIdx])}>${t("cell_min")} ${st.min.toFixed(3)} V<b>C${st.minIdx + 1}</b></div>
+            <div class="badge blue">Δ ${st.delta.toFixed(3)} V<b>${t("cell_diff")}</b></div>
           </div>
         </div>`;
     }
@@ -1970,21 +2117,20 @@ class HaBmsBleCard extends HTMLElement {
     const G = "#1D9E75", M = "#8b96a3", A = "#EF9F27", R = "#E24B4A";
 
     let funcGrid = "";
-    if (bal !== undefined) funcGrid += func("ti-topology-star-3", "Балансир", on(bal) ? "Активний" : "Вимкнено", on(bal) ? G : M, this._e("balancer"));
-    if (chrgM !== undefined) funcGrid += func("ti-plug-connected", "MOSFET заряд", on(chrgM) ? "Увімкнено" : "Вимкнено", on(chrgM) ? G : M, this._e("chrg_mosfet"));
-    if (disM !== undefined) funcGrid += func("ti-plug-connected", "MOSFET розряд", on(disM) ? "Увімкнено" : "Вимкнено", on(disM) ? G : M, this._e("dischrg_mosfet"));
-    if (heat !== undefined) funcGrid += func("ti-flame", "Нагрівач", on(heat) ? "Увімкнено" : "Вимкнено", on(heat) ? A : M, this._e("heater"));
-    if (prob !== undefined) funcGrid += func("ti-alert-triangle", "Проблеми", on(prob) ? "Є" : "Немає", on(prob) ? R : G, this._e("problem"));
-    const modeLabel = status.label === "Заряджається" ? "Заряд" : status.label === "Розряджається" ? "Розряд" : status.label;
+    if (bal !== undefined) funcGrid += func("ti-topology-star-3", t("func_balancer"), on(bal) ? t("state_active") : t("state_disabled"), on(bal) ? G : M, this._e("balancer"));
+    if (chrgM !== undefined) funcGrid += func("ti-plug-connected", t("func_charge_mosfet"), on(chrgM) ? t("state_enabled") : t("state_disabled"), on(chrgM) ? G : M, this._e("chrg_mosfet"));
+    if (disM !== undefined) funcGrid += func("ti-plug-connected", t("func_discharge_mosfet"), on(disM) ? t("state_enabled") : t("state_disabled"), on(disM) ? G : M, this._e("dischrg_mosfet"));
+    if (heat !== undefined) funcGrid += func("ti-flame", t("func_heater"), on(heat) ? t("state_enabled") : t("state_disabled"), on(heat) ? A : M, this._e("heater"));
+    if (prob !== undefined) funcGrid += func("ti-alert-triangle", t("func_problem"), on(prob) ? t("state_yes") : t("state_no"), on(prob) ? R : G, this._e("problem"));
+    const modeLabel = status.color === "success" ? t("mode_charge") : status.color === "warning" ? t("mode_discharge") : statusLabelText(status);
     const modeTone = status.color === "success" ? G : status.color === "warning" ? A : M;
-    funcGrid += func(status.icon || "ti-bolt", "Режим", modeLabel, modeTone);
+    funcGrid += func(status.icon || "ti-bolt", t("func_mode"), modeLabel, modeTone);
 
     const currentN = Number(current);
-    const currentGreen = Number.isFinite(currentN) && Math.abs(currentN) > 0.3;
 
     const linkN = Number(link);
     const signalColor = !Number.isFinite(linkN) ? "#8b96a3" : linkN >= 50 ? "#1D9E75" : linkN >= 25 ? "#EF9F27" : "#E24B4A";
-    const nowStr = new Date().toLocaleTimeString("uk-UA", { hour: "2-digit", minute: "2-digit" });
+    const nowStr = new Date().toLocaleTimeString(this._lang === "en" ? "en-US" : "uk-UA", { hour: "2-digit", minute: "2-digit" });
 
     return `
       <div class="bms-full">
@@ -2003,7 +2149,7 @@ class HaBmsBleCard extends HTMLElement {
         <div class="flow-row">
           <div class="flow-node grid-node">
             ${gridPylonSvg()}
-            <div class="node-lbl">МЕРЕЖА</div>
+            <div class="node-lbl">${t("node_grid")}</div>
           </div>
           <div class="flow-connector-wrap">
             ${flowArrowSvg(false, flowState === "charging", "#1D9E75")}
@@ -2020,7 +2166,7 @@ class HaBmsBleCard extends HTMLElement {
           </div>
           <div class="flow-node load-node">
             ${houseLoadSvg()}
-            <div class="node-lbl">НАВАНТАЖЕННЯ</div>
+            <div class="node-lbl">${t("node_load")}</div>
           </div>
         </div>
 
@@ -2028,10 +2174,10 @@ class HaBmsBleCard extends HTMLElement {
           <div class="discharge-top">
             <div class="icon-circle" style="background:${statusSc.bg}">${haIcon(status.icon,20,statusSc.fg)}</div>
             <div class="discharge-text">
-              <div class="l1">${status.label}</div>
+              <div class="l1">${statusLabelText(status)}</div>
               ${(() => {
-                const etaPart = showEta ? `${eta.label}${eta.seconds !== undefined ? ": ~" + secondsToHuman(eta.seconds) : ""}` : "";
-                const balPart = balancingOn ? `${haIcon("ti-topology-star-3", 12)} Балансування${st ? ` (${st.cells.map((v) => (Number.isFinite(v) ? v.toFixed(3) : "—")).join(", ")} В, Δ${st.delta.toFixed(3)} В)` : ""}` : "";
+                const etaPart = showEta ? `${etaLabelText}${eta.seconds !== undefined ? ": ~" + secondsToHuman(eta.seconds) : ""}` : "";
+                const balPart = balancingOn ? `${haIcon("ti-topology-star-3", 12)} ${t("balancing")}${st ? ` (${st.cells.map((v) => (Number.isFinite(v) ? v.toFixed(3) : "—")).join(", ")} В, Δ${st.delta.toFixed(3)} В)` : ""}` : "";
                 const line2 = [etaPart, balPart].filter(Boolean).join(" · ");
                 return line2 ? `<div class="l2">${line2}</div>` : "";
               })()}
@@ -2046,64 +2192,74 @@ class HaBmsBleCard extends HTMLElement {
         </div>
 
 
-        <div class="bms-tab-pane ${activeTab === "params" ? "active" : ""}" data-pane="params">
-        <div class="top-row">
-          <div class="stat-col">
-            <div class="stat-box"${moreInfoAttr(this._e("voltage"))}><div class="val">${fmt(voltage, 2)} V</div><div class="lbl">Напруга</div></div>
-            <div class="stat-box"${moreInfoAttr(this._e("current"))}><div class="val ${currentGreen ? "green" : ""}">${fmt(current, 1)} A</div><div class="lbl">Струм</div></div>
-            <div class="stat-box"${moreInfoAttr(this._e("power"))}><div class="val ${currentGreen ? "green" : ""}">${fmt(power, 0)} W</div><div class="lbl">Потужність</div></div>
-            <div class="stat-box"${moreInfoAttr(this._e("temperature"))}><div class="val">${fmt(temp, 1)} °C</div><div class="lbl">Температура</div></div>
-          </div>
-          ${cellsHtml}
-        </div>
+        <div class="bms-tab-pane ${activeTab === "info" ? "active" : ""}" data-pane="info">
+        ${(() => {
+          const runtimeVal = stateOf(this._hass, this._e("runtime"));
+          const rows = [];
+          const addRow = (label, value, entityId) => {
+            if (value === undefined || value === null || value === "") return;
+            rows.push({ label, value, entityId });
+          };
+          addRow(t("lbl_voltage"), Number.isFinite(Number(voltage)) ? `${fmt(voltage, 2)} V` : undefined, this._e("voltage"));
+          addRow(t("lbl_current"), Number.isFinite(Number(current)) ? `${fmt(current, 1)} A` : undefined, this._e("current"));
+          addRow(t("lbl_power"), Number.isFinite(Number(power)) ? `${fmt(power, 0)} W` : undefined, this._e("power"));
+          addRow(t("lbl_temperature"), Number.isFinite(Number(temp)) ? `${fmt(temp, 1)} °C` : undefined, this._e("temperature"));
+          addRow(t("lbl_soc"), Number.isFinite(soc) ? `${fmt(soc, 0)}%` : undefined, this._e("soc"));
+          addRow(t("lbl_soh"), soh !== undefined ? `${fmt(soh, 0)}%` : undefined, this._e("soh"));
+          addRow(t("lbl_capacity"), Number.isFinite(designN) ? `${fmt(designN, 0)} Ah` : undefined, this._e("design_capacity"));
+          addRow(t("lbl_used"), usedAh !== undefined ? `${fmt(usedAh, 1)} Ah` : undefined);
+          addRow(t("lbl_remaining"), remainingAh !== undefined ? `${fmt(remainingAh, 1)} Ah` : undefined);
+          addRow(t("lbl_cycles"), cycles !== undefined ? `${fmt(cycles, 0)}` : undefined, this._e("charge_cycles"));
+          addRow(t("lbl_stored_energy"), stored !== undefined ? `${fmt(stored, 0)} Wh` : undefined, this._e("cycle_capacity"));
+          addRow(t("lbl_runtime"), runtimeVal !== undefined ? `~${secondsToHuman(Number(runtimeVal))}` : undefined, this._e("runtime"));
+          addRow(t("lbl_balance_current"), balanceCur !== undefined ? `${fmt(balanceCur, 2)} A` : undefined, this._e("current"));
+          addRow(t("lbl_link_quality"), link !== undefined ? `${fmt(link, 0)}%` : undefined, this._e("link_quality"));
+          addRow(t("lbl_rssi"), rssi !== undefined ? `${fmt(rssi, 0)} dBm` : undefined, this._e("rssi"));
+          if (st) {
+            addRow(t("lbl_cell_count"), String(st.cells.length));
+            addRow(t("lbl_cell_max"), `${st.max.toFixed(3)} V (C${st.maxIdx + 1})`, cellEntityIds && cellEntityIds[st.maxIdx]);
+            addRow(t("lbl_cell_min"), `${st.min.toFixed(3)} V (C${st.minIdx + 1})`, cellEntityIds && cellEntityIds[st.minIdx]);
+            addRow(t("lbl_cell_delta"), `${st.delta.toFixed(3)} V`);
+          }
+          addRow(t("lbl_cell_bitmask"), cellBitmask !== undefined && cellBitmask !== null && cellBitmask !== "" ? String(cellBitmask) : undefined, this._e("balancer"));
 
+          const rowHtml = (r) => `<div class="info-row"${moreInfoAttr(r.entityId)}><span class="info-row-lbl">${r.label}</span><span class="info-row-val">${r.value}</span></div>`;
+          const col1 = rows.filter((_, i) => i % 2 === 0).map(rowHtml).join("");
+          const col2 = rows.filter((_, i) => i % 2 === 1).map(rowHtml).join("");
+          return `<div class="info-grid"><div class="info-col">${col1}</div><div class="info-col">${col2}</div></div>`;
+        })()}
+
+        <h2 class="section-title">${t("section_cells")}</h2>
+        ${cellsHtml}
+
+        <h2 class="section-title">${t("section_functions")}</h2>
         <div class="functions-grid">${funcGrid}</div>
-        </div>
 
-        <div class="bms-tab-pane ${activeTab === "history" ? "active" : ""}" data-pane="history">
-        <div class="metrics-row">
-          ${Number.isFinite(designN) ? `<div class="metric"><div class="val">${fmt(designN, 0)} <span>Ah</span></div><div class="lbl">Ємність</div></div>` : ""}
-          ${usedAh !== undefined ? `<div class="metric"><div class="val">${fmt(usedAh, 1)} <span>Ah</span></div><div class="lbl">Використано</div></div>` : ""}
-          ${remainingAh !== undefined ? `<div class="metric"><div class="val">${fmt(remainingAh, 1)} <span>Ah</span></div><div class="lbl">Залишилось</div></div>` : ""}
-          ${cycles !== undefined ? `<div class="metric"><div class="val">${fmt(cycles, 0)}</div><div class="lbl">Цикли</div></div>` : ""}
-          ${soh !== undefined ? `<div class="metric"><div class="val">${fmt(soh, 0)}%</div><div class="lbl">SOH</div></div>` : ""}
-          ${link !== undefined ? `<div class="metric"><div class="val">${fmt(link, 0)}%</div><div class="lbl">Link Quality</div></div>` : ""}
-          ${rssi !== undefined ? `<div class="metric"><div class="val">${fmt(rssi, 0)} <span>dBm</span></div><div class="lbl">RSSI</div></div>` : ""}
-        </div>
-
+        <h2 class="section-title">${t("section_history")}</h2>
         ${this._renderHistoryBars()}
         </div>
 
         <div class="bms-tab-pane ${activeTab === "settings" ? "active" : ""}" data-pane="settings">
-        <h2 class="section-title">Діагностика</h2>
-        <div class="diag-grid">
-          ${stored !== undefined ? `<div class="diag-card"${moreInfoAttr(this._e("cycle_capacity"))}><div class="diag-icon">${haIcon("ti-battery-vertical-filled",20,"#1D9E75")}</div><div class="diag-text"><div class="l1">Stored Energy</div><div class="l2">${fmt(stored, 0)} Wh</div></div></div>` : ""}
-          ${stateOf(this._hass, this._e("runtime")) !== undefined ? `<div class="diag-card"${moreInfoAttr(this._e("runtime"))}><div class="diag-icon">${haIcon("ti-clock-hour-4",20,"#4b9bf0")}</div><div class="diag-text"><div class="l1">Runtime (BMS)</div><div class="l2">${fmt(stateOf(this._hass, this._e("runtime")), 0)} s / ~${secondsToHuman(Number(stateOf(this._hass, this._e("runtime"))))}</div></div></div>` : ""}
-          ${balanceCur !== undefined ? `<div class="diag-card"${moreInfoAttr(this._e("current"))}><div class="diag-icon">${haIcon("ti-scale",20,"#EF9F27")}</div><div class="diag-text"><div class="l1">Balance Current</div><div class="l2">${fmt(balanceCur, 2)} A</div></div></div>` : ""}
-          ${cycles !== undefined ? `<div class="diag-card"${moreInfoAttr(this._e("charge_cycles"))}><div class="diag-icon">${haIcon("ti-refresh",20,"#1D9E75")}</div><div class="diag-text"><div class="l1">Package Cycles</div><div class="l2">${fmt(cycles, 0)}</div></div></div>` : ""}
-          <div class="diag-card"${moreInfoAttr(this._e("voltage"))}><div class="diag-icon">${haIcon("ti-battery",20,"#E24B4A")}</div><div class="diag-text"><div class="l1">Package Voltage</div><div class="l2">${fmt(voltage, 2)} V</div></div></div>
-          <div class="diag-card"${moreInfoAttr(this._e("current"))}><div class="diag-icon">${haIcon("ti-wave-sine",20,"#4b9bf0")}</div><div class="diag-text"><div class="l1">Package Current</div><div class="l2">${fmt(current, 1)} A</div></div></div>
-          <div class="diag-card"${moreInfoAttr(this._e("soc"))}><div class="diag-icon">${haIcon("ti-chart-donut-3",20,"#4b9bf0")}</div><div class="diag-text"><div class="l1">Package SOC</div><div class="l2">${fmt(soc, 0)}%</div></div></div>
-          ${cellBitmask !== undefined && cellBitmask !== null && cellBitmask !== "" ? `<div class="diag-card"${moreInfoAttr(this._e("balancer"))}><div class="diag-icon">${haIcon("ti-grid-dots",20,"#4b9bf0")}</div><div class="diag-text"><div class="l1">Cell Bitmask</div><div class="l2">${cellBitmask}</div></div></div>` : ""}
+        <h2 class="section-title">${t("settings_language")}</h2>
+        <p class="bms-muted">${t("settings_language_hint")}</p>
+        <div class="lang-switch">
+          <button type="button" class="lang-btn ${this._lang === "uk" ? "active" : ""}" data-lang="uk">${t("lang_uk")}</button>
+          <button type="button" class="lang-btn ${this._lang === "en" ? "active" : ""}" data-lang="en">${t("lang_en")}</button>
         </div>
         </div>
 
         <div class="nav-bar">
           <div class="nav-item ${activeTab === "home" ? "active" : ""}" data-tab="home">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 11 L12 4 L20 11 M6 10 V20 H18 V10" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            <span>ГОЛОВНА</span>
+            <span>${t("nav_home")}</span>
           </div>
-          <div class="nav-item ${activeTab === "params" ? "active" : ""}" data-tab="params">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1.1l2-1.6-2-3.4-2.4 1a7 7 0 0 0-1.9-1.1L14.2 3H9.8l-.4 2.8a7 7 0 0 0-1.9 1.1l-2.4-1-2 3.4 2 1.6A7 7 0 0 0 5 12c0 .4 0 .7.1 1.1l-2 1.6 2 3.4 2.4-1c.6.5 1.2.8 1.9 1.1l.4 2.8h4.4l.4-2.8c.7-.3 1.3-.6 1.9-1.1l2.4 1 2-3.4-2-1.6c.1-.4.1-.7.1-1.1z"/></svg>
-            <span>ПАРАМЕТРИ</span>
-          </div>
-          <div class="nav-item ${activeTab === "history" ? "active" : ""}" data-tab="history">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19V5M4 19h16" stroke-linecap="round"/><path d="M6 15l4-4 3 3 5-6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            <span>ІСТОРІЯ</span>
+          <div class="nav-item ${activeTab === "info" ? "active" : ""}" data-tab="info">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 11v6" stroke-linecap="round"/><circle cx="12" cy="7.5" r="0.9" fill="currentColor" stroke="none"/></svg>
+            <span>${t("nav_info")}</span>
           </div>
           <div class="nav-item ${activeTab === "settings" ? "active" : ""}" data-tab="settings">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-            <span>НАЛАШТ.</span>
+            <span>${t("nav_settings")}</span>
           </div>
         </div>
       </div>
@@ -2184,6 +2340,17 @@ class HaBmsBleCard extends HTMLElement {
         const tab = el.dataset.tab;
         if (tab && tab !== this._activeTab) {
           this._activeTab = tab;
+          this._render();
+        }
+      });
+    });
+    this.querySelectorAll(".lang-btn[data-lang]").forEach((el) => {
+      el.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        const lang = el.dataset.lang === "en" ? "en" : "uk";
+        if (lang !== this._lang) {
+          this._lang = lang;
+          try { window.localStorage.setItem(I18N_LANG_KEY, lang); } catch (e) { /* ignore */ }
           this._render();
         }
       });
@@ -2538,6 +2705,25 @@ class HaBmsBleCard extends HTMLElement {
         .diag-text .l1 { font-size:12.5px; color:var(--muted); }
         .diag-text .l2 { font-size:16px; font-weight:700; margin-top:2px; }
 
+        .info-grid { display:grid; grid-template-columns:1fr 1fr; gap:0 16px; margin-bottom:20px; }
+        .info-col { display:flex; flex-direction:column; }
+        .info-row {
+          display:flex; align-items:baseline; justify-content:space-between; gap:10px;
+          padding:10px 2px; border-bottom:1px solid var(--border);
+        }
+        .info-row-lbl { font-size:13px; color:var(--muted); }
+        .info-row-val { font-size:14px; font-weight:700; color:var(--text); text-align:right; }
+        @media (max-width:480px) {
+          .info-grid { grid-template-columns:1fr; gap:0; }
+        }
+
+        .lang-switch { display:flex; gap:10px; margin-top:6px; }
+        .lang-btn {
+          flex:1; padding:12px 14px; border-radius:12px; border:1px solid var(--border);
+          background:var(--panel); color:var(--text); font-size:14px; font-weight:600; cursor:pointer;
+        }
+        .lang-btn.active { border-color:#1D9E75; background:#1f3d29; color:#1D9E75; }
+
         .bms-mini { cursor:pointer; }
         .bms-overlay {
           position:fixed; inset:0; background:rgba(0,0,0,0.65); z-index:1000;
@@ -2654,5 +2840,6 @@ if (typeof module !== "undefined" && module.exports) {
     HaBmsBleCardEditor,
     ENTITY_FIELD_GROUPS,
     discoverFromFullRegistry,
+    I18N,
   };
 }

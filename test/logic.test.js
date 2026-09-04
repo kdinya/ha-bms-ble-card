@@ -29,6 +29,7 @@ const {
   findBmsBleDeviceIds,
   autoDiscoverEntities,
   discoverFromFullRegistry,
+  I18N,
 } = require("../dist/ha-bms-ble-card.js");
 
 // Мінімальний фейковий hass для тестів автопошуку: один пристрій
@@ -321,4 +322,14 @@ test("chargeFlowState: мапить підпис статусу на стан а
   assert.equal(chargeFlowState("У простої"), null);
   assert.equal(chargeFlowState("Проблема"), null);
   assert.equal(chargeFlowState(undefined), null);
+});
+
+test("I18N: словники 'uk' і 'en' мають однаковий набір ключів (жоден переклад не загублений)", () => {
+  const ukKeys = Object.keys(I18N.uk).sort();
+  const enKeys = Object.keys(I18N.en).sort();
+  assert.deepEqual(enKeys, ukKeys, "ключі 'en' мають повністю збігатися з ключами 'uk'");
+  ukKeys.forEach((k) => {
+    assert.ok(I18N.uk[k], `uk.${k} не порожній`);
+    assert.ok(I18N.en[k], `en.${k} не порожній`);
+  });
 });

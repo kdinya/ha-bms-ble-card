@@ -362,10 +362,10 @@ console.log("Discovered:", Object.keys(discovered).sort().join(", "));
   assert.match(htmlCharging, /<div class="flow-battery"[^>]*>[\s\S]{0,50}<svg class="battery-svg"/, "батарея (SVG) відрендерена всередині flow-battery");
   assert.ok(!htmlCharging.includes('class="battery-box"'), "старого окремого battery-box більше немає");
 
-  // Нова нижня навігація (Головна/Параметри/Історія/Налаштування) —
-  // реальні перемикачі вмісту картки, як просив користувач.
+  // Нова нижня навігація (Головна/Інформація/Налаштування) — реальні
+  // перемикачі вмісту картки, звужена до 3 пунктів на прохання користувача.
   assert.match(htmlCharging, /class="nav-bar"/, "нижня навігація присутня");
-  ["home", "params", "history", "settings"].forEach((tab) => {
+  ["home", "info", "settings"].forEach((tab) => {
     assert.ok(htmlCharging.includes(`data-tab="${tab}"`), `вкладка ${tab} присутня в nav-bar`);
     assert.ok(htmlCharging.includes(`data-pane="${tab}"`), `панель контенту ${tab} присутня`);
   });
@@ -378,4 +378,35 @@ console.log("Discovered:", Object.keys(discovered).sort().join(", "));
   assert.ok(!htmlCharging.includes("forecast-row"), "розмітка forecast-row видалена");
 
   console.log("Card flow-diagram + removed-sections regression test passed.");
+}
+
+// --- Картка: перемикання мови інтерфейсу (uk/en) на вкладці
+// "Налаштування" — перевіряємо, що this._lang миттєво змінює переклад
+// видимих підписів у _renderFullView() (без потреби перезавантажувати
+// сторінку), а внутрішня логіка (chargeFlowState тощо) не залежить
+// від мови. ---
+{
+  const card = Object.create(mod.HaBmsBleCard.prototype);
+  card._config = { entities: {} };
+  card._hass = mockHass;
+  card._resolvedEntities = mod.autoDiscoverEntities(mockHass, deviceId);
+
+  card._lang = "uk";
+  const htmlUk = card._renderFullView();
+  assert.match(htmlUk, /<span>ГОЛОВНА<\/span>/, "uk: пункт навігації Головна");
+  assert.match(htmlUk, /<span>ІНФОРМАЦІЯ<\/span>/, "uk: пункт навігації Інформація");
+  assert.match(htmlUk, /<span>НАЛАШТ\.<\/span>/, "uk: пункт навігації Налаштування");
+  assert.match(htmlUk, /class="node-lbl">МЕРЕЖА</, "uk: підпис вузла МЕРЕЖА");
+  assert.match(htmlUk, /lang-btn active" data-lang="uk"/, "uk: кнопка мови 'Українська' активна");
+
+  card._lang = "en";
+  const htmlEn = card._renderFullView();
+  assert.match(htmlEn, /<span>HOME<\/span>/, "en: пункт навігації HOME");
+  assert.match(htmlEn, /<span>INFO<\/span>/, "en: пункт навігації INFO");
+  assert.match(htmlEn, /<span>SETTINGS<\/span>/, "en: пункт навігації SETTINGS");
+  assert.match(htmlEn, /class="node-lbl">GRID</, "en: підпис вузла GRID");
+  assert.match(htmlEn, /lang-btn active" data-lang="en"/, "en: кнопка мови 'English' активна");
+  assert.ok(!htmlEn.includes("МЕРЕЖА"), "en: україномовний текст не лишається на екрані");
+
+  console.log("Card language switch (uk/en) regression test passed.");
 }
