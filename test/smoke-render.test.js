@@ -373,14 +373,21 @@ console.log("Discovered:", Object.keys(discovered).sort().join(", "));
 
   // Вкладка "Інформація" розбита на 3 акордеон-секції: Комірки (відкрита
   // за замовчуванням), Всі показники і Функції (обидві згорнуті).
-  const infoAccordionSections = [...htmlCharging.matchAll(/<details class="info-accordion-section"( open)?>\s*<summary class="info-accordion-title">([^<]*)<\/summary>/g)];
+  const infoAccordionSections = [...htmlCharging.matchAll(/<details class="info-accordion-section" data-section="(\w+)"( open)?>\s*<summary class="info-accordion-title">([^<]*)<\/summary>/g)];
   assert.strictEqual(infoAccordionSections.length, 3, "рівно 3 акордеон-секції у вкладці Інформація");
-  assert.ok(infoAccordionSections[0][1] === " open", "секція Комірки відкрита за замовчуванням");
-  assert.strictEqual(infoAccordionSections[0][2], "Комірки", "перша секція — Комірки");
-  assert.ok(!infoAccordionSections[1][1], "секція Всі показники згорнута за замовчуванням");
-  assert.strictEqual(infoAccordionSections[1][2], "Всі показники", "друга секція — Всі показники");
-  assert.ok(!infoAccordionSections[2][1], "секція Функції згорнута за замовчуванням");
-  assert.strictEqual(infoAccordionSections[2][2], "Функції", "третя секція — Функції");
+  assert.strictEqual(infoAccordionSections[0][1], "cells", "перша секція має data-section=cells");
+  assert.ok(infoAccordionSections[0][2] === " open", "секція Комірки відкрита за замовчуванням");
+  assert.strictEqual(infoAccordionSections[0][3], "Комірки", "перша секція — Комірки");
+  assert.strictEqual(infoAccordionSections[1][1], "indicators", "друга секція має data-section=indicators");
+  assert.ok(!infoAccordionSections[1][2], "секція Всі показники згорнута за замовчуванням");
+  assert.strictEqual(infoAccordionSections[1][3], "Всі показники", "друга секція — Всі показники");
+  assert.strictEqual(infoAccordionSections[2][1], "functions", "третя секція має data-section=functions");
+  assert.ok(!infoAccordionSections[2][2], "секція Функції згорнута за замовчуванням");
+  assert.strictEqual(infoAccordionSections[2][3], "Функції", "третя секція — Функції");
+
+  // Заголовок "Історія" не повинен висіти сиротою, коли capacity_daily
+  // не налаштований (_renderHistoryBars() у такому разі повертає "").
+  assert.ok(!htmlCharging.includes(">Історія<"), "немає порожнього заголовка 'Історія' без даних");
 
   // Видалені за проханням користувача блоки не повинні з'являтися взагалі.
   assert.ok(!htmlCharging.includes("Використано ємності"), "блок 'Використано ємності' видалено");

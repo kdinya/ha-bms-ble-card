@@ -2065,6 +2065,7 @@ class HaBmsBleCard extends HTMLElement {
 
   _renderFullView() {
     const activeTab = this._activeTab || "home";
+    const infoSections = this._infoSections || (this._infoSections = { cells: true, indicators: false, functions: false });
     const soc = Number(stateOf(this._hass, this._e("soc")));
     const voltage = stateOf(this._hass, this._e("voltage"));
     const current = stateOf(this._hass, this._e("current"));
@@ -2217,14 +2218,14 @@ class HaBmsBleCard extends HTMLElement {
 
 
         <div class="bms-tab-pane ${activeTab === "info" ? "active" : ""}" data-pane="info">
-        <details class="info-accordion-section" open>
+        <details class="info-accordion-section" data-section="cells"${infoSections.cells ? " open" : ""}>
           <summary class="info-accordion-title">${t("section_cells")}</summary>
           <div class="info-accordion-body">
             ${cellsHtml}
           </div>
         </details>
 
-        <details class="info-accordion-section">
+        <details class="info-accordion-section" data-section="indicators"${infoSections.indicators ? " open" : ""}>
           <summary class="info-accordion-title">${t("section_indicators")}</summary>
           <div class="info-accordion-body">
             ${(() => {
@@ -2260,14 +2261,13 @@ class HaBmsBleCard extends HTMLElement {
           </div>
         </details>
 
-        <details class="info-accordion-section">
+        <details class="info-accordion-section" data-section="functions"${infoSections.functions ? " open" : ""}>
           <summary class="info-accordion-title">${t("section_functions")}</summary>
           <div class="info-accordion-body">
             <div class="functions-grid">${funcGrid}</div>
           </div>
         </details>
 
-        <h2 class="section-title">${t("section_history")}</h2>
         ${this._renderHistoryBars()}
         </div>
 
@@ -2378,6 +2378,17 @@ class HaBmsBleCard extends HTMLElement {
           this._activeTab = tab;
           this._render();
         }
+      });
+    });
+    this.querySelectorAll("details.info-accordion-section[data-section]").forEach((el) => {
+      el.addEventListener("toggle", () => {
+        const key = el.dataset.section;
+        if (!key) return;
+        if (!this._infoSections) this._infoSections = { cells: true, indicators: false, functions: false };
+        // Лише запам'ятовуємо стан, БЕЗ this._render() — перерендер під час
+        // взаємодії (напр. скролу/тапу всередині) саме й скидав <details>
+        // назад до дефолтного стану з шаблону.
+        this._infoSections[key] = el.open;
       });
     });
     this.querySelectorAll(".lang-btn[data-lang]").forEach((el) => {
