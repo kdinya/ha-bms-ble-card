@@ -2209,10 +2209,6 @@ class HaBmsBleCard extends HTMLElement {
               })()}
             </div>
           </div>
-          <div class="progress-row">
-            <div class="progress-track"><div class="progress-fill" style="width:${socPct}%"></div></div>
-            <div class="progress-pct">${socPct.toFixed(0)}%</div>
-          </div>
         </div>
         </div>
         </div>
@@ -2654,10 +2650,6 @@ class HaBmsBleCard extends HTMLElement {
         .discharge-top .icon-circle { width:52px; height:52px; }
         .discharge-text .l1 { font-size:18px; font-weight:700; }
         .discharge-text .l2 { font-size:13px; color:var(--muted); margin-top:3px; line-height:1.35; }
-        .progress-row { display:flex; align-items:center; gap:16px; }
-        .progress-track { flex:1; height:12px; background:#1a222c; border-radius:6px; overflow:hidden; }
-        .progress-fill { height:100%; background:linear-gradient(90deg,#2fae4e,#57d976); border-radius:6px; }
-        .progress-pct { font-size:18px; color:var(--muted); width:47px; text-align:right; }
 
         .functions-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-bottom:14px; }
         .func-box {
