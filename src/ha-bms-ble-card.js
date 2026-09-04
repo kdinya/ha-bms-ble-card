@@ -7,7 +7,7 @@
  * https://github.com/kdinya/ha-bms-ble-card
  */
 
-const CARD_VERSION = "3.0.0-beta.22";
+const CARD_VERSION = "3.0.0-beta.23";
 
 console.info(
   `%c HA-BMS-BLE-CARD %c v${CARD_VERSION} `,
@@ -1932,13 +1932,17 @@ class HaBmsBleCard extends HTMLElement {
     const design = stateOf(this._hass, this._e("design_capacity"));
     const stored = this._storedEnergyWh();
     const voltage = stateOf(this._hass, this._e("voltage"));
-    let seconds = Number.isFinite(runtimeNum) && runtimeNum > 0 ? runtimeNum : undefined;
-    if (seconds === undefined) {
-      const est = estimateEtaSeconds({
-        soc, current, designAh: design, storedWh: stored, packVoltage: voltage,
-        charging: status.color === "success",
-      });
-      if (est && est > 0) seconds = est;
+    // Рахуємо від поточного заряду (SOC) і поточного струму — це відповідає
+    // реальному режиму (заряд/розряд) зараз. Сирий сенсор BMS "runtime" не
+    // завжди перераховується під поточний режим (напр. лишається зі старого
+    // розряду під час заряду), тому він лише запасний варіант, коли
+    // розрахунок неможливий (немає ємності/SOC чи струм близький до нуля).
+    let seconds = estimateEtaSeconds({
+      soc, current, designAh: design, storedWh: stored, packVoltage: voltage,
+      charging: status.color === "success",
+    });
+    if (!(seconds > 0) && Number.isFinite(runtimeNum) && runtimeNum > 0) {
+      seconds = runtimeNum;
     }
     let label = "До розряду";
     if (status.color === "success") label = "До повного заряду";
