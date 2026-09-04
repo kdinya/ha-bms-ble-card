@@ -53,6 +53,7 @@ const I18N = {
     cell_min: "Мін",
     cell_diff: "Різниця",
     section_cells: "Комірки",
+    section_indicators: "Всі показники",
     section_functions: "Функції",
     section_history: "Історія",
     lbl_voltage: "Напруга",
@@ -113,6 +114,7 @@ const I18N = {
     cell_min: "Min",
     cell_diff: "Diff",
     section_cells: "Cells",
+    section_indicators: "All indicators",
     section_functions: "Functions",
     section_history: "History",
     lbl_voltage: "Voltage",
@@ -2215,42 +2217,55 @@ class HaBmsBleCard extends HTMLElement {
 
 
         <div class="bms-tab-pane ${activeTab === "info" ? "active" : ""}" data-pane="info">
-        ${(() => {
-          const runtimeVal = stateOf(this._hass, this._e("runtime"));
-          const rows = [];
-          const addRow = (label, value, entityId) => {
-            if (value === undefined || value === null || value === "") return;
-            rows.push({ label, value, entityId });
-          };
-          addRow(t("lbl_voltage"), Number.isFinite(Number(voltage)) ? `${fmt(voltage, 2)} V` : undefined, this._e("voltage"));
-          addRow(t("lbl_current"), Number.isFinite(Number(current)) ? `${fmt(current, 1)} A` : undefined, this._e("current"));
-          addRow(t("lbl_power"), Number.isFinite(Number(power)) ? `${fmt(power, 0)} W` : undefined, this._e("power"));
-          addRow(t("lbl_temperature"), Number.isFinite(Number(temp)) ? `${fmt(temp, 1)} °C` : undefined, this._e("temperature"));
-          addRow(t("lbl_soc"), Number.isFinite(soc) ? `${fmt(soc, 0)}%` : undefined, this._e("soc"));
-          addRow(t("lbl_soh"), soh !== undefined ? `${fmt(soh, 0)}%` : undefined, this._e("soh"));
-          addRow(t("lbl_capacity"), Number.isFinite(designN) ? `${fmt(designN, 0)} Ah` : undefined, this._e("design_capacity"));
-          addRow(t("lbl_used"), usedAh !== undefined ? `${fmt(usedAh, 1)} Ah` : undefined);
-          addRow(t("lbl_remaining"), remainingAh !== undefined ? `${fmt(remainingAh, 1)} Ah` : undefined);
-          addRow(t("lbl_cycles"), cycles !== undefined ? `${fmt(cycles, 0)}` : undefined, this._e("charge_cycles"));
-          addRow(t("lbl_stored_energy"), stored !== undefined ? `${fmt(stored, 0)} Wh` : undefined, this._e("cycle_capacity"));
-          addRow(t("lbl_runtime"), runtimeVal !== undefined ? `~${secondsToHuman(Number(runtimeVal))}` : undefined, this._e("runtime"));
-          addRow(t("lbl_balance_current"), balanceCur !== undefined ? `${fmt(balanceCur, 2)} A` : undefined, this._e("current"));
-          addRow(t("lbl_link_quality"), link !== undefined ? `${fmt(link, 0)}%` : undefined, this._e("link_quality"));
-          addRow(t("lbl_rssi"), rssi !== undefined ? `${fmt(rssi, 0)} dBm` : undefined, this._e("rssi"));
-          if (st) {
-            addRow(t("lbl_cell_count"), String(st.cells.length));
-          }
-          addRow(t("lbl_cell_bitmask"), cellBitmask !== undefined && cellBitmask !== null && cellBitmask !== "" ? String(cellBitmask) : undefined, this._e("balancer"));
+        <details class="info-accordion-section" open>
+          <summary class="info-accordion-title">${t("section_cells")}</summary>
+          <div class="info-accordion-body">
+            ${cellsHtml}
+          </div>
+        </details>
 
-          const tileHtml = (r) => `<div class="info-tile"${moreInfoAttr(r.entityId)}><div class="info-tile-lbl">${r.label}</div><div class="info-tile-val">${r.value}</div></div>`;
-          return `<div class="info-tiles">${rows.map(tileHtml).join("")}</div>`;
-        })()}
+        <details class="info-accordion-section">
+          <summary class="info-accordion-title">${t("section_indicators")}</summary>
+          <div class="info-accordion-body">
+            ${(() => {
+              const runtimeVal = stateOf(this._hass, this._e("runtime"));
+              const rows = [];
+              const addRow = (label, value, entityId) => {
+                if (value === undefined || value === null || value === "") return;
+                rows.push({ label, value, entityId });
+              };
+              addRow(t("lbl_voltage"), Number.isFinite(Number(voltage)) ? `${fmt(voltage, 2)} V` : undefined, this._e("voltage"));
+              addRow(t("lbl_current"), Number.isFinite(Number(current)) ? `${fmt(current, 1)} A` : undefined, this._e("current"));
+              addRow(t("lbl_power"), Number.isFinite(Number(power)) ? `${fmt(power, 0)} W` : undefined, this._e("power"));
+              addRow(t("lbl_temperature"), Number.isFinite(Number(temp)) ? `${fmt(temp, 1)} °C` : undefined, this._e("temperature"));
+              addRow(t("lbl_soc"), Number.isFinite(soc) ? `${fmt(soc, 0)}%` : undefined, this._e("soc"));
+              addRow(t("lbl_soh"), soh !== undefined ? `${fmt(soh, 0)}%` : undefined, this._e("soh"));
+              addRow(t("lbl_capacity"), Number.isFinite(designN) ? `${fmt(designN, 0)} Ah` : undefined, this._e("design_capacity"));
+              addRow(t("lbl_used"), usedAh !== undefined ? `${fmt(usedAh, 1)} Ah` : undefined);
+              addRow(t("lbl_remaining"), remainingAh !== undefined ? `${fmt(remainingAh, 1)} Ah` : undefined);
+              addRow(t("lbl_cycles"), cycles !== undefined ? `${fmt(cycles, 0)}` : undefined, this._e("charge_cycles"));
+              addRow(t("lbl_stored_energy"), stored !== undefined ? `${fmt(stored, 0)} Wh` : undefined, this._e("cycle_capacity"));
+              addRow(t("lbl_runtime"), runtimeVal !== undefined ? `~${secondsToHuman(Number(runtimeVal))}` : undefined, this._e("runtime"));
+              addRow(t("lbl_balance_current"), balanceCur !== undefined ? `${fmt(balanceCur, 2)} A` : undefined, this._e("current"));
+              addRow(t("lbl_link_quality"), link !== undefined ? `${fmt(link, 0)}%` : undefined, this._e("link_quality"));
+              addRow(t("lbl_rssi"), rssi !== undefined ? `${fmt(rssi, 0)} dBm` : undefined, this._e("rssi"));
+              if (st) {
+                addRow(t("lbl_cell_count"), String(st.cells.length));
+              }
+              addRow(t("lbl_cell_bitmask"), cellBitmask !== undefined && cellBitmask !== null && cellBitmask !== "" ? String(cellBitmask) : undefined, this._e("balancer"));
 
-        <h2 class="section-title">${t("section_cells")}</h2>
-        ${cellsHtml}
+              const tileHtml = (r) => `<div class="info-tile"${moreInfoAttr(r.entityId)}><div class="info-tile-lbl">${r.label}</div><div class="info-tile-val">${r.value}</div></div>`;
+              return `<div class="info-tiles">${rows.map(tileHtml).join("")}</div>`;
+            })()}
+          </div>
+        </details>
 
-        <h2 class="section-title">${t("section_functions")}</h2>
-        <div class="functions-grid">${funcGrid}</div>
+        <details class="info-accordion-section">
+          <summary class="info-accordion-title">${t("section_functions")}</summary>
+          <div class="info-accordion-body">
+            <div class="functions-grid">${funcGrid}</div>
+          </div>
+        </details>
 
         <h2 class="section-title">${t("section_history")}</h2>
         ${this._renderHistoryBars()}
@@ -2672,6 +2687,39 @@ class HaBmsBleCard extends HTMLElement {
 
         h2.section-title { font-size:17px; font-weight:700; margin:0 0 12px 2px; color:var(--text); }
         .bms-muted { color:var(--muted); font-size:13px; }
+
+        .info-accordion-section {
+          border:1px solid var(--divider, rgba(127,127,127,0.18));
+          border-radius:14px;
+          margin-bottom:14px;
+          overflow:hidden;
+          background:var(--card-background-color, transparent);
+        }
+        .info-accordion-title {
+          list-style:none;
+          cursor:pointer;
+          font-size:17px;
+          font-weight:700;
+          color:var(--text);
+          padding:14px 16px;
+          display:flex;
+          align-items:center;
+          justify-content:space-between;
+          user-select:none;
+        }
+        .info-accordion-title::-webkit-details-marker { display:none; }
+        .info-accordion-title::after {
+          content:"";
+          width:9px;
+          height:9px;
+          border-right:2px solid var(--muted);
+          border-bottom:2px solid var(--muted);
+          transform:rotate(-45deg);
+          transition:transform 0.2s ease;
+          flex-shrink:0;
+        }
+        .info-accordion-section[open] > .info-accordion-title::after { transform:rotate(45deg); }
+        .info-accordion-body { padding:0 16px 16px; }
 
         .usage-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:24px; }
         .usage-card {

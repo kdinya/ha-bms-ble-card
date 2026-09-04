@@ -371,6 +371,17 @@ console.log("Discovered:", Object.keys(discovered).sort().join(", "));
   });
   assert.match(htmlCharging, /nav-item active" data-tab="home"/, "за замовчуванням активна вкладка Головна");
 
+  // Вкладка "Інформація" розбита на 3 акордеон-секції: Комірки (відкрита
+  // за замовчуванням), Всі показники і Функції (обидві згорнуті).
+  const infoAccordionSections = [...htmlCharging.matchAll(/<details class="info-accordion-section"( open)?>\s*<summary class="info-accordion-title">([^<]*)<\/summary>/g)];
+  assert.strictEqual(infoAccordionSections.length, 3, "рівно 3 акордеон-секції у вкладці Інформація");
+  assert.ok(infoAccordionSections[0][1] === " open", "секція Комірки відкрита за замовчуванням");
+  assert.strictEqual(infoAccordionSections[0][2], "Комірки", "перша секція — Комірки");
+  assert.ok(!infoAccordionSections[1][1], "секція Всі показники згорнута за замовчуванням");
+  assert.strictEqual(infoAccordionSections[1][2], "Всі показники", "друга секція — Всі показники");
+  assert.ok(!infoAccordionSections[2][1], "секція Функції згорнута за замовчуванням");
+  assert.strictEqual(infoAccordionSections[2][2], "Функції", "третя секція — Функції");
+
   // Видалені за проханням користувача блоки не повинні з'являтися взагалі.
   assert.ok(!htmlCharging.includes("Використано ємності"), "блок 'Використано ємності' видалено");
   assert.ok(!htmlCharging.includes("Час роботи до розряду"), "блок 'Час роботи до розряду (прогноз)' видалено");
