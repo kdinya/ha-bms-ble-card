@@ -7,7 +7,7 @@
  * https://github.com/kdinya/ha-bms-ble-card
  */
 
-const CARD_VERSION = "3.0.0-beta.20";
+const CARD_VERSION = "3.0.0-beta.21";
 
 console.info(
   `%c HA-BMS-BLE-CARD %c v${CARD_VERSION} `,
@@ -2223,10 +2223,8 @@ class HaBmsBleCard extends HTMLElement {
           }
           addRow(t("lbl_cell_bitmask"), cellBitmask !== undefined && cellBitmask !== null && cellBitmask !== "" ? String(cellBitmask) : undefined, this._e("balancer"));
 
-          const rowHtml = (r) => `<div class="info-row"${moreInfoAttr(r.entityId)}><span class="info-row-lbl">${r.label}</span><span class="info-row-val">${r.value}</span></div>`;
-          const col1 = rows.filter((_, i) => i % 2 === 0).map(rowHtml).join("");
-          const col2 = rows.filter((_, i) => i % 2 === 1).map(rowHtml).join("");
-          return `<div class="info-grid"><div class="info-col">${col1}</div><div class="info-col">${col2}</div></div>`;
+          const tileHtml = (r) => `<div class="info-tile"${moreInfoAttr(r.entityId)}><div class="info-tile-lbl">${r.label}</div><div class="info-tile-val">${r.value}</div></div>`;
+          return `<div class="info-tiles">${rows.map(tileHtml).join("")}</div>`;
         })()}
 
         <h2 class="section-title">${t("section_cells")}</h2>
@@ -2552,7 +2550,10 @@ class HaBmsBleCard extends HTMLElement {
 
         .cells-box {
           background:var(--panel); border:1px solid var(--border); border-radius:16px;
-          padding:16px 18px; flex:1.4; min-width:260px; display:flex; flex-direction:column; gap:12px;
+          padding:16px 18px; min-width:260px; display:flex; flex-direction:column; gap:12px;
+        }
+        @media (min-width:481px) {
+          .cells-box { max-width:420px; }
         }
         .cells-title { font-size:15px; color:var(--muted); margin-bottom:2px; }
         .cell-row { display:flex; align-items:center; gap:10px; }
@@ -2705,16 +2706,15 @@ class HaBmsBleCard extends HTMLElement {
         .diag-text .l1 { font-size:12.5px; color:var(--muted); }
         .diag-text .l2 { font-size:16px; font-weight:700; margin-top:2px; }
 
-        .info-grid { display:grid; grid-template-columns:1fr 1fr; gap:0 16px; margin-bottom:20px; }
-        .info-col { display:flex; flex-direction:column; }
-        .info-row {
-          display:flex; align-items:baseline; justify-content:space-between; gap:10px;
-          padding:10px 2px; border-bottom:1px solid var(--border);
+        .info-tiles { display:grid; grid-template-columns:repeat(auto-fill, minmax(128px, 1fr)); gap:10px; margin-bottom:20px; }
+        .info-tile {
+          background:var(--panel); border:1px solid var(--border); border-radius:14px;
+          padding:10px 12px; display:flex; flex-direction:column; gap:4px; min-width:0; max-width:220px;
         }
-        .info-row-lbl { font-size:13px; color:var(--muted); }
-        .info-row-val { font-size:14px; font-weight:700; color:var(--text); text-align:right; }
+        .info-tile-lbl { font-size:11.5px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+        .info-tile-val { font-size:15px; font-weight:700; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
         @media (max-width:480px) {
-          .info-grid { grid-template-columns:1fr; gap:0; }
+          .info-tiles { grid-template-columns:repeat(2, 1fr); }
         }
 
         .lang-switch { display:flex; gap:10px; margin-top:6px; }
