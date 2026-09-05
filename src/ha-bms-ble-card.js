@@ -345,7 +345,7 @@ function moreInfoAttr(entityId) {
  * праворуч, а не ліворуч — щоб "піднятий кінець біля іконки" лишався
  * правильним з обох боків.
  */
-function flowWireSvg(vertical, active, flip) {
+function flowWireSvg(vertical, active, flip, connector) {
   const idle = "#3a4650";
   const red = active ? "#e0393c" : idle;
   const black = active ? "#15181c" : idle;
@@ -374,6 +374,21 @@ function flowWireSvg(vertical, active, flip) {
   }
   const [yIcon, yBatt] = flip ? [36, 8] : [8, 36];
   const dRedH = sCurveH(yIcon, yBatt), dBlackH = sCurveH(yIcon + 6, yBatt + 6);
+  // Роз'єм (справжня штекерна колодка) на кінці, що йде до батареї —
+  // замінює плаский прямокутник-громмет на об'ємний корпус із двома
+  // металевими контактами (+ червоний, - темний), що виступають назовні.
+  const plugX = flip ? 2 : 76;
+  const plugPinX = flip ? -2 : 93;
+  const plugHtml = connector ? `
+    <rect x="${plugX}" y="${yBatt - 11}" width="20" height="24" rx="4" fill="#1b2126" stroke="#000" stroke-width="0.6"/>
+    <rect x="${plugX}" y="${yBatt - 11}" width="20" height="8" rx="4" fill="rgba(255,255,255,0.10)"/>
+    <rect x="${plugX + 9}" y="${yBatt - 11}" width="2" height="24" fill="rgba(0,0,0,0.35)"/>
+    <rect x="${plugPinX}" y="${yBatt - 5.5}" width="7" height="5" rx="1.5" fill="${red}" stroke="#000" stroke-width="0.4"/>
+    <rect x="${plugPinX}" y="${yBatt + 0.5}" width="7" height="5" rx="1.5" fill="#3a3f45" stroke="#000" stroke-width="0.4"/>
+  ` : `
+    <rect class="flow-wire-clip" x="92" y="${yBatt - 2}" width="8" height="16" rx="2.5" fill="${clip}"/>
+    <rect x="97" y="${yBatt - 2}" width="3" height="16" rx="1.5" fill="${clipHi}"/>
+  `;
   return `<svg class="flow-wire flow-wire-h" viewBox="0 0 100 50" preserveAspectRatio="none" aria-hidden="true">
     <path class="flow-wire-path ${dashClass}" d="${dRedH}" fill="none" stroke="${red}" stroke-width="3.6" stroke-linecap="round"/>
     <path class="flow-wire-path" d="${dBlackH}" fill="none" stroke="${black}" stroke-width="3.6" stroke-linecap="round"/>
@@ -381,8 +396,7 @@ function flowWireSvg(vertical, active, flip) {
     <path d="${dBlackH}" fill="none" stroke="${glossDim}" stroke-width="0.8" stroke-linecap="round" pointer-events="none"/>
     <rect class="flow-wire-clip" x="0" y="${yIcon - 8}" width="8" height="16" rx="2.5" fill="${clip}"/>
     <rect x="0" y="${yIcon - 8}" width="3" height="16" rx="1.5" fill="${clipHi}"/>
-    <rect class="flow-wire-clip" x="92" y="${yBatt - 2}" width="8" height="16" rx="2.5" fill="${clip}"/>
-    <rect x="97" y="${yBatt - 2}" width="3" height="16" rx="1.5" fill="${clipHi}"/>
+    ${plugHtml}
   </svg>`;
 }
 
@@ -2205,7 +2219,7 @@ class HaBmsBleCard extends HTMLElement {
             <div class="node-lbl">${t("node_grid")}</div>
           </div>
           <div class="flow-connector-wrap">
-            ${flowWireSvg(false, flowState === "charging")}
+            ${flowWireSvg(false, flowState === "charging", false, true)}
             ${flowWireSvg(true, flowState === "charging")}
             ${flowState === "charging" ? `<div class="connector-info">${current !== undefined && current !== null ? `${fmt(Math.abs(currentN), 1)} A` : "—"}<br>${fmtKw(power)} кВт</div>` : ""}
           </div>
