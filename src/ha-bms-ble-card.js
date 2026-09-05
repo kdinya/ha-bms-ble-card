@@ -333,17 +333,13 @@ function moreInfoAttr(entityId) {
 }
 
 /**
- * Двожильний "дріт" (Мережа<->Батарея, Батарея<->Навантаження) — уніфікована
- * заміна попередніх flowArrowSvg (стрілка+наконечник, права сторона) та
- * експериментального flowWireSvg з "іскрами" (SMIL animateMotion, ліва
- * сторона), за проханням користувача: як на референсному скріні
- * (двожильний кабель), але трохи по-іншому — у стані спокою обидві жили
- * сірі, а коли ця сторона активна (заряд або розряд), одна жила стає
- * чорною, друга червоною, і рухомий пунктир (анімація потоку) йде саме по
- * червоній жилі. Форма самого проводу лишається тою "змотаною в кільце"
- * петлею, яку раніше просив користувач для лівого з'єднувача — тепер
- * застосована з обох боків і намальована двома паралельними жилами
- * замість однієї лінії з іскрами.
+ * Двожильний "дріт" (Мережа<->Батарея, Батарея<->Навантаження). У стані
+ * спокою обидві жили сірі; коли ця сторона активна (заряд або розряд),
+ * одна жила стає чорною, друга червоною, і рухомий пунктир (анімація
+ * потоку) йде саме по червоній жилі. За проханням користувача форма
+ * проводу — проста рівна (злегка провисла) лінія з невеликими роз'ємами
+ * на кінцях, як на референсному скріні, БЕЗ закручування в кільце/спіраль
+ * (попередній варіант з тугою петлею виглядав неохайно).
  */
 function flowWireSvg(vertical, active) {
   const idle = "#3a4650";
@@ -353,17 +349,17 @@ function flowWireSvg(vertical, active) {
   const clip = "#3a4650";
   if (vertical) {
     return `<svg class="flow-wire flow-wire-v" viewBox="0 0 50 100" preserveAspectRatio="none" aria-hidden="true">
-      <path class="flow-wire-path ${dashClass}" d="M33,4 C33,14 7,14 7,30 C7,46 37,46 37,30 C37,18 19,18 19,32 C19,42 11,50 11,60 L11,78" fill="none" stroke="${red}" stroke-width="3" stroke-linecap="round"/>
-      <path class="flow-wire-path" d="M39,4 C39,14 13,14 13,30 C13,46 43,46 43,30 C43,18 25,18 25,32 C25,42 17,50 17,60 L17,78" fill="none" stroke="${black}" stroke-width="3" stroke-linecap="round"/>
-      <rect class="flow-wire-clip" x="28" y="0" width="17" height="8" rx="2" fill="${clip}"/>
-      <rect class="flow-wire-clip" x="5" y="74" width="18" height="8" rx="2" fill="${clip}"/>
+      <path class="flow-wire-path ${dashClass}" d="M14,4 Q36,50 20,96" fill="none" stroke="${red}" stroke-width="3" stroke-linecap="round"/>
+      <path class="flow-wire-path" d="M20,4 Q42,50 26,96" fill="none" stroke="${black}" stroke-width="3" stroke-linecap="round"/>
+      <rect class="flow-wire-clip" x="10" y="0" width="16" height="8" rx="2" fill="${clip}"/>
+      <rect class="flow-wire-clip" x="16" y="92" width="16" height="8" rx="2" fill="${clip}"/>
     </svg>`;
   }
   return `<svg class="flow-wire flow-wire-h" viewBox="0 0 100 50" preserveAspectRatio="none" aria-hidden="true">
-    <path class="flow-wire-path ${dashClass}" d="M4,33 C14,33 14,7 30,7 C46,7 46,37 30,37 C18,37 18,19 32,19 C42,19 50,11 60,11 L78,11" fill="none" stroke="${red}" stroke-width="3" stroke-linecap="round"/>
-    <path class="flow-wire-path" d="M4,39 C14,39 14,13 30,13 C46,13 46,43 30,43 C18,43 18,25 32,25 C42,25 50,17 60,17 L78,17" fill="none" stroke="${black}" stroke-width="3" stroke-linecap="round"/>
-    <rect class="flow-wire-clip" x="0" y="30" width="8" height="17" rx="2" fill="${clip}"/>
-    <rect class="flow-wire-clip" x="74" y="5" width="8" height="18" rx="2" fill="${clip}"/>
+    <path class="flow-wire-path ${dashClass}" d="M4,14 Q50,36 96,20" fill="none" stroke="${red}" stroke-width="3" stroke-linecap="round"/>
+    <path class="flow-wire-path" d="M4,20 Q50,42 96,26" fill="none" stroke="${black}" stroke-width="3" stroke-linecap="round"/>
+    <rect class="flow-wire-clip" x="0" y="10" width="8" height="16" rx="2" fill="${clip}"/>
+    <rect class="flow-wire-clip" x="92" y="16" width="8" height="16" rx="2" fill="${clip}"/>
   </svg>`;
 }
 
