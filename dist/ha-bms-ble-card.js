@@ -7,7 +7,7 @@
  * https://github.com/kdinya/ha-bms-ble-card
  */
 
-const CARD_VERSION = "3.0.0-beta.28";
+const CARD_VERSION = "3.0.0-beta.29";
 
 console.info(
   `%c HA-BMS-BLE-CARD %c v${CARD_VERSION} `,
@@ -353,12 +353,23 @@ function shadeColor(hex, pct) {
  * закручування в кільце/спіраль. `flip` дзеркалить вигин по горизонталі
  * для правого з'єднувача (Батарея→Навантаження), де іконка стоїть
  * праворуч, а не ліворуч — щоб "піднятий кінець біля іконки" лишався
- * правильним з обох боків. Кожна жила намальована як об'ємна "3D-труба"
- * через вертикальний лінійний градієнт (тінь->відблиск->тінь) поперек
- * жили — класичний прийом для циліндричного пластикового кабелю, що
- * ловить світло, замість плаского однотонного штриха.
+ * правильним з обох боків.
+ *
+ * `realistic` (лише для лівого дроту, Мережа→Батарея, на прохання
+ * користувача зробити його "справжнім товстим силовим кабелем", тоді
+ * як правий дріт лишається без змін 1:1) додає поверх звичайного
+ * двожильного рендеру:
+ *  - спільну зовнішню гумову "оболонку-джгут", що фізично з'єднує обидві
+ *    жили в один круглий кабель (товстий штрих по осьовій лінії між
+ *    жилами, з вертикальним градієнтом тінь->сяйво->тінь — класична
+ *    імітація круглого перетину);
+ *  - для кожної жили — проміжний шар із вертикальним лінійним
+ *    градієнтом (а не суцільним кольором) під анімованим шаром, для
+ *    плавнішого циліндричного світлового переходу;
+ *  - помітно товщі штрихи (кабель "важчий", не тонка лінія).
+ * Анімація потоку (клас/колір активної жили) не змінюється.
  */
-function flowWireSvg(vertical, active, flip, connector) {
+function flowWireSvg(vertical, active, flip, connector, realistic) {
   const idle = "#3a4650";
   const red = active ? "#e0393c" : idle;
   const black = active ? "#2a2e33" : idle;
@@ -375,14 +386,46 @@ function flowWireSvg(vertical, active, flip, connector) {
   // Один "провідник" = 4 шари штрихів одна поверх одної: темний контур
   // (об'єм/тінь) -> основний колір (сюди йде клас анімації потоку) ->
   // зміщений до "світла" відблиск -> тонкий гострий глянцевий блик.
-  const strand = (d, dOffset, base, dark, hi, withDash) => `
-    <path d="${d}" fill="none" stroke="${dark}" stroke-width="4.6" stroke-linecap="round"/>
-    <path class="flow-wire-path ${withDash ? dashClass : ""}" d="${d}" fill="none" stroke="${base}" stroke-width="3.5" stroke-linecap="round"/>
-    <path d="${dOffset}" fill="none" stroke="${hi}" stroke-width="1.5" stroke-linecap="round" opacity="0.8" pointer-events="none"/>
-    <path d="${dOffset}" fill="none" stroke="#ffffff" stroke-width="0.6" stroke-linecap="round" opacity="0.6" pointer-events="none"/>
+  // У "realistic" режимі додається ще проміжний шар — той самий
+  // основний колір, але намальований градієнтом (а не суцільним) для
+  // м'якшого переходу тінь->світло по круглій поверхні, і всі штрихи
+  // товщі (щоб кабель виглядав "важким", а не тонкою лінією).
+  const strand = (d, dOffset, base, dark, hi, withDash, gradUrl) => {
+    const wOutline = realistic ? 8.4 : 4.6;
+    const wSheen = realistic ? 6.6 : 0;
+    const wBase = realistic ? 6.2 : 3.5;
+    const wHi = realistic ? 2.3 : 1.5;
+    const wGlint = realistic ? 0.9 : 0.6;
+    return `
+    <path d="${d}" fill="none" stroke="${dark}" stroke-width="${wOutline}" stroke-linecap="round"/>
+    ${gradUrl ? `<path d="${d}" fill="none" stroke="url(#${gradUrl})" stroke-width="${wSheen}" stroke-linecap="round"/>` : ""}
+    <path class="flow-wire-path ${withDash ? dashClass : ""}" d="${d}" fill="none" stroke="${base}" stroke-width="${wBase}" stroke-linecap="round" ${realistic ? 'opacity="0.94"' : ""}/>
+    <path d="${dOffset}" fill="none" stroke="${hi}" stroke-width="${wHi}" stroke-linecap="round" opacity="0.8" pointer-events="none"/>
+    <path d="${dOffset}" fill="none" stroke="#ffffff" stroke-width="${wGlint}" stroke-linecap="round" opacity="0.6" pointer-events="none"/>
   `;
-  const gid = (tag) => `wg-${tag}-${vertical ? "v" : "h"}-${flip ? 1 : 0}-${active ? 1 : 0}`;
+  };
+  const gid = (tag) => `wg-${tag}-${vertical ? "v" : "h"}-${flip ? 1 : 0}-${active ? 1 : 0}${realistic ? "-r" : ""}`;
   const plugId = gid("p"), pinRedId = gid("pr"), pinBlkId = gid("pb"), sheenId = gid("sh");
+  const jacketId = gid("jk"), redGradId = gid("gr"), blkGradId = gid("gb");
+  // Вертикальний градієнт "тінь->сяйво->тінь" для конкретної жили —
+  // імітує кругле поперечне освітлення пластикової/гумової оболонки
+  // жили (не плаский однотонний штрих).
+  const strandGradient = (id, dk, base, hi) => `
+    <linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="${dk}"/>
+      <stop offset="22%" stop-color="${base}"/>
+      <stop offset="40%" stop-color="${hi}"/>
+      <stop offset="60%" stop-color="${base}"/>
+      <stop offset="100%" stop-color="${dk}"/>
+    </linearGradient>`;
+  const jacketGradient = `
+    <linearGradient id="${jacketId}" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#05070a"/>
+      <stop offset="20%" stop-color="#181d22"/>
+      <stop offset="40%" stop-color="#383e45"/>
+      <stop offset="58%" stop-color="#1b2026"/>
+      <stop offset="100%" stop-color="#020304"/>
+    </linearGradient>`;
   const defs = `<defs>
     <linearGradient id="${plugId}" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0%" stop-color="#454d55"/>
@@ -405,15 +448,24 @@ function flowWireSvg(vertical, active, flip, connector) {
       <stop offset="60%" stop-color="rgba(255,255,255,0.04)"/>
       <stop offset="100%" stop-color="rgba(255,255,255,0)"/>
     </radialGradient>
+    ${realistic ? jacketGradient : ""}
+    ${realistic ? strandGradient(redGradId, darkRed, red, hiRed) : ""}
+    ${realistic ? strandGradient(blkGradId, darkBlack, black, hiBlack) : ""}
   </defs>`;
   if (vertical) {
     const [xTop, xBot] = flip ? [20, 12] : [12, 20];
     const dRed = sCurveV(xTop, xBot), dRedHi = sCurveV(xTop, xBot, -1.1);
     const dBlack = sCurveV(xTop + 6, xBot + 6), dBlackHi = sCurveV(xTop + 6, xBot + 6, -1.1);
+    // Спільна гумова "оболонка-джгут" по осьовій лінії між двома
+    // жилами — фізично з'єднує їх в один круглий кабель (тільки для
+    // realistic/лівого дроту).
+    const dJacket = sCurveV(xTop + 3, xBot + 3);
+    const jacketHtml = realistic ? `<path d="${dJacket}" fill="none" stroke="url(#${jacketId})" stroke-width="15.5" stroke-linecap="round"/>` : "";
     return `<svg class="flow-wire flow-wire-v" viewBox="0 0 50 100" preserveAspectRatio="none" aria-hidden="true">
       ${defs}
-      ${strand(dRed, dRedHi, red, darkRed, hiRed, true)}
-      ${strand(dBlack, dBlackHi, black, darkBlack, hiBlack, false)}
+      ${jacketHtml}
+      ${strand(dRed, dRedHi, red, darkRed, hiRed, true, realistic ? redGradId : null)}
+      ${strand(dBlack, dBlackHi, black, darkBlack, hiBlack, false, realistic ? blkGradId : null)}
       <rect class="flow-wire-clip" x="${xTop - 8}" y="0" width="16" height="8" rx="2.5" fill="url(#${plugId})"/>
       <rect class="flow-wire-clip" x="${xBot - 2}" y="92" width="16" height="8" rx="2.5" fill="url(#${plugId})"/>
     </svg>`;
@@ -421,6 +473,8 @@ function flowWireSvg(vertical, active, flip, connector) {
   const [yIcon, yBatt] = flip ? [36, 8] : [8, 36];
   const dRedH = sCurveH(yIcon, yBatt), dRedHHi = sCurveH(yIcon, yBatt, -1.1);
   const dBlackH = sCurveH(yIcon + 6, yBatt + 6), dBlackHHi = sCurveH(yIcon + 6, yBatt + 6, -1.1);
+  const dJacketH = sCurveH(yIcon + 3, yBatt + 3);
+  const jacketHtmlH = realistic ? `<path d="${dJacketH}" fill="none" stroke="url(#${jacketId})" stroke-width="15.5" stroke-linecap="round"/>` : "";
   // Роз'єм (справжня штекерна колодка) на кінці, що йде до батареї —
   // об'ємний корпус (металево-пластиковий градієнт + бліковий відблиск)
   // із двома металевими контактами (+ червоний, - темний), що виступають
@@ -440,6 +494,7 @@ function flowWireSvg(vertical, active, flip, connector) {
     <rect x="${plugX}" y="${yBatt - 11}" width="20" height="24" rx="4" fill="url(#${plugId})" stroke="#000" stroke-width="0.6"/>
     <ellipse cx="${plugX + 6}" cy="${yBatt - 5}" rx="9" ry="7" fill="url(#${sheenId})"/>
     <rect x="${plugX + 9}" y="${yBatt - 11}" width="2" height="24" fill="rgba(0,0,0,0.4)"/>
+    ${realistic ? `<path d="M${plugX + 2},${yBatt - 9.5} Q${plugX + 10},${yBatt - 12} ${plugX + 18},${yBatt - 9.5}" fill="none" stroke="rgba(255,255,255,0.35)" stroke-width="0.8" stroke-linecap="round"/>` : ""}
     <circle cx="${screwCx}" cy="${yBatt + 9}" r="1.3" fill="#0a0c0e" stroke="#4a5058" stroke-width="0.3"/>
     <circle cx="${screwCx - 0.35}" cy="${yBatt + 8.65}" r="0.4" fill="rgba(255,255,255,0.55)"/>
     <rect x="${plugPinX}" y="${yBatt - 5.5}" width="7" height="5" rx="1.5" fill="url(#${pinRedId})" stroke="#000" stroke-width="0.4"/>
@@ -450,8 +505,9 @@ function flowWireSvg(vertical, active, flip, connector) {
   const dsId = gid("ds");
   const dropShadowDef = connector ? `<filter id="${dsId}" x="-30%" y="-60%" width="160%" height="220%"><feDropShadow dx="0" dy="1.6" stdDeviation="1.3" flood-color="#000" flood-opacity="0.55"/></filter>` : "";
   const bodyH = `
-    ${strand(dRedH, dRedHHi, red, darkRed, hiRed, true)}
-    ${strand(dBlackH, dBlackHHi, black, darkBlack, hiBlack, false)}
+    ${jacketHtmlH}
+    ${strand(dRedH, dRedHHi, red, darkRed, hiRed, true, realistic ? redGradId : null)}
+    ${strand(dBlackH, dBlackHHi, black, darkBlack, hiBlack, false, realistic ? blkGradId : null)}
     <rect class="flow-wire-clip" x="0" y="${yIcon - 8}" width="8" height="16" rx="2.5" fill="url(#${plugId})"/>
     ${plugHtml}
   `;
@@ -2280,8 +2336,8 @@ class HaBmsBleCard extends HTMLElement {
             <div class="node-lbl">${t("node_grid")}</div>
           </div>
           <div class="flow-connector-wrap">
-            ${flowWireSvg(false, flowState === "charging", false, true)}
-            ${flowWireSvg(true, flowState === "charging")}
+            ${flowWireSvg(false, flowState === "charging", false, true, true)}
+            ${flowWireSvg(true, flowState === "charging", false, false, true)}
             ${flowState === "charging" ? `<div class="connector-info">${current !== undefined && current !== null ? `${fmt(Math.abs(currentN), 1)} A` : "—"}<br>${fmtKw(power)} кВт</div>` : ""}
           </div>
           <div class="flow-battery"${moreInfoAttr(this._e("soc"))}>
