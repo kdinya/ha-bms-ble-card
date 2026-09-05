@@ -424,24 +424,40 @@ function flowWireSvg(vertical, active, flip, connector) {
   // Роз'єм (справжня штекерна колодка) на кінці, що йде до батареї —
   // об'ємний корпус (металево-пластиковий градієнт + бліковий відблиск)
   // із двома металевими контактами (+ червоний, - темний), що виступають
-  // назовні, замість плаского прямокутника-громмета.
+  // назовні, замість плаского прямокутника-громмета. Додатково (лише для
+  // лівого дроту, "connector"): конусна гумова муфта-розвантажувач
+  // натягу між голим двожильним пучком і корпусом колодки (як у
+  // реальних кабелів — пучок вужчий за корпус, тому перехід через
+  // конус, а не різкий прямокутний зріз), дрібний "гвинтик" на корпусі
+  // для відчуття справжньої залізяки, і м'яка тінь під усім вузлом
+  // (feDropShadow), щоб роз'єм відчутно "лежав" над фоном картки.
   const plugX = flip ? 2 : 76;
   const plugPinX = flip ? -2 : 93;
+  const taperNearX = flip ? 22 : 68;
+  const screwCx = flip ? plugX + 14 : plugX + 6;
   const plugHtml = connector ? `
+    <path d="M${taperNearX},${yBatt - 4} L${plugX},${yBatt - 11} L${plugX},${yBatt + 13} L${taperNearX},${yBatt + 10} Z" fill="url(#${plugId})" stroke="#000" stroke-width="0.4"/>
     <rect x="${plugX}" y="${yBatt - 11}" width="20" height="24" rx="4" fill="url(#${plugId})" stroke="#000" stroke-width="0.6"/>
     <ellipse cx="${plugX + 6}" cy="${yBatt - 5}" rx="9" ry="7" fill="url(#${sheenId})"/>
     <rect x="${plugX + 9}" y="${yBatt - 11}" width="2" height="24" fill="rgba(0,0,0,0.4)"/>
+    <circle cx="${screwCx}" cy="${yBatt + 9}" r="1.3" fill="#0a0c0e" stroke="#4a5058" stroke-width="0.3"/>
+    <circle cx="${screwCx - 0.35}" cy="${yBatt + 8.65}" r="0.4" fill="rgba(255,255,255,0.55)"/>
     <rect x="${plugPinX}" y="${yBatt - 5.5}" width="7" height="5" rx="1.5" fill="url(#${pinRedId})" stroke="#000" stroke-width="0.4"/>
     <rect x="${plugPinX}" y="${yBatt + 0.5}" width="7" height="5" rx="1.5" fill="url(#${pinBlkId})" stroke="#000" stroke-width="0.4"/>
   ` : `
     <rect class="flow-wire-clip" x="92" y="${yBatt - 2}" width="8" height="16" rx="2.5" fill="url(#${plugId})"/>
   `;
-  return `<svg class="flow-wire flow-wire-h" viewBox="0 0 100 50" preserveAspectRatio="none" aria-hidden="true">
-    ${defs}
+  const dsId = gid("ds");
+  const dropShadowDef = connector ? `<filter id="${dsId}" x="-30%" y="-60%" width="160%" height="220%"><feDropShadow dx="0" dy="1.6" stdDeviation="1.3" flood-color="#000" flood-opacity="0.55"/></filter>` : "";
+  const bodyH = `
     ${strand(dRedH, dRedHHi, red, darkRed, hiRed, true)}
     ${strand(dBlackH, dBlackHHi, black, darkBlack, hiBlack, false)}
     <rect class="flow-wire-clip" x="0" y="${yIcon - 8}" width="8" height="16" rx="2.5" fill="url(#${plugId})"/>
     ${plugHtml}
+  `;
+  return `<svg class="flow-wire flow-wire-h" viewBox="0 0 100 50" preserveAspectRatio="none" aria-hidden="true">
+    ${defs}${dropShadowDef}
+    ${connector ? `<g filter="url(#${dsId})">${bodyH}</g>` : bodyH}
   </svg>`;
 }
 
