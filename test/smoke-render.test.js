@@ -289,12 +289,12 @@ console.log("Discovered:", Object.keys(discovered).sort().join(", "));
   card._resolvedEntities = mod.autoDiscoverEntities(hassCharging, deviceId);
   const htmlCharging = card._renderFullView();
   // Батарея в повному (flow) вигляді тепер — скляна SVG-банка (glass jar),
-  // а не CSS battery-fill; анімація потоку живе на з'єднувальних стрілках.
+  // а не CSS battery-fill; анімація потоку живе на з'єднувальних "дротах".
   assert.match(htmlCharging, /class="battery-svg"/, "повний вигляд: SVG-батарея (скляна банка) присутня");
-  // Ліва стрілка (Мережа → Батарея) замінена на "дріт" з іскрами
-  // (SMIL animateMotion), права стрілка (Батарея → Навантаження) без змін.
-  assert.match(htmlCharging, /flow-wire-path[\s\S]{0,220}stroke="#1D9E75"/, "заряд: активний (зелений) дріт до батареї");
-  assert.match(htmlCharging, /class="flow-wire-spark"[\s\S]{0,50}<animateMotion/, "заряд: іскри рухаються по дроту (animateMotion)");
+  // Обидва з'єднувачі тепер — двожильний "дріт" (flow-wire): у стані
+  // спокою обидві жили сірі, коли сторона активна — одна жила чорна,
+  // друга червона, і рухомий пунктир (flow-wire-active) — лише на червоній.
+  assert.match(htmlCharging, /flow-wire-path flow-wire-active[\s\S]{0,220}stroke="#e0393c"/, "заряд: активна (червона) жила до батареї");
 
   // 2) charging: off, струм явно від'ємний → статус "Розряджається".
   const hassDischarging = {
@@ -308,9 +308,9 @@ console.log("Discovered:", Object.keys(discovered).sort().join(", "));
   card._hass = hassDischarging;
   card._resolvedEntities = mod.autoDiscoverEntities(hassDischarging, deviceId);
   const htmlDischarging = card._renderFullView();
-  assert.match(htmlDischarging, /flow-arrow-path flow-arrow-active[\s\S]{0,200}stroke="#EF9F27"/, "розряд: активна (бурштинова) стрілка від батареї");
+  assert.match(htmlDischarging, /flow-wire-path flow-wire-active[\s\S]{0,220}stroke="#e0393c"/, "розряд: активна (червона) жила від батареї");
 
-  // 3) простій (струм ~0, charging off) → жодна стрілка не анімована.
+  // 3) простій (струм ~0, charging off) → жодна жила не анімована.
   const hassIdle = {
     ...mockHass,
     states: {
@@ -322,8 +322,7 @@ console.log("Discovered:", Object.keys(discovered).sort().join(", "));
   card._hass = hassIdle;
   card._resolvedEntities = mod.autoDiscoverEntities(hassIdle, deviceId);
   const htmlIdle = card._renderFullView();
-  assert.ok(!htmlIdle.includes("flow-arrow-active"), "у простої анімація стрілок відсутня");
-  assert.ok(!htmlIdle.includes("flow-wire-spark"), "у простої іскри на дроті відсутні");
+  assert.ok(!htmlIdle.includes("flow-wire-active"), "у простої анімація дротів відсутня");
 
   // Те саме має працювати і в компактному (mini) вигляді картки.
   card._hass = hassCharging;
@@ -355,16 +354,15 @@ console.log("Discovered:", Object.keys(discovered).sort().join(", "));
   // (точна копія референсного прев'ю), а не Заряд/Розряд з іконкою-колом.
   assert.match(htmlCharging, /class="node-lbl">МЕРЕЖА</, "лівий вузол підписаний МЕРЕЖА");
   assert.match(htmlCharging, /class="node-lbl">НАВАНТАЖЕННЯ</, "правий вузол підписаний НАВАНТАЖЕННЯ");
-  // Стрілки-конектори (SVG, зігнута крива + наконечник) лишились ЛИШЕ на
-  // правому з'єднувачі (Батарея → Навантаження); лівий (Мережа → Батарея)
-  // тепер "дріт" з іскрами (animateMotion) замість стрілки.
-  const arrowMatches = [...htmlCharging.matchAll(/<svg class="flow-arrow (flow-arrow-h|flow-arrow-v)"[\s\S]*?<\/svg>/g)];
-  assert.equal(arrowMatches.length, 2, "по 2 SVG (h+v) лишилось лише на правому конекторі (розряд)");
-  assert.ok(arrowMatches.every((m) => !m[0].includes("flow-arrow-active")), "права стрілка неактивна під час заряду (активний лише лівий дріт)");
-
+  // Обидва з'єднувачі (Мережа→Батарея і Батарея→Навантаження) тепер —
+  // двожильний "дріт" (flow-wire), не стрілка. Активна (з рухомим
+  // пунктиром на червоній жилі) лише сторона, що відповідає поточному
+  // напряму потоку (тут — заряд, тобто лівий конектор).
   const wireMatches = [...htmlCharging.matchAll(/<svg class="flow-wire (flow-wire-h|flow-wire-v)"[\s\S]*?<\/svg>/g)];
-  assert.equal(wireMatches.length, 2, "по 2 SVG (h+v) на лівому конекторі-дроті (заряд)");
-  assert.ok(wireMatches.every((m) => m[0].includes('stroke="#1D9E75"') && m[0].includes("flow-wire-spark")), "лівий дріт активний, зелений, з іскрами під час заряду");
+  assert.equal(wireMatches.length, 4, "по 2 SVG (h+v) на кожен з двох конекторів = 4 всього");
+  const activeWires = wireMatches.filter((m) => m[0].includes("flow-wire-active"));
+  assert.equal(activeWires.length, 2, "активні (заряд) — рівно h+v пара одного конектора");
+  assert.ok(activeWires.every((m) => m[0].includes('stroke="#e0393c"')), "активна (червона) жила заряду");
   // Батарея тепер саме в flow-row (клас flow-battery), і це скляна SVG-банка.
   assert.match(htmlCharging, /<div class="flow-battery"[^>]*>[\s\S]{0,50}<svg class="battery-svg"/, "батарея (SVG) відрендерена всередині flow-battery");
   assert.ok(!htmlCharging.includes('class="battery-box"'), "старого окремого battery-box більше немає");
