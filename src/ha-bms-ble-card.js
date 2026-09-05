@@ -332,6 +332,16 @@ function moreInfoAttr(entityId) {
   return entityId ? ` data-more-info="${entityId}" tabindex="0" role="button"` : "";
 }
 
+/** Освітлює (pct>0) або затемнює (pct<0) hex-колір на pct% для градієнтів
+ *  об'ємного ("3D") дроту — імітація циліндричного відблиску. */
+function shadeColor(hex, pct) {
+  const n = parseInt(hex.replace("#", ""), 16);
+  let r = (n >> 16) & 0xff, g = (n >> 8) & 0xff, b = n & 0xff;
+  const adj = (c) => Math.max(0, Math.min(255, Math.round(c + (pct >= 0 ? (255 - c) * pct : c * pct))));
+  r = adj(r); g = adj(g); b = adj(b);
+  return `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`;
+}
+
 /**
  * Двожильний "дріт" (Мережа<->Батарея, Батарея<->Навантаження). У стані
  * спокою обидві жили сірі; коли ця сторона активна (заряд або розряд),
@@ -343,59 +353,94 @@ function moreInfoAttr(entityId) {
  * закручування в кільце/спіраль. `flip` дзеркалить вигин по горизонталі
  * для правого з'єднувача (Батарея→Навантаження), де іконка стоїть
  * праворуч, а не ліворуч — щоб "піднятий кінець біля іконки" лишався
- * правильним з обох боків.
+ * правильним з обох боків. Кожна жила намальована як об'ємна "3D-труба"
+ * через вертикальний лінійний градієнт (тінь->відблиск->тінь) поперек
+ * жили — класичний прийом для циліндричного пластикового кабелю, що
+ * ловить світло, замість плаского однотонного штриха.
  */
 function flowWireSvg(vertical, active, flip, connector) {
   const idle = "#3a4650";
   const red = active ? "#e0393c" : idle;
-  const black = active ? "#15181c" : idle;
+  const black = active ? "#2a2e33" : idle;
   const dashClass = active ? "flow-wire-active" : "";
-  const clip = "#3a4650";
-  const clipHi = "rgba(255,255,255,0.10)";
-  const gloss = "rgba(255,255,255,0.24)";
-  const glossDim = "rgba(255,255,255,0.14)";
+  const darkRed = shadeColor(red, -0.45), hiRed = shadeColor(red, 0.55);
+  const darkBlack = shadeColor(black, -0.45), hiBlack = shadeColor(black, 0.55);
   // Сигмоїдна S-крива: P0 -> P3, з контрольними точками на 40%/60% по X
   // (для vertical — по Y), що дає плавний рівний->вигин->рівний перехід.
-  const sCurveH = (y0, y1) => `M4,${y0} C40.8,${y0} 59.2,${y1} 96,${y1}`;
-  const sCurveV = (x0, x1) => `M${x0},4 C${x0},40.8 ${x1},59.2 ${x1},96`;
+  // Третій аргумент (offset) зсуває всю криву перпендикулярно жилі —
+  // використовується для малювання відблиску точно вздовж кривизни
+  // (а не плаского оверлею), щоб труба виглядала круглою на всій довжині.
+  const sCurveH = (y0, y1, o) => `M4,${y0 + (o || 0)} C40.8,${y0 + (o || 0)} 59.2,${y1 + (o || 0)} 96,${y1 + (o || 0)}`;
+  const sCurveV = (x0, x1, o) => `M${x0 + (o || 0)},4 C${x0 + (o || 0)},40.8 ${x1 + (o || 0)},59.2 ${x1 + (o || 0)},96`;
+  // Один "провідник" = 4 шари штрихів одна поверх одної: темний контур
+  // (об'єм/тінь) -> основний колір (сюди йде клас анімації потоку) ->
+  // зміщений до "світла" відблиск -> тонкий гострий глянцевий блик.
+  const strand = (d, dOffset, base, dark, hi, withDash) => `
+    <path d="${d}" fill="none" stroke="${dark}" stroke-width="4.6" stroke-linecap="round"/>
+    <path class="flow-wire-path ${withDash ? dashClass : ""}" d="${d}" fill="none" stroke="${base}" stroke-width="3.5" stroke-linecap="round"/>
+    <path d="${dOffset}" fill="none" stroke="${hi}" stroke-width="1.5" stroke-linecap="round" opacity="0.8" pointer-events="none"/>
+    <path d="${dOffset}" fill="none" stroke="#ffffff" stroke-width="0.6" stroke-linecap="round" opacity="0.6" pointer-events="none"/>
+  `;
+  const gid = (tag) => `wg-${tag}-${vertical ? "v" : "h"}-${flip ? 1 : 0}-${active ? 1 : 0}`;
+  const plugId = gid("p"), pinRedId = gid("pr"), pinBlkId = gid("pb"), sheenId = gid("sh");
+  const defs = `<defs>
+    <linearGradient id="${plugId}" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#454d55"/>
+      <stop offset="14%" stop-color="#262c32"/>
+      <stop offset="55%" stop-color="#15181c"/>
+      <stop offset="100%" stop-color="#040506"/>
+    </linearGradient>
+    <linearGradient id="${pinRedId}" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ffcac2"/>
+      <stop offset="45%" stop-color="${red}"/>
+      <stop offset="100%" stop-color="#6e1416"/>
+    </linearGradient>
+    <linearGradient id="${pinBlkId}" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#9aa2ab"/>
+      <stop offset="45%" stop-color="#3a3f45"/>
+      <stop offset="100%" stop-color="#040506"/>
+    </linearGradient>
+    <radialGradient id="${sheenId}" cx="35%" cy="20%" r="75%">
+      <stop offset="0%" stop-color="rgba(255,255,255,0.30)"/>
+      <stop offset="60%" stop-color="rgba(255,255,255,0.04)"/>
+      <stop offset="100%" stop-color="rgba(255,255,255,0)"/>
+    </radialGradient>
+  </defs>`;
   if (vertical) {
     const [xTop, xBot] = flip ? [20, 12] : [12, 20];
-    const dRed = sCurveV(xTop, xBot), dBlack = sCurveV(xTop + 6, xBot + 6);
+    const dRed = sCurveV(xTop, xBot), dRedHi = sCurveV(xTop, xBot, -1.1);
+    const dBlack = sCurveV(xTop + 6, xBot + 6), dBlackHi = sCurveV(xTop + 6, xBot + 6, -1.1);
     return `<svg class="flow-wire flow-wire-v" viewBox="0 0 50 100" preserveAspectRatio="none" aria-hidden="true">
-      <path class="flow-wire-path ${dashClass}" d="${dRed}" fill="none" stroke="${red}" stroke-width="3.6" stroke-linecap="round"/>
-      <path class="flow-wire-path" d="${dBlack}" fill="none" stroke="${black}" stroke-width="3.6" stroke-linecap="round"/>
-      <path d="${dRed}" fill="none" stroke="${gloss}" stroke-width="1" stroke-linecap="round" pointer-events="none"/>
-      <path d="${dBlack}" fill="none" stroke="${glossDim}" stroke-width="0.8" stroke-linecap="round" pointer-events="none"/>
-      <rect class="flow-wire-clip" x="${xTop - 8}" y="0" width="16" height="8" rx="2.5" fill="${clip}"/>
-      <rect x="${xTop - 8}" y="0" width="16" height="3" rx="1.5" fill="${clipHi}"/>
-      <rect class="flow-wire-clip" x="${xBot - 2}" y="92" width="16" height="8" rx="2.5" fill="${clip}"/>
-      <rect x="${xBot - 2}" y="92" width="16" height="3" rx="1.5" fill="${clipHi}"/>
+      ${defs}
+      ${strand(dRed, dRedHi, red, darkRed, hiRed, true)}
+      ${strand(dBlack, dBlackHi, black, darkBlack, hiBlack, false)}
+      <rect class="flow-wire-clip" x="${xTop - 8}" y="0" width="16" height="8" rx="2.5" fill="url(#${plugId})"/>
+      <rect class="flow-wire-clip" x="${xBot - 2}" y="92" width="16" height="8" rx="2.5" fill="url(#${plugId})"/>
     </svg>`;
   }
   const [yIcon, yBatt] = flip ? [36, 8] : [8, 36];
-  const dRedH = sCurveH(yIcon, yBatt), dBlackH = sCurveH(yIcon + 6, yBatt + 6);
+  const dRedH = sCurveH(yIcon, yBatt), dRedHHi = sCurveH(yIcon, yBatt, -1.1);
+  const dBlackH = sCurveH(yIcon + 6, yBatt + 6), dBlackHHi = sCurveH(yIcon + 6, yBatt + 6, -1.1);
   // Роз'єм (справжня штекерна колодка) на кінці, що йде до батареї —
-  // замінює плаский прямокутник-громмет на об'ємний корпус із двома
-  // металевими контактами (+ червоний, - темний), що виступають назовні.
+  // об'ємний корпус (металево-пластиковий градієнт + бліковий відблиск)
+  // із двома металевими контактами (+ червоний, - темний), що виступають
+  // назовні, замість плаского прямокутника-громмета.
   const plugX = flip ? 2 : 76;
   const plugPinX = flip ? -2 : 93;
   const plugHtml = connector ? `
-    <rect x="${plugX}" y="${yBatt - 11}" width="20" height="24" rx="4" fill="#1b2126" stroke="#000" stroke-width="0.6"/>
-    <rect x="${plugX}" y="${yBatt - 11}" width="20" height="8" rx="4" fill="rgba(255,255,255,0.10)"/>
-    <rect x="${plugX + 9}" y="${yBatt - 11}" width="2" height="24" fill="rgba(0,0,0,0.35)"/>
-    <rect x="${plugPinX}" y="${yBatt - 5.5}" width="7" height="5" rx="1.5" fill="${red}" stroke="#000" stroke-width="0.4"/>
-    <rect x="${plugPinX}" y="${yBatt + 0.5}" width="7" height="5" rx="1.5" fill="#3a3f45" stroke="#000" stroke-width="0.4"/>
+    <rect x="${plugX}" y="${yBatt - 11}" width="20" height="24" rx="4" fill="url(#${plugId})" stroke="#000" stroke-width="0.6"/>
+    <ellipse cx="${plugX + 6}" cy="${yBatt - 5}" rx="9" ry="7" fill="url(#${sheenId})"/>
+    <rect x="${plugX + 9}" y="${yBatt - 11}" width="2" height="24" fill="rgba(0,0,0,0.4)"/>
+    <rect x="${plugPinX}" y="${yBatt - 5.5}" width="7" height="5" rx="1.5" fill="url(#${pinRedId})" stroke="#000" stroke-width="0.4"/>
+    <rect x="${plugPinX}" y="${yBatt + 0.5}" width="7" height="5" rx="1.5" fill="url(#${pinBlkId})" stroke="#000" stroke-width="0.4"/>
   ` : `
-    <rect class="flow-wire-clip" x="92" y="${yBatt - 2}" width="8" height="16" rx="2.5" fill="${clip}"/>
-    <rect x="97" y="${yBatt - 2}" width="3" height="16" rx="1.5" fill="${clipHi}"/>
+    <rect class="flow-wire-clip" x="92" y="${yBatt - 2}" width="8" height="16" rx="2.5" fill="url(#${plugId})"/>
   `;
   return `<svg class="flow-wire flow-wire-h" viewBox="0 0 100 50" preserveAspectRatio="none" aria-hidden="true">
-    <path class="flow-wire-path ${dashClass}" d="${dRedH}" fill="none" stroke="${red}" stroke-width="3.6" stroke-linecap="round"/>
-    <path class="flow-wire-path" d="${dBlackH}" fill="none" stroke="${black}" stroke-width="3.6" stroke-linecap="round"/>
-    <path d="${dRedH}" fill="none" stroke="${gloss}" stroke-width="1" stroke-linecap="round" pointer-events="none"/>
-    <path d="${dBlackH}" fill="none" stroke="${glossDim}" stroke-width="0.8" stroke-linecap="round" pointer-events="none"/>
-    <rect class="flow-wire-clip" x="0" y="${yIcon - 8}" width="8" height="16" rx="2.5" fill="${clip}"/>
-    <rect x="0" y="${yIcon - 8}" width="3" height="16" rx="1.5" fill="${clipHi}"/>
+    ${defs}
+    ${strand(dRedH, dRedHHi, red, darkRed, hiRed, true)}
+    ${strand(dBlackH, dBlackHHi, black, darkBlack, hiBlack, false)}
+    <rect class="flow-wire-clip" x="0" y="${yIcon - 8}" width="8" height="16" rx="2.5" fill="url(#${plugId})"/>
     ${plugHtml}
   </svg>`;
 }
@@ -2550,7 +2595,7 @@ class HaBmsBleCard extends HTMLElement {
           flex:0 1 96px; min-width:20px; max-width:96px;
           display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px;
         }
-        .flow-wire { width:100%; height:clamp(26px, 9vw, 83px); overflow:visible; flex-shrink:0; filter:drop-shadow(0 1.5px 1.2px rgba(0,0,0,0.4)); }
+        .flow-wire { width:100%; height:clamp(26px, 9vw, 83px); overflow:visible; flex-shrink:0; filter:drop-shadow(0 1px 0.5px rgba(0,0,0,0.55)) drop-shadow(0 3px 3px rgba(0,0,0,0.35)); }
         .flow-wire-v { display:none; }
         .flow-wire-path { transition: stroke 0.3s ease; }
         @keyframes bms-wire-flow { 0% { stroke-dashoffset:0; opacity:1; } 50% { opacity:0.85; } 100% { stroke-dashoffset:-48; opacity:1; } }
