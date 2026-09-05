@@ -7,7 +7,7 @@
  * https://github.com/kdinya/ha-bms-ble-card
  */
 
-const CARD_VERSION = "3.0.0-beta.29";
+const CARD_VERSION = "3.0.0-beta.30";
 
 console.info(
   `%c HA-BMS-BLE-CARD %c v${CARD_VERSION} `,
@@ -2336,8 +2336,6 @@ class HaBmsBleCard extends HTMLElement {
             <div class="node-lbl">${t("node_grid")}</div>
           </div>
           <div class="flow-connector-wrap">
-            ${flowWireSvg(false, flowState === "charging", false, true, true)}
-            ${flowWireSvg(true, flowState === "charging", false, false, true)}
             ${flowState === "charging" ? `<div class="connector-info">${current !== undefined && current !== null ? `${fmt(Math.abs(currentN), 1)} A` : "—"}<br>${fmtKw(power)} кВт</div>` : ""}
           </div>
           <div class="flow-battery"${moreInfoAttr(this._e("soc"))}>
