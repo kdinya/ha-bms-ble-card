@@ -351,25 +351,38 @@ function flowWireSvg(vertical, active, flip) {
   const black = active ? "#15181c" : idle;
   const dashClass = active ? "flow-wire-active" : "";
   const clip = "#3a4650";
+  const clipHi = "rgba(255,255,255,0.10)";
+  const gloss = "rgba(255,255,255,0.24)";
+  const glossDim = "rgba(255,255,255,0.14)";
   // Сигмоїдна S-крива: P0 -> P3, з контрольними точками на 40%/60% по X
   // (для vertical — по Y), що дає плавний рівний->вигин->рівний перехід.
   const sCurveH = (y0, y1) => `M4,${y0} C40.8,${y0} 59.2,${y1} 96,${y1}`;
   const sCurveV = (x0, x1) => `M${x0},4 C${x0},40.8 ${x1},59.2 ${x1},96`;
   if (vertical) {
     const [xTop, xBot] = flip ? [20, 12] : [12, 20];
+    const dRed = sCurveV(xTop, xBot), dBlack = sCurveV(xTop + 6, xBot + 6);
     return `<svg class="flow-wire flow-wire-v" viewBox="0 0 50 100" preserveAspectRatio="none" aria-hidden="true">
-      <path class="flow-wire-path ${dashClass}" d="${sCurveV(xTop, xBot)}" fill="none" stroke="${red}" stroke-width="3" stroke-linecap="round"/>
-      <path class="flow-wire-path" d="${sCurveV(xTop + 6, xBot + 6)}" fill="none" stroke="${black}" stroke-width="3" stroke-linecap="round"/>
-      <rect class="flow-wire-clip" x="${xTop - 8}" y="0" width="16" height="8" rx="2" fill="${clip}"/>
-      <rect class="flow-wire-clip" x="${xBot - 2}" y="92" width="16" height="8" rx="2" fill="${clip}"/>
+      <path class="flow-wire-path ${dashClass}" d="${dRed}" fill="none" stroke="${red}" stroke-width="3.6" stroke-linecap="round"/>
+      <path class="flow-wire-path" d="${dBlack}" fill="none" stroke="${black}" stroke-width="3.6" stroke-linecap="round"/>
+      <path d="${dRed}" fill="none" stroke="${gloss}" stroke-width="1" stroke-linecap="round" pointer-events="none"/>
+      <path d="${dBlack}" fill="none" stroke="${glossDim}" stroke-width="0.8" stroke-linecap="round" pointer-events="none"/>
+      <rect class="flow-wire-clip" x="${xTop - 8}" y="0" width="16" height="8" rx="2.5" fill="${clip}"/>
+      <rect x="${xTop - 8}" y="0" width="16" height="3" rx="1.5" fill="${clipHi}"/>
+      <rect class="flow-wire-clip" x="${xBot - 2}" y="92" width="16" height="8" rx="2.5" fill="${clip}"/>
+      <rect x="${xBot - 2}" y="92" width="16" height="3" rx="1.5" fill="${clipHi}"/>
     </svg>`;
   }
   const [yIcon, yBatt] = flip ? [36, 8] : [8, 36];
+  const dRedH = sCurveH(yIcon, yBatt), dBlackH = sCurveH(yIcon + 6, yBatt + 6);
   return `<svg class="flow-wire flow-wire-h" viewBox="0 0 100 50" preserveAspectRatio="none" aria-hidden="true">
-    <path class="flow-wire-path ${dashClass}" d="${sCurveH(yIcon, yBatt)}" fill="none" stroke="${red}" stroke-width="3" stroke-linecap="round"/>
-    <path class="flow-wire-path" d="${sCurveH(yIcon + 6, yBatt + 6)}" fill="none" stroke="${black}" stroke-width="3" stroke-linecap="round"/>
-    <rect class="flow-wire-clip" x="0" y="${yIcon - 8}" width="8" height="16" rx="2" fill="${clip}"/>
-    <rect class="flow-wire-clip" x="92" y="${yBatt - 2}" width="8" height="16" rx="2" fill="${clip}"/>
+    <path class="flow-wire-path ${dashClass}" d="${dRedH}" fill="none" stroke="${red}" stroke-width="3.6" stroke-linecap="round"/>
+    <path class="flow-wire-path" d="${dBlackH}" fill="none" stroke="${black}" stroke-width="3.6" stroke-linecap="round"/>
+    <path d="${dRedH}" fill="none" stroke="${gloss}" stroke-width="1" stroke-linecap="round" pointer-events="none"/>
+    <path d="${dBlackH}" fill="none" stroke="${glossDim}" stroke-width="0.8" stroke-linecap="round" pointer-events="none"/>
+    <rect class="flow-wire-clip" x="0" y="${yIcon - 8}" width="8" height="16" rx="2.5" fill="${clip}"/>
+    <rect x="0" y="${yIcon - 8}" width="3" height="16" rx="1.5" fill="${clipHi}"/>
+    <rect class="flow-wire-clip" x="92" y="${yBatt - 2}" width="8" height="16" rx="2.5" fill="${clip}"/>
+    <rect x="97" y="${yBatt - 2}" width="3" height="16" rx="1.5" fill="${clipHi}"/>
   </svg>`;
 }
 
@@ -2523,7 +2536,7 @@ class HaBmsBleCard extends HTMLElement {
           flex:0 1 96px; min-width:20px; max-width:96px;
           display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px;
         }
-        .flow-wire { width:100%; height:clamp(26px, 9vw, 83px); overflow:visible; flex-shrink:0; }
+        .flow-wire { width:100%; height:clamp(26px, 9vw, 83px); overflow:visible; flex-shrink:0; filter:drop-shadow(0 1.5px 1.2px rgba(0,0,0,0.4)); }
         .flow-wire-v { display:none; }
         .flow-wire-path { transition: stroke 0.3s ease; }
         @keyframes bms-wire-flow { 0% { stroke-dashoffset:0; opacity:1; } 50% { opacity:0.85; } 100% { stroke-dashoffset:-48; opacity:1; } }
