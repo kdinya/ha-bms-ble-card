@@ -7,7 +7,7 @@
  * https://github.com/kdinya/ha-bms-ble-card
  */
 
-const CARD_VERSION = "3.0.0-beta.18";
+const CARD_VERSION = "3.0.0-beta.19";
 
 console.info(
   `%c HA-BMS-BLE-CARD %c v${CARD_VERSION} `,
@@ -203,32 +203,36 @@ function moreInfoAttr(entityId) {
 }
 
 /**
- * Зігнута стрілка "потоку енергії" з наконечником — власна, оригінальна
- * SVG-графіка (не запозичена з чужих скріншотів/іконок). Плавний
- * S-подібний вигин замість прямої лінії, і наконечник-трикутник у кінці.
- * Анімація — рухомий пунктир по кривій (stroke-dashoffset), що дає
- * значно плавніший, векторний рух смужок порівняно з попереднім
- * підходом на CSS background-position.
+ * Двожильний "кабель" (grid<->батарея / батарея<->навантаження) замість
+ * одинарної стрілки-наконечника: дві паралельні жили з невеликими
+ * роз'ємами-кліпами на кінцях (як на референсному скріні користувача, але
+ * трохи по-іншому). У стані спокою обидві жили сірі; коли ця сторона
+ * активна (заряд або розряд), одна жила стає чорною, друга — червоною, і
+ * анімація потоку (рухомий пунктир) йде саме по червоній жилі.
  *
  * Однакова горизонтальна форма підходить для ОБОХ з'єднувачів (іконка→
- * батарея і батарея→іконка): у локальних координатах з'єднувача потік
- * завжди йде зліва направо, а яка сторона фізично "джерело" — залежить
- * лише від того, з якого боку картки розміщено іконку. Вертикальний
- * варіант (для вузьких екранів, де ряд складається у колонку) — той
- * самий принцип згори вниз.
+ * батарея і батарея→іконка). Вертикальний варіант (вузькі екрани, де ряд
+ * складається у колонку) — той самий принцип, тільки жили йдуть згори вниз.
  */
-function flowArrowSvg(vertical, active, colorHex) {
-  const stroke = active ? colorHex : "#3a4650";
+function flowWireSvg(vertical, active) {
+  const idle = "#5a6670";
+  const red = active ? "#e0393c" : idle;
+  const black = active ? "#15181c" : idle;
   const dashClass = active ? "flow-arrow-active" : "";
+  const clip = "#3a4650";
   if (vertical) {
     return `<svg class="flow-arrow flow-arrow-v" viewBox="0 0 50 100" preserveAspectRatio="none" aria-hidden="true">
-      <path class="flow-arrow-path ${dashClass}" d="M14,4 C14,28 36,28 36,50 L36,78" fill="none" stroke="${stroke}" stroke-width="5.5" stroke-linecap="round"/>
-      <polygon class="flow-arrow-head" points="25,77 36,98 47,77" fill="${stroke}"/>
+      <path class="flow-arrow-path ${dashClass}" d="M10,4 C10,28 26,28 26,50 L26,78" fill="none" stroke="${red}" stroke-width="4" stroke-linecap="round"/>
+      <path class="flow-arrow-path" d="M24,4 C24,28 40,28 40,50 L40,78" fill="none" stroke="${black}" stroke-width="4" stroke-linecap="round"/>
+      <rect class="flow-wire-clip" x="6" y="0" width="22" height="8" rx="2" fill="${clip}"/>
+      <rect class="flow-wire-clip" x="20" y="74" width="22" height="8" rx="2" fill="${clip}"/>
     </svg>`;
   }
   return `<svg class="flow-arrow flow-arrow-h" viewBox="0 0 100 50" preserveAspectRatio="none" aria-hidden="true">
-    <path class="flow-arrow-path ${dashClass}" d="M4,36 C28,36 28,14 50,14 L78,14" fill="none" stroke="${stroke}" stroke-width="5.5" stroke-linecap="round"/>
-    <polygon class="flow-arrow-head" points="77,3 98,14 77,25" fill="${stroke}"/>
+    <path class="flow-arrow-path ${dashClass}" d="M4,20 C28,20 28,6 50,6 L92,6" fill="none" stroke="${red}" stroke-width="4" stroke-linecap="round"/>
+    <path class="flow-arrow-path" d="M4,32 C28,32 28,18 50,18 L92,18" fill="none" stroke="${black}" stroke-width="4" stroke-linecap="round"/>
+    <rect class="flow-wire-clip" x="0" y="16" width="8" height="22" rx="2" fill="${clip}"/>
+    <rect class="flow-wire-clip" x="90" y="2" width="8" height="22" rx="2" fill="${clip}"/>
   </svg>`;
 }
 
@@ -2006,16 +2010,16 @@ class HaBmsBleCard extends HTMLElement {
             <div class="node-lbl">МЕРЕЖА</div>
           </div>
           <div class="flow-connector-wrap">
-            ${flowArrowSvg(false, flowState === "charging", "#1D9E75")}
-            ${flowArrowSvg(true, flowState === "charging", "#1D9E75")}
+            ${flowWireSvg(false, flowState === "charging")}
+            ${flowWireSvg(true, flowState === "charging")}
             ${flowState === "charging" ? `<div class="connector-info">${current !== undefined && current !== null ? `${fmt(Math.abs(currentN), 1)} A` : "—"}<br>${fmtKw(power)} кВт</div>` : ""}
           </div>
           <div class="flow-battery"${moreInfoAttr(this._e("soc"))}>
             ${glassBatterySvg(this._uid, socPct, fmt(voltage, 1))}
           </div>
           <div class="flow-connector-wrap">
-            ${flowArrowSvg(false, flowState === "discharging", "#EF9F27")}
-            ${flowArrowSvg(true, flowState === "discharging", "#EF9F27")}
+            ${flowWireSvg(false, flowState === "discharging")}
+            ${flowWireSvg(true, flowState === "discharging")}
             ${flowState === "discharging" ? `<div class="connector-info">${current !== undefined && current !== null ? `${fmt(Math.abs(currentN), 1)} A` : "—"}<br>${fmtKw(power)} кВт</div>` : ""}
           </div>
           <div class="flow-node load-node">
@@ -2299,9 +2303,8 @@ class HaBmsBleCard extends HTMLElement {
         .flow-arrow { width:100%; height:clamp(26px, 9vw, 83px); overflow:visible; flex-shrink:0; }
         .flow-arrow-v { display:none; }
         .flow-arrow-path { transition: stroke 0.3s ease; }
-        .flow-arrow-head { transition: fill 0.3s ease; }
         @keyframes bms-arrow-flow { 0% { stroke-dashoffset:0; opacity:1; } 50% { opacity:0.85; } 100% { stroke-dashoffset:-48; opacity:1; } }
-        .flow-arrow-path.flow-arrow-active { stroke-dasharray:12 10 4 10; animation: bms-arrow-flow 0.7s linear infinite; filter:drop-shadow(0 0 5px rgba(57,231,95,0.6)); }
+        .flow-arrow-path.flow-arrow-active { stroke-dasharray:12 10 4 10; animation: bms-arrow-flow 0.7s linear infinite; filter:drop-shadow(0 0 5px rgba(224,57,60,0.6)); }
         @media (prefers-reduced-motion: reduce) {
           .flow-arrow-path.flow-arrow-active { animation:none; }
         }

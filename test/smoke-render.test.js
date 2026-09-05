@@ -291,7 +291,7 @@ console.log("Discovered:", Object.keys(discovered).sort().join(", "));
   // Батарея в повному (flow) вигляді тепер — скляна SVG-банка (glass jar),
   // а не CSS battery-fill; анімація потоку живе на з'єднувальних стрілках.
   assert.match(htmlCharging, /class="battery-svg"/, "повний вигляд: SVG-батарея (скляна банка) присутня");
-  assert.match(htmlCharging, /flow-arrow-path flow-arrow-active[\s\S]{0,200}stroke="#1D9E75"/, "заряд: активна (зелена) стрілка до батареї");
+  assert.match(htmlCharging, /flow-arrow-path flow-arrow-active[\s\S]{0,200}stroke="#e0393c"/, "заряд: активна (червона жила) до батареї");
 
   // 2) charging: off, струм явно від'ємний → статус "Розряджається".
   const hassDischarging = {
@@ -305,7 +305,7 @@ console.log("Discovered:", Object.keys(discovered).sort().join(", "));
   card._hass = hassDischarging;
   card._resolvedEntities = mod.autoDiscoverEntities(hassDischarging, deviceId);
   const htmlDischarging = card._renderFullView();
-  assert.match(htmlDischarging, /flow-arrow-path flow-arrow-active[\s\S]{0,200}stroke="#EF9F27"/, "розряд: активна (бурштинова) стрілка від батареї");
+  assert.match(htmlDischarging, /flow-arrow-path flow-arrow-active[\s\S]{0,200}stroke="#e0393c"/, "розряд: активна (червона жила) від батареї");
 
   // 3) простій (струм ~0, charging off) → жодна стрілка не анімована.
   const hassIdle = {
@@ -357,7 +357,7 @@ console.log("Discovered:", Object.keys(discovered).sort().join(", "));
   assert.equal(arrowMatches.length, 4, "по 2 SVG (h+v) на кожен з двох конекторів = 4 всього");
   const activeArrows = arrowMatches.filter((m) => m[0].includes("flow-arrow-active"));
   assert.equal(activeArrows.length, 2, "активні (заряд) — рівно h+v пара одного конектора");
-  assert.ok(activeArrows.every((m) => m[0].includes('stroke="#1D9E75"')), "активна стрілка заряду зеленого кольору");
+  assert.ok(activeArrows.every((m) => m[0].includes('stroke="#e0393c"')), "активна (червона) жила заряду");
   // Батарея тепер саме в flow-row (клас flow-battery), і це скляна SVG-банка.
   assert.match(htmlCharging, /<div class="flow-battery"[^>]*>[\s\S]{0,50}<svg class="battery-svg"/, "батарея (SVG) відрендерена всередині flow-battery");
   assert.ok(!htmlCharging.includes('class="battery-box"'), "старого окремого battery-box більше немає");
