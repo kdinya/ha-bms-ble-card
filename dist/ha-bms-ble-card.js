@@ -2779,7 +2779,7 @@ class HaBmsBleCard extends HTMLElement {
         }
         .info-accordion-section[open] > .info-accordion-title::after { transform:rotate(45deg); }
         .info-accordion-section[open] { border-color:transparent; }
-        .info-accordion-body { padding:10px 16px 16px; background:transparent; }
+        .info-accordion-body { padding:10px 0 16px; background:transparent; }
 
         .usage-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:24px; }
         .usage-card {
