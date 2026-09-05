@@ -293,7 +293,7 @@ console.log("Discovered:", Object.keys(discovered).sort().join(", "));
   assert.match(htmlCharging, /class="battery-svg"/, "повний вигляд: SVG-батарея (скляна банка) присутня");
   // Ліва стрілка (Мережа → Батарея) замінена на "дріт" з іскрами
   // (SMIL animateMotion), права стрілка (Батарея → Навантаження) без змін.
-  assert.match(htmlCharging, /flow-wire-path[\s\S]{0,80}stroke="#1D9E75"/, "заряд: активний (зелений) дріт до батареї");
+  assert.match(htmlCharging, /flow-wire-path[\s\S]{0,220}stroke="#1D9E75"/, "заряд: активний (зелений) дріт до батареї");
   assert.match(htmlCharging, /class="flow-wire-spark"[\s\S]{0,50}<animateMotion/, "заряд: іскри рухаються по дроту (animateMotion)");
 
   // 2) charging: off, струм явно від'ємний → статус "Розряджається".

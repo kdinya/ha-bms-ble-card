@@ -365,23 +365,27 @@ function flowArrowSvg(vertical, active, colorHex) {
 /**
  * "Дріт" з електроенергією, що біжить по ньому — заміна flowArrowSvg лише
  * для лівого з'єднувача (Мережа → Батарея), за проханням користувача.
- * Той самий path/viewBox, що й у flowArrowSvg (щоб лишитись у тих самих
- * координатах відносно вузлів), але замість пунктирної стрілки — статичний
- * тонкий провід і 2 світні "іскри", що фізично їдуть вздовж path через SMIL
- * <animateMotion> (без JS-таймерів). Коли неактивно — просто тьмяний
- * нерухомий провід, як і раніше в flowArrowSvg.
+ * За проханням користувача провід зроблено довгим і трохи "змотаним в
+ * кільце" (петля з перехрестям посередині, як зайва слабина кабелю),
+ * замість простої плавної кривої — тому шлях суттєво довший, ніж бокс,
+ * у якому він намальований (viewBox лишається тим самим, щоб не зсувати
+ * layout поруч з вузлами). Статичний тонкий провід + 2 світні "іскри",
+ * що фізично їдуть вздовж того самого path через SMIL <animateMotion>
+ * (без JS-таймерів). Коли неактивно — просто тьмяний нерухомий провід.
  */
 function flowWireSvg(vertical, active, colorHex) {
   const stroke = active ? colorHex : "#3a4650";
-  const path = vertical ? "M14,4 C14,28 36,28 36,50 L36,78" : "M4,36 C28,36 28,14 50,14 L78,14";
+  const path = vertical
+    ? "M36,4 C36,14 10,14 10,30 C10,46 40,46 40,30 C40,18 22,18 22,32 C22,42 14,50 14,60 L14,78"
+    : "M4,36 C14,36 14,10 30,10 C46,10 46,40 30,40 C18,40 18,22 32,22 C42,22 50,14 60,14 L78,14";
   const viewBox = vertical ? "0 0 50 100" : "0 0 100 50";
   const cls = vertical ? "flow-wire flow-wire-v" : "flow-wire flow-wire-h";
   const sparks = active
     ? `<circle class="flow-wire-spark" r="3.4" fill="${colorHex}">
-        <animateMotion dur="1.1s" repeatCount="indefinite" path="${path}"/>
+        <animateMotion dur="1.6s" repeatCount="indefinite" path="${path}"/>
       </circle>
       <circle class="flow-wire-spark" r="3.4" fill="${colorHex}">
-        <animateMotion dur="1.1s" repeatCount="indefinite" begin="0.55s" path="${path}"/>
+        <animateMotion dur="1.6s" repeatCount="indefinite" begin="0.8s" path="${path}"/>
       </circle>`
     : "";
   return `<svg class="${cls}" viewBox="${viewBox}" preserveAspectRatio="none" aria-hidden="true">
