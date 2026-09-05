@@ -7,7 +7,7 @@
  * https://github.com/kdinya/ha-bms-ble-card
  */
 
-const CARD_VERSION = "3.0.0-beta.24";
+const CARD_VERSION = "3.0.0-beta.26";
 
 console.info(
   `%c HA-BMS-BLE-CARD %c v${CARD_VERSION} `,
@@ -2750,7 +2750,7 @@ class HaBmsBleCard extends HTMLElement {
           border-radius:14px;
           margin-bottom:14px;
           overflow:hidden;
-          background:var(--card-background-color, transparent);
+          background:transparent;
         }
         .info-accordion-title {
           list-style:none;
@@ -2763,6 +2763,7 @@ class HaBmsBleCard extends HTMLElement {
           align-items:center;
           justify-content:space-between;
           user-select:none;
+          background:var(--panel);
         }
         .info-accordion-title::-webkit-details-marker { display:none; }
         .info-accordion-title::after {
@@ -2776,7 +2777,7 @@ class HaBmsBleCard extends HTMLElement {
           flex-shrink:0;
         }
         .info-accordion-section[open] > .info-accordion-title::after { transform:rotate(45deg); }
-        .info-accordion-body { padding:0 16px 16px; }
+        .info-accordion-body { padding:0 16px 16px; background:transparent; }
 
         .usage-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:24px; }
         .usage-card {
