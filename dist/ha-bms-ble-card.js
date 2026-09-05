@@ -7,7 +7,7 @@
  * https://github.com/kdinya/ha-bms-ble-card
  */
 
-const CARD_VERSION = "3.0.0-beta.26";
+const CARD_VERSION = "3.0.0-beta.27";
 
 console.info(
   `%c HA-BMS-BLE-CARD %c v${CARD_VERSION} `,
@@ -2647,10 +2647,7 @@ class HaBmsBleCard extends HTMLElement {
 
         .cells-box {
           background:var(--panel); border:1px solid var(--border); border-radius:16px;
-          padding:16px 18px; min-width:260px; display:flex; flex-direction:column; gap:12px;
-        }
-        @media (min-width:481px) {
-          .cells-box { max-width:420px; }
+          padding:16px 18px; min-width:260px; width:100%; display:flex; flex-direction:column; gap:12px;
         }
         .cells-title { font-size:15px; color:var(--muted); margin-bottom:2px; }
         .cell-row { display:flex; align-items:center; gap:10px; }
@@ -2781,7 +2778,8 @@ class HaBmsBleCard extends HTMLElement {
           flex-shrink:0;
         }
         .info-accordion-section[open] > .info-accordion-title::after { transform:rotate(45deg); }
-        .info-accordion-body { padding:0 16px 16px; background:transparent; }
+        .info-accordion-section[open] { border-color:transparent; }
+        .info-accordion-body { padding:10px 16px 16px; background:transparent; }
 
         .usage-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:24px; }
         .usage-card {
@@ -2840,7 +2838,7 @@ class HaBmsBleCard extends HTMLElement {
         .info-tiles { display:grid; grid-template-columns:repeat(auto-fit, minmax(250px, 1fr)); gap:10px; margin-bottom:20px; }
         .info-tile {
           background:var(--panel); border:1px solid var(--border); border-radius:14px;
-          padding:12px 14px; display:flex; flex-direction:column; gap:4px; min-width:0; max-width:420px;
+          padding:12px 14px; display:flex; flex-direction:column; gap:4px; min-width:0;
         }
         .info-tile-lbl { font-size:11.5px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
         .info-tile-val { font-size:15px; font-weight:700; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
