@@ -336,30 +336,40 @@ function moreInfoAttr(entityId) {
  * Двожильний "дріт" (Мережа<->Батарея, Батарея<->Навантаження). У стані
  * спокою обидві жили сірі; коли ця сторона активна (заряд або розряд),
  * одна жила стає чорною, друга червоною, і рухомий пунктир (анімація
- * потоку) йде саме по червоній жилі. За проханням користувача форма
- * проводу — проста рівна (злегка провисла) лінія з невеликими роз'ємами
- * на кінцях, як на референсному скріні, БЕЗ закручування в кільце/спіраль
- * (попередній варіант з тугою петлею виглядав неохайно).
+ * потоку) йде саме по червоній жилі. Форма — плавний однократний
+ * S-вигин (сигмоїда), що повторює референсний скрін: біля іконки
+ * (мережа/навантаження) провід рівний і трохи піднятий, потім плавно
+ * вигинається і біля батареї стає рівним на нижчому рівні — БЕЗ
+ * закручування в кільце/спіраль. `flip` дзеркалить вигин по горизонталі
+ * для правого з'єднувача (Батарея→Навантаження), де іконка стоїть
+ * праворуч, а не ліворуч — щоб "піднятий кінець біля іконки" лишався
+ * правильним з обох боків.
  */
-function flowWireSvg(vertical, active) {
+function flowWireSvg(vertical, active, flip) {
   const idle = "#3a4650";
   const red = active ? "#e0393c" : idle;
   const black = active ? "#15181c" : idle;
   const dashClass = active ? "flow-wire-active" : "";
   const clip = "#3a4650";
+  // Сигмоїдна S-крива: P0 -> P3, з контрольними точками на 40%/60% по X
+  // (для vertical — по Y), що дає плавний рівний->вигин->рівний перехід.
+  const sCurveH = (y0, y1) => `M4,${y0} C40.8,${y0} 59.2,${y1} 96,${y1}`;
+  const sCurveV = (x0, x1) => `M${x0},4 C${x0},40.8 ${x1},59.2 ${x1},96`;
   if (vertical) {
+    const [xTop, xBot] = flip ? [20, 12] : [12, 20];
     return `<svg class="flow-wire flow-wire-v" viewBox="0 0 50 100" preserveAspectRatio="none" aria-hidden="true">
-      <path class="flow-wire-path ${dashClass}" d="M14,4 Q36,50 20,96" fill="none" stroke="${red}" stroke-width="3" stroke-linecap="round"/>
-      <path class="flow-wire-path" d="M20,4 Q42,50 26,96" fill="none" stroke="${black}" stroke-width="3" stroke-linecap="round"/>
-      <rect class="flow-wire-clip" x="10" y="0" width="16" height="8" rx="2" fill="${clip}"/>
-      <rect class="flow-wire-clip" x="16" y="92" width="16" height="8" rx="2" fill="${clip}"/>
+      <path class="flow-wire-path ${dashClass}" d="${sCurveV(xTop, xBot)}" fill="none" stroke="${red}" stroke-width="3" stroke-linecap="round"/>
+      <path class="flow-wire-path" d="${sCurveV(xTop + 6, xBot + 6)}" fill="none" stroke="${black}" stroke-width="3" stroke-linecap="round"/>
+      <rect class="flow-wire-clip" x="${xTop - 8}" y="0" width="16" height="8" rx="2" fill="${clip}"/>
+      <rect class="flow-wire-clip" x="${xBot - 2}" y="92" width="16" height="8" rx="2" fill="${clip}"/>
     </svg>`;
   }
+  const [yIcon, yBatt] = flip ? [36, 8] : [8, 36];
   return `<svg class="flow-wire flow-wire-h" viewBox="0 0 100 50" preserveAspectRatio="none" aria-hidden="true">
-    <path class="flow-wire-path ${dashClass}" d="M4,14 Q50,36 96,20" fill="none" stroke="${red}" stroke-width="3" stroke-linecap="round"/>
-    <path class="flow-wire-path" d="M4,20 Q50,42 96,26" fill="none" stroke="${black}" stroke-width="3" stroke-linecap="round"/>
-    <rect class="flow-wire-clip" x="0" y="10" width="8" height="16" rx="2" fill="${clip}"/>
-    <rect class="flow-wire-clip" x="92" y="16" width="8" height="16" rx="2" fill="${clip}"/>
+    <path class="flow-wire-path ${dashClass}" d="${sCurveH(yIcon, yBatt)}" fill="none" stroke="${red}" stroke-width="3" stroke-linecap="round"/>
+    <path class="flow-wire-path" d="${sCurveH(yIcon + 6, yBatt + 6)}" fill="none" stroke="${black}" stroke-width="3" stroke-linecap="round"/>
+    <rect class="flow-wire-clip" x="0" y="${yIcon - 8}" width="8" height="16" rx="2" fill="${clip}"/>
+    <rect class="flow-wire-clip" x="92" y="${yBatt - 2}" width="8" height="16" rx="2" fill="${clip}"/>
   </svg>`;
 }
 
@@ -2190,8 +2200,8 @@ class HaBmsBleCard extends HTMLElement {
             ${glassBatterySvg(this._uid, socPct, fmt(voltage, 1))}
           </div>
           <div class="flow-connector-wrap">
-            ${flowWireSvg(false, flowState === "discharging")}
-            ${flowWireSvg(true, flowState === "discharging")}
+            ${flowWireSvg(false, flowState === "discharging", true)}
+            ${flowWireSvg(true, flowState === "discharging", true)}
             ${flowState === "discharging" ? `<div class="connector-info">${current !== undefined && current !== null ? `${fmt(Math.abs(currentN), 1)} A` : "—"}<br>${fmtKw(power)} кВт</div>` : ""}
           </div>
           <div class="flow-node load-node">
