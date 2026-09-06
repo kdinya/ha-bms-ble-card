@@ -2296,16 +2296,20 @@ class HaBmsBleCard extends HTMLElement {
             <div class="node-lbl">${t("node_grid")}</div>
           </div>
           <div class="flow-connector-wrap">
-            ${flowArrowSvg(false, flowState === "charging", "#1D9E75")}
-            ${flowArrowSvg(true, flowState === "charging", "#1D9E75")}
+            <div class="flow-arrows">
+              ${flowArrowSvg(false, flowState === "charging", "#1D9E75")}
+              ${flowArrowSvg(true, flowState === "charging", "#1D9E75")}
+            </div>
             ${flowState === "charging" ? `<div class="connector-info">${current !== undefined && current !== null ? `${fmt(Math.abs(currentN), 1)} A` : "—"}<br>${fmtKw(power)} кВт</div>` : ""}
           </div>
           <div class="flow-battery"${moreInfoAttr(this._e("soc"))}>
             ${jarBatterySvg(this._uid, socPct)}
           </div>
           <div class="flow-connector-wrap">
-            ${flowArrowSvg(false, flowState === "discharging", "#EF9F27", true)}
-            ${flowArrowSvg(true, flowState === "discharging", "#EF9F27", true)}
+            <div class="flow-arrows">
+              ${flowArrowSvg(false, flowState === "discharging", "#EF9F27", true)}
+              ${flowArrowSvg(true, flowState === "discharging", "#EF9F27", true)}
+            </div>
             ${flowState === "discharging" ? `<div class="connector-info">${current !== undefined && current !== null ? `${fmt(Math.abs(currentN), 1)} A` : "—"}<br>${fmtKw(power)} кВт</div>` : ""}
           </div>
           <div class="flow-node load-node">
@@ -2525,20 +2529,35 @@ class HaBmsBleCard extends HTMLElement {
     if (this._batteryAnimating || !this._hass) return;
     const el = this.querySelector(".flow-battery");
     if (!el) return;
+    const arrowEls = this.querySelectorAll(".flow-arrows");
+    const leftArrows = arrowEls[0] || null;
+    const rightArrows = arrowEls[1] || null;
     const soc = stateOf(this._hass, this._e("soc"));
     const start = Number.isFinite(Number(soc)) ? Math.max(0, Math.min(100, Number(soc))) : 0;
 
+    // "discharge" = ліва (Мережа->Батарея) гасне, права (Батарея->
+    // Навантаження) отримує анімований потік; "charge" — навпаки.
+    const setArrows = (mode) => {
+      if (leftArrows) {
+        leftArrows.innerHTML = `${flowArrowSvg(false, mode === "charge", "#1D9E75")}${flowArrowSvg(true, mode === "charge", "#1D9E75")}`;
+      }
+      if (rightArrows) {
+        rightArrows.innerHTML = `${flowArrowSvg(false, mode === "discharge", "#EF9F27", true)}${flowArrowSvg(true, mode === "discharge", "#EF9F27", true)}`;
+      }
+    };
+
     this._batteryAnimating = true;
     const phases = [
-      { from: start, to: 0, duration: 700 },
-      { from: 0, to: 100, duration: 1300 },
-      { from: 100, to: start, duration: 700 },
+      { from: start, to: 0, duration: 3000, arrows: "discharge" },
+      { from: 0, to: 100, duration: 3000, arrows: "charge" },
+      { from: 100, to: start, duration: 3000, arrows: "discharge" },
     ];
-    let phaseIndex = 0;
+    let phaseIndex = -1;
     let phaseStartTs = null;
 
     const step = (ts) => {
       if (!this._batteryAnimating) return;
+      if (phaseIndex === -1) { phaseIndex = 0; setArrows(phases[0].arrows); }
       if (phaseStartTs === null) phaseStartTs = ts;
       const phase = phases[phaseIndex];
       const t = Math.min(1, (ts - phaseStartTs) / phase.duration);
@@ -2553,6 +2572,7 @@ class HaBmsBleCard extends HTMLElement {
           this._render(); // надолужуємо будь-які hass-оновлення, пропущені під час анімації
           return;
         }
+        setArrows(phases[phaseIndex].arrows);
       }
       this._batteryAnimFrame = requestAnimationFrame(step);
     };
@@ -2735,6 +2755,7 @@ class HaBmsBleCard extends HTMLElement {
           flex:0 1 96px; min-width:20px; max-width:96px;
           display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px;
         }
+        .flow-arrows { display:flex; flex-direction:column; align-items:center; width:100%; gap:2px; }
         .flow-arrow { width:100%; height:clamp(26px, 9vw, 83px); overflow:visible; flex-shrink:0; }
         .flow-arrow-v { display:none; }
         .flow-arrow-path { transition: stroke 0.3s ease; }
