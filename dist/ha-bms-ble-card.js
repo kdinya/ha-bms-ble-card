@@ -489,7 +489,7 @@ function jarBatterySvg(uid, percent, voltageLabel) {
         <text x="${JAR_CX}" y="460" font-family="Arial, Helvetica, sans-serif" text-anchor="middle" fill="white">
           <tspan font-size="170" font-weight="700" fill="white">${Math.round(p)}</tspan><tspan font-size="95" font-weight="400" dx="2" fill="white">%</tspan>
         </text>
-        ${voltageLabel !== undefined && voltageLabel !== null && voltageLabel !== "—" ? `<text x="${JAR_CX}" y="524" font-family="Arial, Helvetica, sans-serif" text-anchor="middle" font-size="46" font-weight="600" fill="white" opacity=".92">${voltageLabel} V</text>` : ""}
+        ${voltageLabel !== undefined && voltageLabel !== null && voltageLabel !== "—" ? `<text x="${JAR_CX}" y="545" font-family="Arial, Helvetica, sans-serif" text-anchor="middle" font-size="92" font-weight="600" fill="white" opacity=".92">${voltageLabel} V</text>` : ""}
       </svg>
     </div>`;
 }
