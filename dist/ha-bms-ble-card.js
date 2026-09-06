@@ -341,13 +341,30 @@ function moreInfoAttr(entityId) {
  * однократний вигин (як і раніше), стрілка завжди йде в бік батареї
  * чи навантаження від джерела потоку.
  */
-function flowArrowSvg(vertical, active, colorHex) {
+function flowArrowSvg(vertical, active, colorHex, flip) {
   const stroke = active ? colorHex : "#3a4650";
   const dashClass = active ? "flow-arrow-active" : "";
   if (vertical) {
+    // flip: дзеркально по вертикалі (100 - y), щоб права стрілка
+    // (Батарея->Навантаження) йшла вниз-до-виходу, симетрично лівій.
+    if (flip) {
+      return `<svg class="flow-arrow flow-arrow-v" viewBox="0 0 50 100" preserveAspectRatio="none" aria-hidden="true">
+        <path class="flow-arrow-path ${dashClass}" d="M14,96 C14,72 36,72 36,50 L36,22" fill="none" stroke="${stroke}" stroke-width="5.5" stroke-linecap="round"/>
+        <polygon class="flow-arrow-head" points="25,23 36,2 47,23" fill="${stroke}"/>
+      </svg>`;
+    }
     return `<svg class="flow-arrow flow-arrow-v" viewBox="0 0 50 100" preserveAspectRatio="none" aria-hidden="true">
       <path class="flow-arrow-path ${dashClass}" d="M14,4 C14,28 36,28 36,50 L36,78" fill="none" stroke="${stroke}" stroke-width="5.5" stroke-linecap="round"/>
       <polygon class="flow-arrow-head" points="25,77 36,98 47,77" fill="${stroke}"/>
+    </svg>`;
+  }
+  // flip: дзеркально по вертикалі (50 - y) — ліва стрілка йде знизу
+  // вгору (Мережа->Батарея), права тепер симетрично йде згори вниз
+  // (Батарея->Навантаження), а не повторює той самий підйом.
+  if (flip) {
+    return `<svg class="flow-arrow flow-arrow-h" viewBox="0 0 100 50" preserveAspectRatio="none" aria-hidden="true">
+      <path class="flow-arrow-path ${dashClass}" d="M4,14 C28,14 28,36 50,36 L78,36" fill="none" stroke="${stroke}" stroke-width="5.5" stroke-linecap="round"/>
+      <polygon class="flow-arrow-head" points="77,25 98,36 77,47" fill="${stroke}"/>
     </svg>`;
   }
   return `<svg class="flow-arrow flow-arrow-h" viewBox="0 0 100 50" preserveAspectRatio="none" aria-hidden="true">
@@ -2287,8 +2304,8 @@ class HaBmsBleCard extends HTMLElement {
             ${jarBatterySvg(this._uid, socPct)}
           </div>
           <div class="flow-connector-wrap">
-            ${flowArrowSvg(false, flowState === "discharging", "#EF9F27")}
-            ${flowArrowSvg(true, flowState === "discharging", "#EF9F27")}
+            ${flowArrowSvg(false, flowState === "discharging", "#EF9F27", true)}
+            ${flowArrowSvg(true, flowState === "discharging", "#EF9F27", true)}
             ${flowState === "discharging" ? `<div class="connector-info">${current !== undefined && current !== null ? `${fmt(Math.abs(currentN), 1)} A` : "—"}<br>${fmtKw(power)} кВт</div>` : ""}
           </div>
           <div class="flow-node load-node">
