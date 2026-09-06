@@ -9,7 +9,6 @@ The card does not communicate with Bluetooth/BMS hardware directly. It consumes 
 - `src/` — application/source logic.
 - `test/` — automated regression tests.
 - `dist/` — distribution artifacts; avoid manual edits unless a release/distribution task requires them.
-- `images/` — project images.
 - `.github/workflows/` — CI automation.
 - `README.md` / `info.md` — user-facing documentation and integration information.
 
