@@ -433,7 +433,7 @@ function jarBatteryColorFor(p) {
  *  вшитого в фото рівня 75%): вся рідина — це чистий SVG-оверлей, що
  *  завжди точно відповідає реальному SOC і кольору, без жодних швів чи
  *  просвічування "чужого" кольору. */
-function jarBatterySvg(uid, percent) {
+function jarBatterySvg(uid, percent, voltageLabel) {
   const p = Math.max(0, Math.min(100, Number(percent) || 0));
   const c = jarBatteryColorFor(p);
   const id = (name) => `${name}-${uid}`;
@@ -489,6 +489,7 @@ function jarBatterySvg(uid, percent) {
         <text x="${JAR_CX}" y="460" font-family="Arial, Helvetica, sans-serif" text-anchor="middle" fill="white">
           <tspan font-size="170" font-weight="700" fill="white">${Math.round(p)}</tspan><tspan font-size="95" font-weight="400" dx="2" fill="white">%</tspan>
         </text>
+        ${voltageLabel !== undefined && voltageLabel !== null && voltageLabel !== "—" ? `<text x="${JAR_CX}" y="524" font-family="Arial, Helvetica, sans-serif" text-anchor="middle" font-size="46" font-weight="600" fill="white" opacity=".92">${voltageLabel} V</text>` : ""}
       </svg>
     </div>`;
 }
@@ -2303,7 +2304,7 @@ class HaBmsBleCard extends HTMLElement {
             ${flowState === "charging" ? `<div class="connector-info">${current !== undefined && current !== null ? `${fmt(Math.abs(currentN), 1)} A` : "—"}<br>${fmtKw(power)} кВт</div>` : ""}
           </div>
           <div class="flow-battery"${moreInfoAttr(this._e("soc"))}>
-            ${jarBatterySvg(this._uid, socPct)}
+            ${jarBatterySvg(this._uid, socPct, fmt(voltage, 2))}
           </div>
           <div class="flow-connector-wrap">
             <div class="flow-arrows">
@@ -2534,6 +2535,7 @@ class HaBmsBleCard extends HTMLElement {
     const rightArrows = arrowEls[1] || null;
     const soc = stateOf(this._hass, this._e("soc"));
     const start = Number.isFinite(Number(soc)) ? Math.max(0, Math.min(100, Number(soc))) : 0;
+    const voltageLabel = fmt(stateOf(this._hass, this._e("voltage")), 2);
 
     // "discharge" = ліва (Мережа->Батарея) гасне, права (Батарея->
     // Навантаження) отримує анімований потік; "charge" — навпаки.
@@ -2562,7 +2564,7 @@ class HaBmsBleCard extends HTMLElement {
       const phase = phases[phaseIndex];
       const t = Math.min(1, (ts - phaseStartTs) / phase.duration);
       const pct = phase.from + (phase.to - phase.from) * this._easeInOutQuad(t);
-      el.innerHTML = jarBatterySvg(this._uid, pct);
+      el.innerHTML = jarBatterySvg(this._uid, pct, voltageLabel);
       if (t >= 1) {
         phaseIndex += 1;
         phaseStartTs = null;
