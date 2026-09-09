@@ -3,6 +3,8 @@
 Картка для BLE BMS-акумуляторів (Redodo, LiTime, JBD, Daly, JK, Seplos та
 інші), інтегрованих через [BMS_BLE-HA](https://github.com/patman15/BMS_BLE-HA).
 
+![Скріншот картки](https://raw.githubusercontent.com/kdinya/ha-bms-ble-card/main/images/screenshot.png)
+
 {% if not installed %}
 ### Встановлення
 

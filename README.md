@@ -8,6 +8,8 @@ BMS-акумуляторів (LiFePO4), інтегрованих через
 підтримує ця інтеграція: Redodo, LiTime, PowerQueen, JBD/Jiabaida, Daly, JK,
 ANT, Seplos, Renogy та інші.
 
+![Скріншот картки: головний екран із заряджанням](images/screenshot.png)
+
 ## Можливості
 
 - Два режими відображення: `widget` (компактний вигляд + fullscreen попап при
