@@ -457,3 +457,28 @@ console.log("Discovered:", Object.keys(discovered).sort().join(", "));
   console.log("Jar battery 0%/15%/50% regression test passed.");
 }
 
+// --- Банка-батарея та mini-віджет: SOC недоступний (null) -> "N/A", а не "0%" ---
+{
+  const card = Object.create(mod.HaBmsBleCard.prototype);
+  card._config = { entities: {} };
+  card._uid = "test-uid";
+
+  const htmlNull = mod.jarBatterySvg("test-na", null);
+  assert.match(htmlNull, />N\/A<\/tspan>/, "SOC null -> текст N/A замість 0%");
+  assert.ok(!htmlNull.includes(">0</tspan>"), "SOC null не повинен рендеритись як число 0");
+  assert.ok(
+    !htmlNull.includes('fill="#20df14"') && !htmlNull.includes('fill="#ff9d12"') && !htmlNull.includes('fill="#ff2419"'),
+    "SOC null -> жодної рідини (банка порожня)"
+  );
+
+  // normalizeSoc(unknown/unavailable) -> null -> той самий N/A-рендер
+  assert.equal(mod.normalizeSoc("unknown"), null);
+  assert.equal(mod.normalizeSoc("unavailable"), null);
+  assert.equal(mod.normalizeSoc(0), 0, "0% — валідний заряд, не null");
+
+  const htmlZero = mod.jarBatterySvg("test-zero", mod.normalizeSoc(0));
+  assert.match(htmlZero, />0<\/tspan>/, "нормалізований 0 і далі рендериться як '0', не як N/A");
+
+  console.log("Jar battery N/A (SOC unavailable) regression test passed.");
+}
+

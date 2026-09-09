@@ -30,6 +30,7 @@ const {
   autoDiscoverEntities,
   discoverFromFullRegistry,
   I18N,
+  normalizeSoc,
 } = require("../dist/ha-bms-ble-card.js");
 
 // Мінімальний фейковий hass для тестів автопошуку: один пристрій
@@ -332,4 +333,47 @@ test("I18N: словники 'uk' і 'en' мають однаковий набі
     assert.ok(I18N.uk[k], `uk.${k} не порожній`);
     assert.ok(I18N.en[k], `en.${k} не порожній`);
   });
+});
+
+test("normalizeSoc: валідні числа 0..100 повертаються як є (без округлення)", () => {
+  assert.equal(normalizeSoc(0), 0);
+  assert.equal(normalizeSoc(100), 100);
+  assert.equal(normalizeSoc(49.6), 49.6);
+  assert.equal(normalizeSoc("62"), 62);
+});
+
+test("normalizeSoc: вихід за межі 0..100 обрізається", () => {
+  assert.equal(normalizeSoc(-5), 0);
+  assert.equal(normalizeSoc(150), 100);
+  assert.equal(normalizeSoc("-1"), 0);
+  assert.equal(normalizeSoc("101"), 100);
+});
+
+test("normalizeSoc: null/undefined/unknown/unavailable/NaN/порожній рядок -> null (не 0)", () => {
+  assert.equal(normalizeSoc(null), null);
+  assert.equal(normalizeSoc(undefined), null);
+  assert.equal(normalizeSoc("unknown"), null);
+  assert.equal(normalizeSoc("unavailable"), null);
+  assert.equal(normalizeSoc(""), null);
+  assert.equal(normalizeSoc("not-a-number"), null);
+  assert.equal(normalizeSoc(NaN), null);
+});
+
+test("normalizeSoc: регістронезалежність і зайві пробіли для unknown/unavailable", () => {
+  assert.equal(normalizeSoc("Unknown"), null);
+  assert.equal(normalizeSoc("UNAVAILABLE"), null);
+  assert.equal(normalizeSoc("  unknown  "), null);
+});
+
+test("normalizeSoc: ідемпотентність — повторний виклик на вже нормалізованому значенні нічого не міняє", () => {
+  const once = normalizeSoc("73.2");
+  assert.equal(normalizeSoc(once), once);
+  assert.equal(normalizeSoc(normalizeSoc(150)), 100);
+  assert.equal(normalizeSoc(normalizeSoc(null)), null);
+});
+
+test("normalizeSoc: рядкове число з пробілами по краях і 0 як валідне значення (не плутати з falsy)", () => {
+  assert.equal(normalizeSoc(" 42 "), 42);
+  assert.equal(normalizeSoc(0), 0);
+  assert.notEqual(normalizeSoc(0), null, "0% — це валідний заряд, а не 'даних немає'");
 });

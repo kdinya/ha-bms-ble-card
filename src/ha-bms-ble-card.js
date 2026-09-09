@@ -7,7 +7,7 @@
  * https://github.com/kdinya/ha-bms-ble-card
  */
 
-const CARD_VERSION = "1.0.0";
+const CARD_VERSION = "1.0.1";
 
 console.info(
   `%c HA-BMS-BLE-CARD %c v${CARD_VERSION} `,
@@ -172,6 +172,35 @@ function fmtKw(watts) {
   return (Math.abs(num) / 1000).toFixed(1);
 }
 
+/**
+ * Єдина точка нормалізації SOC (заряду акумулятора) у картці. Раніше
+ * кожне місце, що показує SOC (текст %, заливка mini-віджета, банка,
+ * ETA, stored-energy), робило власний `Number(x)` + власний clamp —
+ * деякі як `Number(x) || 0` (тихо ховає "unknown" за 0%), інші як
+ * `Number.isFinite(x) ? clamp(x) : 0`. Тепер усі вони спершу проганяють
+ * сире значення сенсора через normalizeSoc() і далі користуються лише
+ * цим одним числом.
+ *
+ * Контракт:
+ *   - null/undefined/""/"unknown"/"unavailable"/NaN → null (немає
+ *     заряду, який можна показати — виклик має вивести "—"/"N/A" і не
+ *     малювати заливку, а не мовчки підставляти 0%).
+ *   - число < 0 → 0, число > 100 → 100 (обрізання діапазону).
+ *   - валідне число в діапазоні 0..100 повертається як є (без
+ *     округлення — округлення до цілого для тексту "%" робить лише
+ *     сам виклик, що показує значення).
+ */
+function normalizeSoc(value) {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "string") {
+    const s = value.trim().toLowerCase();
+    if (s === "" || s === "unknown" || s === "unavailable") return null;
+  }
+  const n = Number(value);
+  if (!Number.isFinite(n)) return null;
+  return Math.max(0, Math.min(100, n));
+}
+
 function stateOf(hass, entityId) {
   if (!entityId || !hass || !hass.states[entityId]) return undefined;
   return hass.states[entityId].state;
@@ -265,6 +294,7 @@ function secondsToHuman(seconds) {
  * BMS runtime часто unavailable під час заряду — тоді рахуємо з SOC + струм + ємність.
  */
 function estimateEtaSeconds({ soc, current, designAh, storedWh, packVoltage, charging }) {
+  if (soc === null || soc === undefined) return undefined;
   const s = Number(soc);
   const c = Number(current);
   if (!Number.isFinite(s) || !Number.isFinite(c) || Math.abs(c) < 0.05) return undefined;
@@ -435,7 +465,11 @@ function jarBatteryColorFor(p) {
  *  завжди точно відповідає реальному SOC і кольору, без жодних швів чи
  *  просвічування "чужого" кольору. */
 function jarBatterySvg(uid, percent, voltageLabel) {
-  const p = Math.max(0, Math.min(100, Number(percent) || 0));
+  // percent тепер очікується вже нормалізованим через normalizeSoc()
+  // (число 0..100 або null = даних немає — тоді банка порожня і замість
+  // числа показуємо "N/A", а не вводить в оману "0%").
+  const hasData = percent !== null && percent !== undefined && Number.isFinite(Number(percent));
+  const p = hasData ? Math.max(0, Math.min(100, Number(percent))) : 0;
   const c = jarBatteryColorFor(p);
   const id = (name) => `${name}-${uid}`;
   const y = JAR_FLOOR_Y - (JAR_FLOOR_Y - JAR_TOP_Y) * (p / 100);
@@ -477,7 +511,9 @@ function jarBatterySvg(uid, percent, voltageLabel) {
           ${liquidMarkup}
         </g>
         <text x="${JAR_CX}" y="460" font-family="Arial, Helvetica, sans-serif" text-anchor="middle" fill="white">
-          <tspan font-size="170" font-weight="700" fill="white">${Math.round(p)}</tspan><tspan font-size="95" font-weight="400" dx="2" fill="white">%</tspan>
+          ${hasData
+            ? `<tspan font-size="170" font-weight="700" fill="white">${Math.round(p)}</tspan><tspan font-size="95" font-weight="400" dx="2" fill="white">%</tspan>`
+            : `<tspan font-size="120" font-weight="700" fill="#aeb8c2">N/A</tspan>`}
         </text>
         ${voltageLabel !== undefined && voltageLabel !== null && voltageLabel !== "—" ? `<text x="${JAR_CX}" y="591" font-family="Arial, Helvetica, sans-serif" text-anchor="middle" font-size="92" font-weight="600" fill="white" opacity=".92">${voltageLabel} V</text>` : ""}
       </svg>
@@ -1986,15 +2022,17 @@ class HaBmsBleCard extends HTMLElement {
 
   /* ===== UI matching bms-dashboard.html reference ===== */
   _renderBatteryShape(percent, variant, flowState) {
-    const p = Math.max(0, Math.min(100, Number(percent) || 0));
-    // CSS battery (not SVG) — same structure as reference HTML
-    const topPct = Math.max(8, 100 - p);
+    // percent тепер очікується вже нормалізованим через normalizeSoc()
+    // (число 0..100 або null = даних немає).
     const flowClass = flowState === "charging" ? "bms-flow-charging" : flowState === "discharging" ? "bms-flow-discharging" : "";
+    const hasData = percent !== null && percent !== undefined && Number.isFinite(Number(percent));
+    const p = hasData ? Number(percent) : 0;
+    const topPct = hasData ? Math.max(8, 100 - p) : 50;
     return `
       <div class="battery-shell bms-battery-shape-${variant} ${flowClass}">
         <div class="battery-nub"></div>
-        <div class="battery-fill ${flowClass}" style="top:${topPct}%;">
-          <div class="pct">${p.toFixed(0)}%</div>
+        <div class="battery-fill ${hasData ? "" : "no-data"} ${flowClass}" style="top:${topPct}%;">
+          <div class="pct">${hasData ? p.toFixed(0) + "%" : "N/A"}</div>
           <div class="soc-label">SOC</div>
         </div>
       </div>`;
@@ -2020,9 +2058,9 @@ class HaBmsBleCard extends HTMLElement {
     const cycleCap = Number(stateOf(this._hass, this._e("cycle_capacity")));
     if (Number.isFinite(cycleCap) && cycleCap > 0) return cycleCap;
     const design = Number(stateOf(this._hass, this._e("design_capacity")));
-    const soc = Number(stateOf(this._hass, this._e("soc")));
+    const soc = normalizeSoc(stateOf(this._hass, this._e("soc")));
     const voltage = Number(stateOf(this._hass, this._e("voltage")));
-    if (Number.isFinite(design) && design > 0 && Number.isFinite(voltage) && voltage > 0 && Number.isFinite(soc)) {
+    if (Number.isFinite(design) && design > 0 && Number.isFinite(voltage) && voltage > 0 && soc !== null) {
       return design * voltage * (soc / 100);
     }
     return undefined;
@@ -2057,7 +2095,7 @@ class HaBmsBleCard extends HTMLElement {
   _etaInfo() {
     const status = this._statusInfo();
     const runtimeNum = Number(stateOf(this._hass, this._e("runtime")));
-    const soc = Number(stateOf(this._hass, this._e("soc")));
+    const soc = normalizeSoc(stateOf(this._hass, this._e("soc")));
     const current = Number(stateOf(this._hass, this._e("current")));
     const design = stateOf(this._hass, this._e("design_capacity"));
     const stored = this._storedEnergyWh();
@@ -2076,7 +2114,7 @@ class HaBmsBleCard extends HTMLElement {
     }
     let label = "До розряду";
     if (status.color === "success") label = "До повного заряду";
-    return { seconds, label, socPct: Number.isFinite(soc) ? Math.max(0, Math.min(100, soc)) : 0 };
+    return { seconds, label, socPct: soc !== null ? soc : 0 };
   }
 
   _renderHistoryBars() {
@@ -2172,7 +2210,7 @@ class HaBmsBleCard extends HTMLElement {
   _renderFullView() {
     const activeTab = this._activeTab || "home";
     const infoSections = this._infoSections || (this._infoSections = { cells: true, indicators: false, functions: false });
-    const soc = Number(stateOf(this._hass, this._e("soc")));
+    const soc = normalizeSoc(stateOf(this._hass, this._e("soc")));
     const voltage = stateOf(this._hass, this._e("voltage"));
     const current = stateOf(this._hass, this._e("current"));
     const power = stateOf(this._hass, this._e("power"));
@@ -2190,7 +2228,7 @@ class HaBmsBleCard extends HTMLElement {
     const flowState = chargeFlowState(status.label);
     const eta = this._etaInfo();
     const showEta = status.color === "success" || status.color === "warning";
-    const socPct = Number.isFinite(soc) ? Math.max(0, Math.min(100, soc)) : 0;
+    const socPct = soc !== null ? soc : 0;
     const designN = Number(design);
     let remainingAh;
     if (Number.isFinite(designN) && Number.isFinite(socPct)) remainingAh = designN * (socPct / 100);
@@ -2294,7 +2332,7 @@ class HaBmsBleCard extends HTMLElement {
             ${flowState === "charging" ? `<div class="connector-info">${current !== undefined && current !== null ? `${fmt(Math.abs(currentN), 1)} A` : "—"}<br>${fmtKw(power)} кВт</div>` : ""}
           </div>
           <div class="flow-battery"${moreInfoAttr(this._e("soc"))}>
-            ${jarBatterySvg(this._uid, socPct, fmt(voltage, 2))}
+            ${jarBatterySvg(this._uid, soc, fmt(voltage, 2))}
           </div>
           <div class="flow-connector-wrap">
             <div class="flow-arrows">
@@ -2409,7 +2447,7 @@ class HaBmsBleCard extends HTMLElement {
   }
 
   _renderMiniView() {
-    const soc = stateOf(this._hass, this._e("soc"));
+    const soc = normalizeSoc(stateOf(this._hass, this._e("soc")));
     const voltage = stateOf(this._hass, this._e("voltage"));
     const current = stateOf(this._hass, this._e("current"));
     const power = stateOf(this._hass, this._e("power"));
@@ -2523,8 +2561,8 @@ class HaBmsBleCard extends HTMLElement {
     const arrowEls = this.querySelectorAll(".flow-arrows");
     const leftArrows = arrowEls[0] || null;
     const rightArrows = arrowEls[1] || null;
-    const soc = stateOf(this._hass, this._e("soc"));
-    const start = Number.isFinite(Number(soc)) ? Math.max(0, Math.min(100, Number(soc))) : 0;
+    const soc = normalizeSoc(stateOf(this._hass, this._e("soc")));
+    const start = soc !== null ? soc : 0;
     const voltageLabel = fmt(stateOf(this._hass, this._e("voltage")), 2);
 
     // "discharge" = ліва (Мережа->Батарея) гасне, права (Батарея->
@@ -2802,6 +2840,7 @@ class HaBmsBleCard extends HTMLElement {
           box-shadow: inset 0 2px 3px rgba(255,255,255,0.35), inset 0 -8px 14px rgba(0,0,0,0.3);
           display:flex; flex-direction:column; align-items:center; justify-content:center;
         }
+        .battery-fill.no-data { background:linear-gradient(180deg,#8b96a3 0%,#6b7684 50%,#4a5460 100%); }
         .bms-battery-shape-flow .battery-fill { border-radius:26px; }
         /* Меніск — вигнута верхня межа рідини для псевдо-3D ефекту циліндра. */
         .bms-battery-shape-flow .battery-fill::after {
@@ -3166,5 +3205,6 @@ if (typeof module !== "undefined" && module.exports) {
     discoverFromFullRegistry,
     I18N,
     jarBatterySvg,
+    normalizeSoc,
   };
 }
