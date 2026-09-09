@@ -6,9 +6,10 @@
 The card does not communicate with Bluetooth/BMS hardware directly. It consumes Home Assistant entities and state/attribute data.
 
 ## Repository areas
-- `src/` — application/source logic.
+- `ha-bms-ble-card.js` — the entire card: one file, edited directly (no
+  build/bundle step — this file is exactly what ships to users, and what
+  HACS/the GitHub release serve; there is no separate `src/`/`dist/` split).
 - `test/` — automated regression tests.
-- `dist/` — distribution artifacts; avoid manual edits unless a release/distribution task requires them.
 - `.github/workflows/` — CI automation.
 - `README.md` / `info.md` — user-facing documentation and integration information.
 
@@ -21,7 +22,7 @@ The card formats Home Assistant state data for display: SOC, voltage/current/pow
 Missing, unavailable or unknown optional entities should degrade gracefully rather than crash rendering.
 
 ## Development flow
-Source changes are made in `src/`, regression coverage belongs in `test/`, and tests are run with `npm test`. Distribution files should follow the repository's established build/release process rather than being edited independently.
+Changes are made directly in `ha-bms-ble-card.js`, regression coverage belongs in `test/`, and tests are run with `npm test`.
 
 ## Design constraint
 Keep the public Lovelace configuration compatible unless a requested feature explicitly changes it. Prefer small, isolated changes over broad refactors.

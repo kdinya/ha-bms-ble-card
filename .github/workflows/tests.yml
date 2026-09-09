@@ -13,18 +13,16 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - name: Verify dist matches src (no forgotten build step)
-        run: diff src/ha-bms-ble-card.js dist/ha-bms-ble-card.js
+      - name: Syntax check
+        run: node --check ha-bms-ble-card.js
       - name: Verify package.json version matches CARD_VERSION
         run: |
           PKG_VERSION=$(node -p "require('./package.json').version")
-          CARD_VERSION=$(node -e "const s=require('fs').readFileSync('src/ha-bms-ble-card.js','utf8'); const m=s.match(/const CARD_VERSION = \"([^\"]+)\"/); console.log(m[1]);")
+          CARD_VERSION=$(node -e "const s=require('fs').readFileSync('ha-bms-ble-card.js','utf8'); const m=s.match(/const CARD_VERSION = \"([^\"]+)\"/); console.log(m[1]);")
           echo "package.json: $PKG_VERSION | CARD_VERSION: $CARD_VERSION"
           if [ "$PKG_VERSION" != "$CARD_VERSION" ]; then
             echo "::error::package.json version ($PKG_VERSION) and CARD_VERSION in ha-bms-ble-card.js ($CARD_VERSION) are out of sync."
             exit 1
           fi
-      - name: Syntax check
-        run: node --check dist/ha-bms-ble-card.js
       - name: Run unit tests
         run: npm test

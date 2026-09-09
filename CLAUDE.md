@@ -10,8 +10,7 @@ Lovelace card for Home Assistant that visualizes BLE BMS batteries provided by B
 - Do not add dependencies unless clearly required.
 - Do not change the public card configuration/API without an explicit requirement.
 - Do not change visual design, labels, thresholds or defaults unless explicitly requested.
-- Treat `src/` as source logic and `test/` as the regression safety net.
-- Avoid editing generated `dist/` files unless the task explicitly requires a distribution update.
+- Treat `ha-bms-ble-card.js` (single file, repo root — no `src/`/`dist/` split) as source logic and `test/` as the regression safety net.
 - Do not invent Home Assistant APIs; follow existing project patterns and verify assumptions.
 - Optional or unavailable entities must not make the card fail unless required by the feature.
 - Never expose credentials, tokens or secrets in source, issues, commits or logs.

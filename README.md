@@ -51,7 +51,7 @@ ANT, Seplos, Renogy та інші.
 
 ### Вручну
 
-1. Завантажити `dist/ha-bms-ble-card.js` з останнього
+1. Завантажити `ha-bms-ble-card.js` з останнього
    [релізу](https://github.com/kdinya/ha-bms-ble-card/releases)
 2. Покласти у `config/www/ha-bms-ble-card.js`
 3. Settings → Dashboards → три крапки → Resources → додати

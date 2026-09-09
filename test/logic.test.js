@@ -1,7 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
-// dist/ha-bms-ble-card.js — це файл для браузера: він визначає кастомні
+// ha-bms-ble-card.js — це файл для браузера: він визначає кастомні
 // елементи одразу при завантаженні (class ... extends HTMLElement,
 // customElements.define(...)). Для юніт-тестів чистих функцій поза
 // браузером підставляємо мінімальні стаби цих глобальних об'єктів.
@@ -31,7 +31,7 @@ const {
   discoverFromFullRegistry,
   I18N,
   normalizeSoc,
-} = require("../dist/ha-bms-ble-card.js");
+} = require("../ha-bms-ble-card.js");
 
 // Мінімальний фейковий hass для тестів автопошуку: один пристрій
 // BMS_BLE-HA з типовим набором сутностей + одна "чужа" сутність з

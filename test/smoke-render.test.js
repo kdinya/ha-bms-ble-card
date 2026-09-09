@@ -24,7 +24,7 @@ global.window = global;
 global.document = { createElement: () => new global.HTMLElement() };
 global.console = console;
 
-const file = path.join(__dirname, "..", "dist", "ha-bms-ble-card.js");
+const file = path.join(__dirname, "..", "ha-bms-ble-card.js");
 const mod = require(file);
 
 assert.ok(mod.fmt, "fmt exported");
