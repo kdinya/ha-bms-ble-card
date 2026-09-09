@@ -172,6 +172,10 @@ function fmtKw(watts) {
   return (Math.abs(num) / 1000).toFixed(1);
 }
 
+/* ----------------------------------------------------------------------
+ * SOC / стан батареї — математика та нормалізація.
+ * -------------------------------------------------------------------- */
+
 /**
  * Єдина точка нормалізації SOC (заряду акумулятора) у картці. Раніше
  * кожне місце, що показує SOC (текст %, заливка mini-віджета, банка,
@@ -518,103 +522,6 @@ function jarBatterySvg(uid, percent, voltageLabel) {
         ${voltageLabel !== undefined && voltageLabel !== null && voltageLabel !== "—" ? `<text x="${JAR_CX}" y="591" font-family="Arial, Helvetica, sans-serif" text-anchor="middle" font-size="92" font-weight="600" fill="white" opacity=".92">${voltageLabel} V</text>` : ""}
       </svg>
     </div>`;
-}
-
-function glassBatterySvg(uid, percent, voltageLabel) {
-  const p = Math.max(0, Math.min(100, Number(percent) || 0));
-  const BODY_TOP = 32, BODY_BOTTOM = 220, BODY_H = BODY_BOTTOM - BODY_TOP;
-  const fillH = (p / 100) * BODY_H;
-  const y = BODY_BOTTOM - fillH;
-  const c = BATTERY_LIQUID_COLORS[batteryFillColorKey(p)];
-  const id = (name) => `${name}-${uid}`;
-  return `
-    <svg class="battery-svg" viewBox="0 0 160 240" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
-      <defs>
-        <linearGradient id="${id("capSide")}" x1="0" y1="0" x2="1" y2="0">
-          <stop offset="0%" stop-color="#0d1520"/><stop offset="10%" stop-color="#1a2838"/>
-          <stop offset="25%" stop-color="#3a5068"/><stop offset="40%" stop-color="#6a849c"/>
-          <stop offset="50%" stop-color="#90a8bc"/><stop offset="60%" stop-color="#5a748c"/>
-          <stop offset="75%" stop-color="#2a4058"/><stop offset="90%" stop-color="#152030"/>
-          <stop offset="100%" stop-color="#0a1018"/>
-        </linearGradient>
-        <linearGradient id="${id("capDome")}" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stop-color="#8aa0b4"/><stop offset="35%" stop-color="#3a5068"/>
-          <stop offset="100%" stop-color="#121c28"/>
-        </linearGradient>
-        <linearGradient id="${id("nipple")}" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stop-color="#a8bcc8"/><stop offset="40%" stop-color="#4a6078"/>
-          <stop offset="100%" stop-color="#1a2838"/>
-        </linearGradient>
-        <linearGradient id="${id("glassGrad")}" x1="0" y1="0" x2="1" y2="0">
-          <stop offset="0%" stop-color="#000204"/><stop offset="4%" stop-color="#1a3040"/>
-          <stop offset="10%" stop-color="#0a1520"/><stop offset="22%" stop-color="#02060a"/>
-          <stop offset="50%" stop-color="#0a1218"/><stop offset="78%" stop-color="#02060a"/>
-          <stop offset="90%" stop-color="#0a1520"/><stop offset="96%" stop-color="#1a3040"/>
-          <stop offset="100%" stop-color="#000204"/>
-        </linearGradient>
-        <linearGradient id="${id("fillGrad")}" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stop-color="${c.fg[0]}"/><stop offset="5%" stop-color="${c.fg[1]}"/>
-          <stop offset="18%" stop-color="${c.fg[2]}"/><stop offset="50%" stop-color="${c.fg[3]}"/>
-          <stop offset="100%" stop-color="${c.fg[4]}"/>
-        </linearGradient>
-        <radialGradient id="${id("fillGlow")}" cx="50%" cy="30%" r="60%">
-          <stop offset="0%" stop-color="${c.gl[0]}" stop-opacity="0.7"/>
-          <stop offset="40%" stop-color="${c.gl[1]}" stop-opacity="0.28"/>
-          <stop offset="100%" stop-color="${c.gl[2]}" stop-opacity="0"/>
-        </radialGradient>
-        <linearGradient id="${id("surfaceGrad")}" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stop-color="${c.sf[0]}" stop-opacity="1"/>
-          <stop offset="35%" stop-color="${c.sf[1]}" stop-opacity="0.55"/>
-          <stop offset="100%" stop-color="${c.sf[2]}" stop-opacity="0"/>
-        </linearGradient>
-        <filter id="${id("outerGlow")}" x="-50%" y="-50%" width="200%" height="200%">
-          <feGaussianBlur stdDeviation="5" result="blur"/>
-          <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
-        </filter>
-        <clipPath id="${id("bodyClip")}">
-          <path d="M28 48 C28 36, 42 32, 55 32 L105 32 C118 32, 132 36, 132 48 L132 200 C132 214, 118 220, 105 220 L55 220 C42 220, 28 214, 28 200 Z"/>
-        </clipPath>
-      </defs>
-
-      <ellipse cx="80" cy="230" rx="42" ry="5" fill="#000" opacity="0.55"/>
-
-      <ellipse cx="80" cy="8" rx="14" ry="5.5" fill="url(#${id("nipple")})" stroke="#0a1018" stroke-width="1"/>
-      <ellipse cx="80" cy="6" rx="11" ry="3.2" fill="#c0d4e0" opacity="0.4"/>
-      <ellipse cx="80" cy="5.2" rx="7" ry="1.8" fill="#e0eef8" opacity="0.25"/>
-
-      <path d="M40 18 C40 12, 52 8, 64 8 L96 8 C108 8, 120 12, 120 18 L120 38 C120 44, 108 48, 96 48 L64 48 C52 48, 40 44, 40 38 Z"
-            fill="url(#${id("capSide")})" stroke="#060c12" stroke-width="1.2"/>
-      <ellipse cx="80" cy="16" rx="38" ry="8" fill="url(#${id("capDome")})"/>
-      <ellipse cx="72" cy="14" rx="14" ry="3.5" fill="#b0c8d8" opacity="0.3"/>
-      <ellipse cx="80" cy="46" rx="38" ry="5" fill="none" stroke="#1a2838" stroke-width="1.5" opacity="0.8"/>
-      <ellipse cx="80" cy="44.5" rx="36" ry="3.5" fill="none" stroke="#5a748c" stroke-width="0.7" opacity="0.45"/>
-
-      <path d="M28 48 C28 36, 42 32, 55 32 L105 32 C118 32, 132 36, 132 48 L132 200 C132 214, 118 220, 105 220 L55 220 C42 220, 28 214, 28 200 Z"
-            fill="url(#${id("glassGrad")})" stroke="#3a5068" stroke-width="2.5"/>
-      <path d="M32 50 C32 40, 44 36, 56 36 L104 36 C116 36, 128 40, 128 50 L128 198 C128 210, 116 216, 104 216 L56 216 C44 216, 32 210, 32 198 Z"
-            fill="none" stroke="rgba(100,140,170,0.22)" stroke-width="1.2"/>
-
-      <g clip-path="url(#${id("bodyClip")})">
-        <rect x="26" y="${y}" width="108" height="${fillH}" fill="url(#${id("fillGrad")})"/>
-        <ellipse cx="80" cy="135" rx="52" ry="68" fill="url(#${id("fillGlow")})"/>
-        <ellipse cx="80" cy="${y}" rx="52" ry="10" fill="url(#${id("surfaceGrad")})" filter="url(#${id("outerGlow")})"/>
-        <ellipse cx="80" cy="${y - 2.5}" rx="44" ry="4.5" fill="${c.shine}" opacity="0.45"/>
-        <line x1="30" y1="112" x2="130" y2="112" stroke="${c.sec}" stroke-width="1.8" opacity="0.38"/>
-        <line x1="30" y1="148" x2="130" y2="148" stroke="${c.sec}" stroke-width="1.8" opacity="0.38"/>
-        <line x1="30" y1="184" x2="130" y2="184" stroke="${c.sec}" stroke-width="1.8" opacity="0.38"/>
-        <rect x="36" y="38" width="12" height="180" fill="rgba(255,255,255,0.11)" transform="skewX(-6)" rx="4"/>
-        <rect x="108" y="38" width="6" height="180" fill="rgba(255,255,255,0.05)" transform="skewX(-6)" rx="3"/>
-        <rect x="40" y="50" width="4" height="160" fill="rgba(160,200,240,0.08)" transform="skewX(-3)"/>
-      </g>
-
-      <path d="M28 52 C28 38, 44 34, 56 34 L104 34 C116 34, 132 38, 132 52" fill="none" stroke="rgba(160,190,220,0.4)" stroke-width="1.8"/>
-      <path d="M28 196 C28 210, 44 216, 56 216 L104 216 C116 216, 132 210, 132 196" fill="none" stroke="rgba(60,90,110,0.35)" stroke-width="1.2"/>
-
-      <text x="80" y="152" text-anchor="middle" font-size="44" font-weight="800" fill="#ffffff" style="filter:drop-shadow(0 2px 4px rgba(0,0,0,0.55));">
-        <tspan>${p.toFixed(0)}</tspan><tspan font-size="28" dy="-4">%</tspan>
-      </text>
-      ${voltageLabel !== undefined && voltageLabel !== null && voltageLabel !== "—" ? `<text x="80" y="180" text-anchor="middle" font-size="18" font-weight="700" fill="#eafff0" opacity="0.92" style="filter:drop-shadow(0 1px 3px rgba(0,0,0,0.5));">${voltageLabel} V</text>` : ""}
-    </svg>`;
 }
 
 /** Іконка ЛЕП/трансформаторної опори для вузла "Мережа" у flow-row —
