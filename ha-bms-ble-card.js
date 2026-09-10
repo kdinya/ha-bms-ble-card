@@ -2726,6 +2726,17 @@ class HaBmsBleCard extends HTMLElement {
         h2.section-title { font-size:17px; font-weight:700; margin:0 0 12px 2px; color:var(--text); }
         .bms-muted { color:var(--muted); font-size:13px; }
 
+        /* Візуальне відображення рівня заряду комірок (раніше цих правил
+           не було взагалі — .cell-track/.cell-fill малювались без жодного
+           стилю, тому був видно тільки текст). */
+        .cell-row { display:flex; align-items:center; gap:8px; margin-bottom:6px; cursor:pointer; }
+        .cell-name { flex-shrink:0; width:26px; font-size:12px; font-weight:700; color:var(--muted); }
+        .cell-track { flex:1; height:10px; min-width:0; border-radius:6px; background:rgba(127,127,127,0.18); overflow:hidden; }
+        .cell-fill { height:100%; border-radius:6px; background:var(--green); transition:width 0.4s ease; }
+        .cell-fill.warn { background:var(--red); }
+        .cell-row.balancing .cell-fill { background:var(--amber); }
+        .cell-val { flex-shrink:0; font-size:12.5px; font-weight:600; color:var(--text); display:flex; align-items:center; gap:4px; }
+
         .info-accordion-section {
           border:1px solid var(--divider, rgba(127,127,127,0.18));
           border-radius:14px;
