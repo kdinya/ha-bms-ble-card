@@ -7,7 +7,7 @@
  * https://github.com/kdinya/ha-bms-ble-card
  */
 
-const CARD_VERSION = "1.0.2";
+const CARD_VERSION = "1.0.3";
 
 console.info(
   `%c HA-BMS-BLE-CARD %c v${CARD_VERSION} `,
@@ -23,6 +23,7 @@ const I18N = {
   uk: {
     nav_home: "ГОЛОВНА",
     nav_info: "ІНФОРМАЦІЯ",
+    nav_stats: "СТАТИСТИКА",
     nav_settings: "НАЛАШТ.",
     status_connected: "Підключено",
     node_grid: "МЕРЕЖА",
@@ -84,6 +85,7 @@ const I18N = {
   en: {
     nav_home: "HOME",
     nav_info: "INFO",
+    nav_stats: "STATS",
     nav_settings: "SETTINGS",
     status_connected: "Connected",
     node_grid: "GRID",
@@ -2284,6 +2286,9 @@ class HaBmsBleCard extends HTMLElement {
         ${this._renderHistoryBars()}
         </div>
 
+        <div class="bms-tab-pane ${activeTab === "stats" ? "active" : ""}" data-pane="stats">
+        </div>
+
         <div class="bms-tab-pane ${activeTab === "settings" ? "active" : ""}" data-pane="settings">
         <h2 class="section-title">${t("settings_language")}</h2>
         <p class="bms-muted">${t("settings_language_hint")}</p>
@@ -2301,6 +2306,10 @@ class HaBmsBleCard extends HTMLElement {
           <div class="nav-item ${activeTab === "info" ? "active" : ""}" data-tab="info">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 11v6" stroke-linecap="round"/><circle cx="12" cy="7.5" r="0.9" fill="currentColor" stroke="none"/></svg>
             <span>${t("nav_info")}</span>
+          </div>
+          <div class="nav-item ${activeTab === "stats" ? "active" : ""}" data-tab="stats">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20V10M12 20V4M20 20v-7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <span>${t("nav_stats")}</span>
           </div>
           <div class="nav-item ${activeTab === "settings" ? "active" : ""}" data-tab="settings">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>

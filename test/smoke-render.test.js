@@ -364,14 +364,19 @@ console.log("Discovered:", Object.keys(discovered).sort().join(", "));
   assert.match(htmlCharging, /<div class="flow-battery"[^>]*>[\s\S]{0,80}<div class="battery-svg jar-battery">/, "батарея (фото-банка) відрендерена всередині flow-battery");
   assert.ok(!htmlCharging.includes('class="battery-box"'), "старого окремого battery-box більше немає");
 
-  // Нова нижня навігація (Головна/Інформація/Налаштування) — реальні
-  // перемикачі вмісту картки, звужена до 3 пунктів на прохання користувача.
+  // Нижня навігація: Головна/Інформація/Статистика/Налаштування — реальні
+  // перемикачі вмісту картки.
   assert.match(htmlCharging, /class="nav-bar"/, "нижня навігація присутня");
-  ["home", "info", "settings"].forEach((tab) => {
+  ["home", "info", "stats", "settings"].forEach((tab) => {
     assert.ok(htmlCharging.includes(`data-tab="${tab}"`), `вкладка ${tab} присутня в nav-bar`);
     assert.ok(htmlCharging.includes(`data-pane="${tab}"`), `панель контенту ${tab} присутня`);
   });
   assert.match(htmlCharging, /nav-item active" data-tab="home"/, "за замовчуванням активна вкладка Головна");
+  // Порядок вкладок у нав-барі саме такий: Головна, Інформація, Статистика,
+  // Налаштування (а не якийсь інший).
+  const navBarSection = htmlCharging.slice(htmlCharging.indexOf('class="nav-bar"'));
+  const navBarOrder = [...navBarSection.matchAll(/data-tab="(home|info|stats|settings)"/g)].map((m) => m[1]);
+  assert.deepStrictEqual(navBarOrder, ["home", "info", "stats", "settings"], "порядок вкладок: Головна, Інформація, Статистика, Налаштування");
 
   // Вкладка "Інформація" розбита на 3 акордеон-секції: Комірки (відкрита
   // за замовчуванням), Всі показники і Функції (обидві згорнуті).
