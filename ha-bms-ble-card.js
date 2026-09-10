@@ -280,8 +280,9 @@ function secondsToHuman(seconds) {
   if (seconds === undefined || seconds === null || Number.isNaN(Number(seconds))) return "—";
   const s = Number(seconds);
   if (s < 0) return "—";
-  const h = Math.floor(s / 3600);
-  const m = Math.round((s % 3600) / 60);
+  const totalMinutes = Math.round(s / 60);
+  const h = Math.floor(totalMinutes / 60);
+  const m = totalMinutes % 60;
   if (h <= 0) return `${m} хв`;
   return `${h} год ${m} хв`;
 }
@@ -1908,24 +1909,6 @@ class HaBmsBleCard extends HTMLElement {
     return "#1D9E75";
   }
 
-  /* ===== UI matching bms-dashboard.html reference ===== */
-  _renderBatteryShape(percent, variant, flowState) {
-    // percent тепер очікується вже нормалізованим через normalizeSoc()
-    // (число 0..100 або null = даних немає).
-    const flowClass = flowState === "charging" ? "bms-flow-charging" : flowState === "discharging" ? "bms-flow-discharging" : "";
-    const hasData = percent !== null && percent !== undefined && Number.isFinite(Number(percent));
-    const p = hasData ? Number(percent) : 0;
-    const topPct = hasData ? Math.max(8, 100 - p) : 50;
-    return `
-      <div class="battery-shell bms-battery-shape-${variant} ${flowClass}">
-        <div class="battery-nub"></div>
-        <div class="battery-fill ${hasData ? "" : "no-data"} ${flowClass}" style="top:${topPct}%;">
-          <div class="pct">${hasData ? p.toFixed(0) + "%" : "N/A"}</div>
-          <div class="soc-label">SOC</div>
-        </div>
-      </div>`;
-  }
-
   _cellStats() {
     const cells = this._cellVoltages();
     if (!cells.length) return null;
@@ -2351,7 +2334,7 @@ class HaBmsBleCard extends HTMLElement {
         </div>
         <div class="top-row">
           <div class="battery-box" style="width:140px;"${moreInfoAttr(this._e("soc"))}>
-            ${this._renderBatteryShape(soc, "mini", chargeFlowState(status.label))}
+            ${jarBatterySvg(this._uid, soc, fmt(voltage, 2))}
             <div class="charge-badge" style="font-size:12px;padding:6px 10px;">${status.label}</div>
           </div>
           <div class="stat-col">
@@ -2699,129 +2682,6 @@ class HaBmsBleCard extends HTMLElement {
         .battery-box {
           background:var(--panel); border:1px solid var(--border); border-radius:16px;
           width:230px; flex-shrink:0; padding:16px; display:flex; flex-direction:column; align-items:center; gap:14px;
-        }
-        .battery-shell {
-          position:relative; width:130px; height:190px; border-radius:16px;
-          border:3px solid #4a5764; background:linear-gradient(145deg,#1c242c,#0a0f14);
-          padding:6px; box-shadow: inset 0 2px 4px rgba(255,255,255,0.08), inset 0 -6px 10px rgba(0,0,0,0.5), 0 4px 10px rgba(0,0,0,0.4);
-        }
-        .bms-battery-shape-mini.battery-shell { width:90px; height:130px; }
-        .bms-battery-shape-flow.battery-shell {
-          width:152px; height:224px; border-radius:34px;
-          border:4px solid #56636f;
-          box-shadow: inset 0 3px 5px rgba(255,255,255,0.1), inset 0 -8px 14px rgba(0,0,0,0.55), 0 8px 20px rgba(0,0,0,0.5);
-        }
-        .battery-nub {
-          position:absolute; top:-12px; left:50%; transform:translateX(-50%);
-          width:46px; height:12px; border-radius:5px 5px 0 0;
-          background:linear-gradient(180deg,#6b7883,#3a4650);
-          box-shadow: inset 0 1px 1px rgba(255,255,255,0.35);
-        }
-        .bms-battery-shape-flow .battery-nub {
-          width:64px; height:18px; border-radius:10px 10px 0 0; top:-16px;
-          background:linear-gradient(180deg,#8b98a3,#3a4650);
-          box-shadow: inset 0 2px 2px rgba(255,255,255,0.45), 0 -1px 2px rgba(0,0,0,0.3);
-        }
-        .battery-fill {
-          position:absolute; left:6px; right:6px; bottom:6px; border-radius:9px; overflow:hidden;
-          background:linear-gradient(180deg,#7bf094 0%,#63e07e 35%,#2fae4e 100%);
-          box-shadow: inset 0 2px 3px rgba(255,255,255,0.35), inset 0 -8px 14px rgba(0,0,0,0.3);
-          display:flex; flex-direction:column; align-items:center; justify-content:center;
-        }
-        .battery-fill.no-data { background:linear-gradient(180deg,#8b96a3 0%,#6b7684 50%,#4a5460 100%); }
-        .bms-battery-shape-flow .battery-fill { border-radius:26px; }
-        /* Меніск — вигнута верхня межа рідини для псевдо-3D ефекту циліндра. */
-        .bms-battery-shape-flow .battery-fill::after {
-          content:""; position:absolute; top:-9px; left:-4px; right:-4px; height:20px;
-          background:radial-gradient(ellipse at 50% 60%, rgba(255,255,255,0.35), rgba(255,255,255,0) 70%), #63e07e;
-          border-radius:50%; pointer-events:none;
-        }
-        /* Глянцева діагональна відбивна смуга — суто CSS, для об'ємного вигляду. */
-        .battery-fill::before {
-          content:""; position:absolute; top:-20%; left:8%; width:26%; height:140%;
-          background:linear-gradient(180deg, rgba(255,255,255,0.28), rgba(255,255,255,0));
-          transform:rotate(8deg); pointer-events:none;
-        }
-        .battery-fill .pct { font-size:30px; font-weight:800; color:#eafff0; line-height:1; text-shadow:0 1px 2px rgba(0,0,0,0.35); }
-        .bms-battery-shape-mini .battery-fill .pct { font-size:22px; }
-        .bms-battery-shape-flow .battery-fill .pct { font-size:42px; }
-        .battery-fill .soc-label { font-size:12px; color:#eafff0cc; margin-top:2px; font-weight:600; }
-        .bms-battery-shape-flow .battery-fill .soc-label { font-size:14px; }
-        .charge-badge {
-          display:flex; align-items:center; gap:6px; background:var(--green-dim); color:var(--green);
-          padding:8px 14px; border-radius:10px; font-size:14px; font-weight:600;
-          width:max-content; max-width:100%; margin:12px auto 0; justify-content:center;
-        }
-
-        .stat-col { display:flex; flex-direction:column; gap:10px; flex:1; min-width:140px; }
-        .stat-box {
-          background:var(--panel); border:1px solid var(--border); border-radius:14px;
-          padding:12px 16px; flex:1; display:flex; flex-direction:column; justify-content:center;
-        }
-        .stat-box .val { font-size:20px; font-weight:700; }
-        .stat-box .val.green { color:var(--green); }
-        .stat-box .lbl { font-size:13px; color:var(--muted); margin-top:2px; }
-
-        .cells-box {
-          background:var(--panel); border:1px solid var(--border); border-radius:16px;
-          padding:16px 18px; min-width:260px; width:100%; display:flex; flex-direction:column; gap:12px;
-        }
-        .cells-title { font-size:15px; color:var(--muted); margin-bottom:2px; }
-        .cell-row { display:flex; align-items:center; gap:10px; }
-        .cell-name { width:22px; font-size:14px; color:var(--muted); flex-shrink:0; }
-        .cell-track { flex:1; height:16px; background:#1a222c; border-radius:8px; overflow:hidden; }
-        .cell-fill { height:100%; border-radius:8px; background:linear-gradient(90deg,#2fae4e,#57d976); }
-        .cell-fill.warn { background:linear-gradient(90deg,#bf8a1e,#EF9F27); }
-        .cell-val { width:62px; text-align:right; font-size:14px; font-weight:600; flex-shrink:0; }
-
-        .badges-row { display:flex; gap:8px; margin-top:2px; }
-        .badge {
-          flex:1; min-width:0; background:#0f151d; border-radius:10px; padding:9px 8px; font-size:11.5px; color:var(--muted);
-          display:flex; flex-direction:column; gap:2px; white-space:nowrap; overflow:hidden;
-        }
-        .badge b { font-size:13px; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-        .badge.green b { color:var(--green); }
-        .badge.amber b { color:var(--amber); }
-        .badge.blue b { color:var(--blue); }
-
-        /* Клікабельні значення — відкривають нативний діалог історії
-           сутності HA (подія hass-more-info), натхнення від jk-bms-card. */
-        [data-more-info] { cursor:pointer; border-radius:10px; transition:background-color 0.15s ease; outline:none; }
-        [data-more-info]:hover, [data-more-info]:focus-visible { background-color:rgba(255,255,255,0.05); }
-
-        /* Підсвітка комірок, які зараз активно балансуються (з bitmask
-           атрибута balancer) — аналог balancer_status_bitmask у jk-bms-card. */
-        @keyframes bms-balance-pulse { 0%, 100% { opacity:1; } 50% { opacity:0.45; } }
-        .cell-row.balancing .cell-name { color:var(--green); font-weight:700; }
-        .cell-row.balancing .cell-fill { animation: bms-balance-pulse 1.4s ease-in-out infinite; }
-        .balance-badge {
-          display:inline-flex; align-items:center; gap:4px; margin-left:8px; padding:2px 8px;
-          border-radius:8px; background:var(--green-dim); color:var(--green); font-size:11px; font-weight:600;
-          vertical-align:middle;
-        }
-
-        /* Анімація потоку заряду/розряду на самій батареї. Смуги в заповненні
-           "течуть" вгору при заряді (енергія прибуває) і вниз при розряді
-           (енергія витрачається); корпус батареї підсвічується відповідним
-           кольором у такт. Натхнення — анімація потоку балансування в
-           jk-bms-card, але тут саме для заряду/розряду, як просив користувач. */
-        @keyframes bms-flow-up { from { background-position: 0 28px, 0 0; } to { background-position: 0 0, 0 0; } }
-        @keyframes bms-flow-down { from { background-position: 0 0, 0 0; } to { background-position: 0 28px, 0 0; } }
-        @keyframes bms-glow-charge { 0%, 100% { box-shadow: 0 0 0 0 rgba(29,158,117,0); } 50% { box-shadow: 0 0 16px 2px rgba(29,158,117,0.5); } }
-        @keyframes bms-glow-discharge { 0%, 100% { box-shadow: 0 0 0 0 rgba(239,159,39,0); } 50% { box-shadow: 0 0 16px 2px rgba(239,159,39,0.45); } }
-        .battery-fill.bms-flow-charging, .battery-fill.bms-flow-discharging {
-          background-image:
-            repeating-linear-gradient(0deg, rgba(255,255,255,0.24) 0px, rgba(255,255,255,0.24) 7px, transparent 7px, transparent 18px),
-            linear-gradient(180deg,#63e07e 0%,#2fae4e 100%);
-          background-size: 100% 28px, 100% 100%;
-        }
-        .battery-fill.bms-flow-charging { animation: bms-flow-up 0.85s linear infinite; }
-        .battery-fill.bms-flow-discharging { animation: bms-flow-down 0.85s linear infinite; }
-        .battery-shell.bms-flow-charging { animation: bms-glow-charge 2s ease-in-out infinite; }
-        .battery-shell.bms-flow-discharging { animation: bms-glow-discharge 2s ease-in-out infinite; }
-        @media (prefers-reduced-motion: reduce) {
-          .battery-fill.bms-flow-charging, .battery-fill.bms-flow-discharging,
-          .battery-shell.bms-flow-charging, .battery-shell.bms-flow-discharging { animation: none; }
         }
 
         .discharge-box {

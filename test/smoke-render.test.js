@@ -323,11 +323,14 @@ console.log("Discovered:", Object.keys(discovered).sort().join(", "));
   const htmlIdle = card._renderFullView();
   assert.ok(!htmlIdle.includes("flow-arrow-active"), "у простої анімація стрілок відсутня");
 
-  // Те саме має працювати і в компактному (mini) вигляді картки.
+  // Те саме має працювати і в компактному (mini) вигляді картки — той самий
+  // jarBatterySvg(), що й повний вигляд (стару окрему CSS-батарею для mini
+  // прибрано повністю, нічого від неї не лишилось).
   card._hass = hassCharging;
   card._resolvedEntities = mod.autoDiscoverEntities(hassCharging, deviceId);
   const miniCharging = card._renderMiniView();
-  assert.match(miniCharging, /bms-flow-charging/, "заряд відображається і в mini-вигляді");
+  assert.match(miniCharging, /class="battery-svg jar-battery"/, "mini-вигляд використовує ту саму фотореалістичну банку, що й повний");
+  assert.match(miniCharging, /charge-badge[^>]*>Заряджається/, "статус заряду видно поруч із банкою в mini-вигляді");
 
   console.log("Card charge/discharge flow-animation regression test passed.");
 }
