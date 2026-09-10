@@ -18,7 +18,6 @@ if (typeof globalThis.window === "undefined") {
 const {
   fmt,
   secondsToHuman,
-  batteryFillColor,
   dischargeOnlyTemplate,
   cellVoltageFraction,
   activeBalancingCells,
@@ -94,15 +93,6 @@ test("secondsToHuman: некоректні значення -> прочерк", 
   assert.equal(secondsToHuman(undefined), "—");
   assert.equal(secondsToHuman(null), "—");
   assert.equal(secondsToHuman("abc"), "—");
-});
-
-test("batteryFillColor: пороги кольору SOC", () => {
-  assert.equal(batteryFillColor(5), "#E24B4A");
-  assert.equal(batteryFillColor(15), "#E24B4A");
-  assert.equal(batteryFillColor(20), "#EF9F27");
-  assert.equal(batteryFillColor(30), "#EF9F27");
-  assert.equal(batteryFillColor(31), "#1D9E75");
-  assert.equal(batteryFillColor(100), "#1D9E75");
 });
 
 test("cellVoltageFraction: клемп в межах 0..1 по діапазону LiFePO4", () => {

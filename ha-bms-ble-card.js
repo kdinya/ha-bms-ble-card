@@ -257,12 +257,6 @@ function haIcon(tiClass, size, color) {
   return `<ha-icon icon="${tiToMdi(tiClass)}"${style ? ` style="${style}"` : ""}></ha-icon>`;
 }
 
-function batteryFillColor(percent) {
-  if (percent <= 15) return "#E24B4A";
-  if (percent <= 30) return "#EF9F27";
-  return "#1D9E75";
-}
-
 /**
  * Чиста функція, що відповідає шаблону, який ensureDischargeTemplateSensor
  * підставляє в Template-хелпер: {{ [value, 0] | min | abs }}. Позитивне
@@ -2936,7 +2930,6 @@ if (typeof module !== "undefined" && module.exports) {
     fmt,
     secondsToHuman,
     estimateEtaSeconds,
-    batteryFillColor,
     dischargeOnlyTemplate,
     cellVoltageFraction,
     activeBalancingCells,

@@ -29,15 +29,12 @@ const mod = require(file);
 
 assert.ok(mod.fmt, "fmt exported");
 assert.ok(mod.secondsToHuman, "secondsToHuman exported");
-assert.ok(mod.batteryFillColor, "batteryFillColor exported");
 assert.ok(mod.estimateEtaSeconds, "estimateEtaSeconds exported");
 assert.ok(mod.autoDiscoverEntities, "autoDiscoverEntities exported");
 assert.ok(mod.HaBmsBleCardEditor, "HaBmsBleCardEditor exported");
 
 assert.strictEqual(mod.fmt(13.24, 2, " V"), "13.24 V");
 assert.ok(mod.secondsToHuman(45000).includes("год"));
-assert.strictEqual(mod.batteryFillColor(81), "#1D9E75");
-assert.strictEqual(mod.batteryFillColor(10), "#E24B4A");
 
 const etaCharge = mod.estimateEtaSeconds({
   soc: 81, current: 16.8, designAh: 140, storedWh: 1786, packVoltage: 13.24, charging: true,
