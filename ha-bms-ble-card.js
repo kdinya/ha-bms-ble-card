@@ -7,7 +7,7 @@
  * https://github.com/kdinya/ha-bms-ble-card
  */
 
-const CARD_VERSION = "1.0.3";
+const CARD_VERSION = "1.0.4";
 
 console.info(
   `%c HA-BMS-BLE-CARD %c v${CARD_VERSION} `,
@@ -57,6 +57,15 @@ const I18N = {
     section_indicators: "Всі показники",
     section_functions: "Функції",
     section_history: "Історія",
+    stats_discharge_title: "Розряд",
+    stats_charge_title: "Заряд",
+    stats_ah_used: "Використано ємності",
+    stats_discharge_duration: "Час під навантаженням",
+    stats_today: "Сьогодні",
+    stats_week: "Тиждень",
+    stats_month: "Місяць",
+    stats_total: "Всього",
+    stats_charge_unavailable: "Статистика заряду поки не налаштована. Потрібні окремі сенсори обсягу заряду (аналогічно розряду) — додамо їх у Setup Wizard окремим кроком.",
     lbl_voltage: "Напруга",
     lbl_current: "Струм",
     lbl_power: "Потужність",
@@ -119,6 +128,15 @@ const I18N = {
     section_indicators: "All indicators",
     section_functions: "Functions",
     section_history: "History",
+    stats_discharge_title: "Discharge",
+    stats_charge_title: "Charge",
+    stats_ah_used: "Capacity used",
+    stats_discharge_duration: "Time under load",
+    stats_today: "Today",
+    stats_week: "Week",
+    stats_month: "Month",
+    stats_total: "Total",
+    stats_charge_unavailable: "Charge statistics aren't set up yet. Separate charge-capacity sensors (mirroring discharge) are needed — we'll add them as another Setup Wizard step.",
     lbl_voltage: "Voltage",
     lbl_current: "Current",
     lbl_power: "Power",
@@ -1984,6 +2002,74 @@ class HaBmsBleCard extends HTMLElement {
     return { seconds, label, socPct: soc !== null ? soc : 0 };
   }
 
+  /**
+   * Вкладка "Статистика" (нижня навігація): окремо Розряд і Заряд, за
+   * проханням користувача. Розряд використовує вже наявні сенсори з
+   * Setup Wizard (capacity_daily/weekly/monthly/total — Ah використано;
+   * discharge_time_daily/weekly/monthly — час під навантаженням, у
+   * годинах з history_stats) — та ж сама щоденна історія (кілька днів),
+   * що вже показана у вкладці "Інформація". Заряд поки не має власних
+   * сенсорів у схемі (Setup Wizard створює лише розрядні хелпери), тому
+   * замість вигаданих цифр — чесна підказка.
+   */
+  _renderStatsPane() {
+    const statsSections = this._statsSections || (this._statsSections = { discharge: true, charge: false });
+
+    const ahCard = (label, entityKey) => {
+      const entityId = this._e(entityKey);
+      const v = Number(stateOf(this._hass, entityId));
+      if (!entityId || !Number.isFinite(v)) return "";
+      return `<div class="usage-card"${moreInfoAttr(entityId)}>
+        <div class="lbl">${label}</div>
+        <div class="val-row"><span class="v">${fmt(v, 1)}</span><span class="p">Ah</span></div>
+      </div>`;
+    };
+    const timeCard = (label, entityKey) => {
+      const entityId = this._e(entityKey);
+      const hours = Number(stateOf(this._hass, entityId));
+      if (!entityId || !Number.isFinite(hours)) return "";
+      return `<div class="usage-card"${moreInfoAttr(entityId)}>
+        <div class="lbl">${label}</div>
+        <div class="val-row"><span class="v">${secondsToHuman(hours * 3600)}</span></div>
+      </div>`;
+    };
+
+    const ahCards = [
+      ahCard(this._t("stats_today"), "capacity_daily"),
+      ahCard(this._t("stats_week"), "capacity_weekly"),
+      ahCard(this._t("stats_month"), "capacity_monthly"),
+      ahCard(this._t("stats_total"), "capacity_total"),
+    ].filter(Boolean).join("");
+    const timeCards = [
+      timeCard(this._t("stats_today"), "discharge_time_daily"),
+      timeCard(this._t("stats_week"), "discharge_time_weekly"),
+      timeCard(this._t("stats_month"), "discharge_time_monthly"),
+    ].filter(Boolean).join("");
+
+    const dischargeBody = ahCards || timeCards || this._e("capacity_daily")
+      ? `
+        ${ahCards ? `<h2 class="section-title">${this._t("stats_ah_used")}</h2><div class="usage-grid">${ahCards}</div>` : ""}
+        ${timeCards ? `<h2 class="section-title">${this._t("stats_discharge_duration")}</h2><div class="usage-grid">${timeCards}</div>` : ""}
+        ${this._renderHistoryBars()}
+      `
+      : `<p class="bms-muted">${this._t("cells_no_data")}</p>`;
+
+    return `
+      <details class="info-accordion-section" data-stats-section="discharge"${statsSections.discharge ? " open" : ""}>
+        <summary class="info-accordion-title">${this._t("stats_discharge_title")}</summary>
+        <div class="info-accordion-body">
+          ${dischargeBody}
+        </div>
+      </details>
+
+      <details class="info-accordion-section" data-stats-section="charge"${statsSections.charge ? " open" : ""}>
+        <summary class="info-accordion-title">${this._t("stats_charge_title")}</summary>
+        <div class="info-accordion-body">
+          <p class="bms-muted">${this._t("stats_charge_unavailable")}</p>
+        </div>
+      </details>`;
+  }
+
   _renderHistoryBars() {
     const entityId = this._e("capacity_daily");
     if (!entityId) return "";
@@ -2287,6 +2373,7 @@ class HaBmsBleCard extends HTMLElement {
         </div>
 
         <div class="bms-tab-pane ${activeTab === "stats" ? "active" : ""}" data-pane="stats">
+        ${this._renderStatsPane()}
         </div>
 
         <div class="bms-tab-pane ${activeTab === "settings" ? "active" : ""}" data-pane="settings">
@@ -2529,6 +2616,14 @@ class HaBmsBleCard extends HTMLElement {
         // взаємодії (напр. скролу/тапу всередині) саме й скидав <details>
         // назад до дефолтного стану з шаблону.
         this._infoSections[key] = el.open;
+      });
+    });
+    this.querySelectorAll("details.info-accordion-section[data-stats-section]").forEach((el) => {
+      el.addEventListener("toggle", () => {
+        const key = el.dataset.statsSection;
+        if (!key) return;
+        if (!this._statsSections) this._statsSections = { discharge: true, charge: false };
+        this._statsSections[key] = el.open;
       });
     });
     this.querySelectorAll(".lang-btn[data-lang]").forEach((el) => {

@@ -487,3 +487,46 @@ console.log("Discovered:", Object.keys(discovered).sort().join(", "));
   console.log("Jar battery N/A (SOC unavailable) regression test passed.");
 }
 
+// --- Вкладка "Статистика": Розряд (з налаштованими сенсорами) і Заряд
+// (завжди "поки не налаштовано", бо своїх сенсорів у схемі ще нема) ---
+{
+  const card = Object.create(mod.HaBmsBleCard.prototype);
+  card._hass = {
+    states: {
+      "sensor.cap_daily": { state: "42.5" },
+      "sensor.cap_weekly": { state: "210.3" },
+      "sensor.cap_monthly": { state: "890" },
+      "sensor.cap_total": { state: "15230" },
+      "sensor.dis_daily": { state: "3.5" },
+    },
+  };
+  card._resolvedEntities = {
+    capacity_daily: "sensor.cap_daily",
+    capacity_weekly: "sensor.cap_weekly",
+    capacity_monthly: "sensor.cap_monthly",
+    capacity_total: "sensor.cap_total",
+    discharge_time_daily: "sensor.dis_daily",
+  };
+  card._lang = "uk";
+
+  const html = card._renderStatsPane();
+  assert.match(html, /data-stats-section="discharge"( open)?>/, "секція Розряд присутня");
+  assert.match(html, /data-stats-section="charge">/, "секція Заряд присутня (згорнута за замовчуванням)");
+  // Порядок: Розряд перед Заряд.
+  assert.ok(html.indexOf('data-stats-section="discharge"') < html.indexOf('data-stats-section="charge"'), "Розряд йде перед Заряд");
+  assert.match(html, /42\.5<\/span><span class="p">Ah/, "картка \"Сьогодні\" (Ah) показує реальне значення");
+  assert.match(html, /class="usage-grid"/, "використано .usage-grid для карток статистики");
+  assert.match(html, /Статистика заряду поки не налаштована/, "у Заряді — чесна підказка про відсутність сенсорів, без вигаданих цифр");
+  assert.ok(!/Заряд[\s\S]{0,300}fill="#20df14"/.test(html), "жодних вигаданих значень у секції Заряд");
+
+  // Без жодних сенсорів (нічого не налаштовано) — Розряд показує "Немає даних", без падінь.
+  const cardEmpty = Object.create(mod.HaBmsBleCard.prototype);
+  cardEmpty._hass = { states: {} };
+  cardEmpty._resolvedEntities = {};
+  cardEmpty._lang = "uk";
+  const htmlEmpty = cardEmpty._renderStatsPane();
+  assert.match(htmlEmpty, /Немає даних/, "без сенсорів Розряд показує graceful-фолбек, а не помилку");
+
+  console.log("Statistics tab (discharge/charge sections) regression test passed.");
+}
+
