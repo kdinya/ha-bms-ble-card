@@ -7,7 +7,7 @@
  * https://github.com/kdinya/ha-bms-ble-card
  */
 
-const CARD_VERSION = "1.0.7";
+const CARD_VERSION = "1.0.8";
 
 console.info(
   `%c HA-BMS-BLE-CARD %c v${CARD_VERSION} `,
@@ -66,6 +66,15 @@ const I18N = {
     stats_week: "Тиждень",
     stats_month: "Місяць",
     stats_total: "Всього",
+    stats_year: "Рік",
+    stats_custom: "Довільний",
+    stats_from: "З дати",
+    stats_to: "По дату",
+    stats_wh_approx: "≈ енергія (Ah × середня напруга)",
+    stats_loading: "Завантаження статистики…",
+    stats_no_longterm_stats: "Дані недоступні — для обраного періоду потрібна довготривала статистика (recorder) на сенсорі накопиченої ємності.",
+    stats_period_sum: "За обраний період",
+    stats_lifetime_total: "За весь час",
     stats_charge_unavailable: "Статистика заряду поки не налаштована. Відредагуйте картку (значок олівця/меню → \"Редагувати\") і натисніть кнопку майстра \"Створити сенсори заряду/розряду\" — вона створить потрібні helper-сенсори автоматично.",
     lbl_voltage: "Напруга",
     lbl_current: "Струм",
@@ -138,6 +147,15 @@ const I18N = {
     stats_week: "Week",
     stats_month: "Month",
     stats_total: "Total",
+    stats_year: "Year",
+    stats_custom: "Custom",
+    stats_from: "From",
+    stats_to: "To",
+    stats_wh_approx: "≈ energy (Ah × average voltage)",
+    stats_loading: "Loading statistics…",
+    stats_no_longterm_stats: "Data unavailable — the selected period needs long-term statistics (recorder) on the accumulated-capacity sensor.",
+    stats_period_sum: "For the selected period",
+    stats_lifetime_total: "All-time total",
     stats_charge_unavailable: "Charge statistics aren't set up yet. Edit the card (pencil icon/menu → \"Edit\") and click the \"Create charge/discharge sensors\" wizard button — it will create the needed helper sensors automatically.",
     lbl_voltage: "Voltage",
     lbl_current: "Current",
@@ -312,6 +330,38 @@ function secondsToHuman(seconds) {
   const m = totalMinutes % 60;
   if (h <= 0) return `${m} хв`;
   return `${h} год ${m} хв`;
+}
+
+/**
+ * Діапазон дат + групування для вкладки "Статистика" залежно від обраного
+ * періоду. recorder/statistics_during_period сам вміє групувати по
+ * годинах/днях/тижнях/місяцях за будь-який діапазон — момент вибору
+ * періоду одразу дає і суму (число), і точки (крива) одним запитом.
+ */
+function statsPeriodRange(period, customFrom, customTo) {
+  const now = new Date();
+  let start, end = now, groupBy;
+  if (period === "week") {
+    start = new Date(now.getTime() - 7 * 24 * 3600 * 1000);
+    groupBy = "day";
+  } else if (period === "month") {
+    start = new Date(now.getTime() - 30 * 24 * 3600 * 1000);
+    groupBy = "day";
+  } else if (period === "year") {
+    start = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate());
+    groupBy = "month";
+  } else if (period === "custom") {
+    start = customFrom ? new Date(`${customFrom}T00:00:00`) : new Date(now.getTime() - 7 * 24 * 3600 * 1000);
+    end = customTo ? new Date(`${customTo}T23:59:59`) : now;
+    if (end < start) { const t = start; start = end; end = t; }
+    const days = (end - start) / (24 * 3600 * 1000);
+    groupBy = days <= 3 ? "hour" : days <= 60 ? "day" : "month";
+  } else {
+    // "today" — за замовчуванням
+    start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    groupBy = "hour";
+  }
+  return { start, end, groupBy };
 }
 
 /**
@@ -1911,7 +1961,7 @@ class HaBmsBleCard extends HTMLElement {
     // DOM, який анімація оновлює напряму через jarBatterySvg(). Після
     // завершення анімація сама викликає _render() і надолужує стан.
     if (this._batteryAnimating) return;
-    this._maybeFetchDailyHistory();
+    this._maybeFetchStatsPeriod();
     this._render();
   }
 
@@ -1936,7 +1986,7 @@ class HaBmsBleCard extends HTMLElement {
         this._visible = nowVisible;
         if (this.classList) this.classList.toggle("bms-idle", !this._visible);
         if (this._visible) {
-          this._maybeFetchDailyHistory();
+          this._maybeFetchStatsPeriod();
           this._render();
         }
       }, { threshold: [0, 0.39, 1] });
@@ -2135,15 +2185,6 @@ class HaBmsBleCard extends HTMLElement {
   _renderStatsPane() {
     const statsSections = this._statsSections || (this._statsSections = { discharge: true, charge: false });
 
-    const ahCard = (label, entityKey) => {
-      const entityId = this._e(entityKey);
-      const v = Number(stateOf(this._hass, entityId));
-      if (!entityId || !Number.isFinite(v)) return "";
-      return `<div class="usage-card"${moreInfoAttr(entityId)}>
-        <div class="lbl">${label}</div>
-        <div class="val-row"><span class="v">${fmt(v, 1)}</span><span class="p">Ah</span></div>
-      </div>`;
-    };
     const timeCard = (label, entityKey) => {
       const entityId = this._e(entityKey);
       const hours = Number(stateOf(this._hass, entityId));
@@ -2154,31 +2195,10 @@ class HaBmsBleCard extends HTMLElement {
       </div>`;
     };
 
-    const dischargeAhCards = [
-      ahCard(this._t("stats_today"), "capacity_daily"),
-      ahCard(this._t("stats_week"), "capacity_weekly"),
-      ahCard(this._t("stats_month"), "capacity_monthly"),
-      ahCard(this._t("stats_total"), "capacity_total"),
-    ].filter(Boolean).join("");
     const dischargeTimeCards = [
       timeCard(this._t("stats_today"), "discharge_time_daily"),
       timeCard(this._t("stats_week"), "discharge_time_weekly"),
       timeCard(this._t("stats_month"), "discharge_time_monthly"),
-    ].filter(Boolean).join("");
-
-    const dischargeBody = dischargeAhCards || dischargeTimeCards
-      ? `
-        ${dischargeAhCards ? `<h2 class="section-title">${this._t("stats_ah_used")}</h2><div class="usage-grid">${dischargeAhCards}</div>` : ""}
-        ${dischargeTimeCards ? `<h2 class="section-title">${this._t("stats_discharge_duration")}</h2><div class="usage-grid">${dischargeTimeCards}</div>` : ""}
-        ${this._renderHistoryBars()}
-      `
-      : `<p class="bms-muted">${this._t("cells_no_data")}</p>`;
-
-    const chargeAhCards = [
-      ahCard(this._t("stats_today"), "charge_daily"),
-      ahCard(this._t("stats_week"), "charge_weekly"),
-      ahCard(this._t("stats_month"), "charge_monthly"),
-      ahCard(this._t("stats_total"), "charge_total"),
     ].filter(Boolean).join("");
     const chargeTimeCards = [
       timeCard(this._t("stats_today"), "charge_time_daily"),
@@ -2186,14 +2206,26 @@ class HaBmsBleCard extends HTMLElement {
       timeCard(this._t("stats_month"), "charge_time_monthly"),
     ].filter(Boolean).join("");
 
-    const chargeBody = chargeAhCards || chargeTimeCards
+    const dischargeEntityId = this._e("capacity_total");
+    const chargeEntityId = this._e("charge_total");
+
+    const dischargeBody = dischargeEntityId || dischargeTimeCards
       ? `
-        ${chargeAhCards ? `<h2 class="section-title">${this._t("stats_ah_used")}</h2><div class="usage-grid">${chargeAhCards}</div>` : ""}
+        ${dischargeEntityId ? this._renderStatsPeriodSection("discharge") : ""}
+        ${dischargeTimeCards ? `<h2 class="section-title">${this._t("stats_discharge_duration")}</h2><div class="usage-grid">${dischargeTimeCards}</div>` : ""}
+      `
+      : `<p class="bms-muted">${this._t("cells_no_data")}</p>`;
+
+    const chargeBody = chargeEntityId || chargeTimeCards
+      ? `
+        ${chargeEntityId ? this._renderStatsPeriodSection("charge") : ""}
         ${chargeTimeCards ? `<h2 class="section-title">${this._t("stats_charge_duration")}</h2><div class="usage-grid">${chargeTimeCards}</div>` : ""}
       `
       : `<p class="bms-muted">${this._t("stats_charge_unavailable")}</p>`;
 
     return `
+      ${dischargeEntityId || chargeEntityId ? this._renderStatsPeriodSelector() : ""}
+
       <details class="info-accordion-section" data-stats-section="discharge"${statsSections.discharge ? " open" : ""}>
         <summary class="info-accordion-title">${this._t("stats_discharge_title")}</summary>
         <div class="info-accordion-body">
@@ -2209,93 +2241,176 @@ class HaBmsBleCard extends HTMLElement {
       </details>`;
   }
 
-  _renderHistoryBars() {
-    const entityId = this._e("capacity_daily");
-    if (!entityId) return "";
-    const days = this._historyDaily;
-    if (!days || !days.length) {
-      return `
-        <h2 class="section-title">Історія використання по днях</h2>
-        <p class="muted-note">Історія завантажується або недоступна — потрібна довготривала статистика
-          (recorder, long-term statistics) для сенсора добового споживання "${entityId}".</p>`;
-    }
-    const maxRaw = Math.max(1, ...days.map((x) => x.v));
-    const maxV = Math.max(10, Math.ceil(maxRaw / 10) * 10);
-    const todayKey = new Date().toISOString().slice(0, 10);
-    const cols = days.map((x) => {
-      const isToday = x.dateKey === todayKey;
-      return `
-      <div class="bar-col">
-        <div class="bar-val">${x.v.toFixed(1)} Ah</div>
-        <div class="bar ${isToday ? "today" : ""}" style="height:${((x.v / maxV) * 100).toFixed(0)}%"></div>
-        <div class="bar-date ${isToday ? "today" : ""}">${x.d}</div>
-      </div>`;
-    }).join("");
+  /** Спільний вибір періоду над Розрядом і Заряду (не всередині кожного
+   *  окремо) — один і той самий період застосовується до обох секцій. */
+  _renderStatsPeriodSelector() {
+    const period = this._statsPeriod || "today";
+    const periods = [
+      ["today", this._t("stats_today")],
+      ["week", this._t("stats_week")],
+      ["month", this._t("stats_month")],
+      ["year", this._t("stats_year")],
+      ["custom", this._t("stats_custom")],
+    ];
+    const btns = periods.map(([key, label]) => `
+      <button type="button" class="stats-period-btn${key === period ? " active" : ""}" data-period="${key}">${label}</button>
+    `).join("");
+    const from = this._statsCustomFrom || "";
+    const to = this._statsCustomTo || "";
     return `
-      <h2 class="section-title">Історія використання по днях</h2>
+      <div class="stats-period-bar">
+        <div class="stats-period-btns">${btns}</div>
+        ${period === "custom" ? `
+          <div class="stats-period-custom">
+            <label>${this._t("stats_from")} <input type="date" class="stats-date-input" data-role="from" value="${from}"></label>
+            <label>${this._t("stats_to")} <input type="date" class="stats-date-input" data-role="to" value="${to}"></label>
+          </div>` : ""}
+      </div>`;
+  }
+
+  /** Число (сума за період) + наближені Вт-години + крива — усе одним
+   *  запитом recorder/statistics_during_period (див. _maybeFetchStatsPeriod). */
+  _renderStatsPeriodSection(kind) {
+    const entityKey = kind === "discharge" ? "capacity_total" : "charge_total";
+    const entityId = this._e(entityKey);
+    const data = this._statsData;
+
+    if (!data || data.loading || data.period !== (this._statsPeriod || "today")) {
+      return `<p class="bms-muted">${this._t("stats_loading")}</p>`;
+    }
+    if (data.error) {
+      return `<p class="muted-note">${this._t("stats_no_longterm_stats")}</p>`;
+    }
+
+    const series = data[kind] || { points: [], sum: 0 };
+    const whVal = kind === "discharge" ? data.whDischarge : data.whCharge;
+    const lifetimeTotal = Number(stateOf(this._hass, entityId));
+
+    return `
+      <div class="usage-grid stats-summary-grid">
+        <div class="usage-card"${moreInfoAttr(entityId)}>
+          <div class="lbl">${this._t("stats_period_sum")}</div>
+          <div class="val-row"><span class="v">${fmt(series.sum, 1)}</span><span class="p">Ah</span></div>
+          ${Number.isFinite(whVal) ? `<div class="val-row"><span class="v" style="font-size:14px;">${fmt(whVal / 1000, 2)}</span><span class="p">kWh</span></div>` : ""}
+        </div>
+        ${Number.isFinite(lifetimeTotal) ? `
+        <div class="usage-card"${moreInfoAttr(entityId)}>
+          <div class="lbl">${this._t("stats_lifetime_total")}</div>
+          <div class="val-row"><span class="v">${fmt(lifetimeTotal, 1)}</span><span class="p">Ah</span></div>
+        </div>` : ""}
+      </div>
+      ${Number.isFinite(whVal) ? `<p class="muted-note stats-wh-note">${this._t("stats_wh_approx")}</p>` : ""}
+      ${this._renderStatsChart(series, data.groupBy)}
+    `;
+  }
+
+  _renderStatsChart(series, groupBy) {
+    const points = (series && series.points) || [];
+    if (!points.length) return "";
+    const maxRaw = Math.max(0.001, ...points.map((p) => p.v));
+    const maxV = maxRaw * 1.15;
+    const label = (iso) => {
+      const d = new Date(iso);
+      if (groupBy === "hour") return `${String(d.getHours()).padStart(2, "0")}:00`;
+      if (groupBy === "month") return `${d.getMonth() + 1}.${String(d.getFullYear()).slice(2)}`;
+      return `${String(d.getDate()).padStart(2, "0")}.${String(d.getMonth() + 1).padStart(2, "0")}`;
+    };
+    const nowKey = new Date();
+    const isCurrent = (iso) => {
+      const d = new Date(iso);
+      if (groupBy === "hour") return d.getHours() === nowKey.getHours() && d.toDateString() === nowKey.toDateString();
+      if (groupBy === "month") return d.getMonth() === nowKey.getMonth() && d.getFullYear() === nowKey.getFullYear();
+      return d.toDateString() === nowKey.toDateString();
+    };
+    // Не більше ~31 стовпчика, щоб графік не перетворився на кашу — за
+    // потреби рівномірно проріджуємо (для custom-діапазонів на пів року+).
+    const maxBars = 31;
+    let shown = points;
+    if (shown.length > maxBars) {
+      const step = Math.ceil(shown.length / maxBars);
+      shown = points.filter((_, i) => i % step === 0 || i === points.length - 1);
+    }
+    const cols = shown.map((p) => `
+      <div class="bar-col">
+        <div class="bar-val">${p.v >= 10 ? Math.round(p.v) : fmt(p.v, 1)}</div>
+        <div class="bar ${isCurrent(p.t) ? "today" : ""}" style="height:${Math.max(2, (p.v / maxV) * 100).toFixed(0)}%"></div>
+        <div class="bar-date ${isCurrent(p.t) ? "today" : ""}">${label(p.t)}</div>
+      </div>`).join("");
+    return `
       <div class="history-box">
         <div class="history-chart">
-          <div class="yaxis"><span>${maxV} Ah</span><span>${Math.round(maxV / 2)} Ah</span><span>0 Ah</span></div>
+          <div class="yaxis"><span>${fmt(maxV, 1)} Ah</span><span>${fmt(maxV / 2, 1)} Ah</span><span>0 Ah</span></div>
           ${cols}
         </div>
       </div>`;
   }
 
   /**
-   * Реальна історія по днях з recorder long-term statistics (НЕ mock).
-   * Джерело — entity "capacity_daily" (зазвичай history_stats-сенсор, що
-   * рахує Ah спожиті сьогодні й скидається щоночі): беремо приріст ("change")
-   * за кожен день за останні 7 днів через WS recorder/statistics_during_period.
-   * Якщо в цього сенсора не ввімкнена long-term statistics (немає state_class),
-   * WS-виклик поверне порожньо/впаде — тоді просто показуємо muted-підказку,
-   * без падіння картки.
+   * Нова логіка вкладки "Статистика": один запит recorder/statistics_during_period,
+   * згрупований відповідно до обраного періоду (today→hour, week/month→day,
+   * year→month, custom→auto), дає одночасно і суму (число), і точки (крива)
+   * для Розряду й Заряду. Плюс середня напруга за той самий період — з неї
+   * рахуємо наближені Вт-години (Ah × середня напруга), без нових сенсорів.
    */
-  async _maybeFetchDailyHistory() {
-    const entityId = this._e("capacity_daily");
-    if (!entityId || !this._hass || typeof this._hass.callWS !== "function") return;
-    const now = Date.now();
-    if (
-      this._historyEntityId === entityId &&
-      this._historyFetchedAt &&
-      now - this._historyFetchedAt < 15 * 60 * 1000
-    ) {
-      return; // кеш 15хв
-    }
-    if (this._historyFetchInFlight) return;
-    this._historyFetchInFlight = true;
-    this._historyEntityId = entityId;
-    this._historyFetchedAt = now;
+  async _maybeFetchStatsPeriod() {
+    if (!this._hass || typeof this._hass.callWS !== "function") return;
+    const period = this._statsPeriod || "today";
+    const { start, end, groupBy } = statsPeriodRange(period, this._statsCustomFrom, this._statsCustomTo);
+    const dischargeId = this._e("capacity_total");
+    const chargeId = this._e("charge_total");
+    const voltageId = this._e("voltage");
+    const ids = [dischargeId, chargeId, voltageId].filter(Boolean);
+    if (!ids.length) return;
+    const cacheKey = `${period}:${this._statsCustomFrom || ""}:${this._statsCustomTo || ""}:${groupBy}`;
+    if (this._statsFetchKey === cacheKey && this._statsData && !this._statsData.error) return;
+    if (this._statsFetchInFlight) return;
+    this._statsFetchInFlight = true;
+    this._statsFetchKey = cacheKey;
     try {
-      const end = new Date();
-      const start = new Date(end.getTime() - 8 * 24 * 60 * 60 * 1000);
       const result = await this._hass.callWS({
         type: "recorder/statistics_during_period",
         start_time: start.toISOString(),
         end_time: end.toISOString(),
-        statistic_ids: [entityId],
-        period: "day",
+        statistic_ids: ids,
+        period: groupBy,
       });
-      const rows = (result && result[entityId]) || [];
-      const days = rows.slice(-7).map((r) => {
-        const d = new Date(r.start);
-        let value;
-        if (Number.isFinite(r.change)) value = r.change;
-        else if (Number.isFinite(r.max) && Number.isFinite(r.min)) value = r.max - r.min;
-        else value = Number(r.state);
-        return {
-          dateKey: d.toISOString().slice(0, 10),
-          d: `${String(d.getDate()).padStart(2, "0")}.${String(d.getMonth() + 1).padStart(2, "0")}`,
-          v: Number.isFinite(value) ? Math.abs(value) : 0,
-        };
-      }).filter((x) => Number.isFinite(x.v));
-      if (days.length) {
-        this._historyDaily = days;
-        this._render();
-      }
+      const buildSeries = (entityId) => {
+        if (!entityId) return { points: [], sum: 0 };
+        const rows = (result && result[entityId]) || [];
+        const points = rows.map((r) => {
+          let v;
+          if (Number.isFinite(r.change)) v = r.change;
+          else if (Number.isFinite(r.max) && Number.isFinite(r.min)) v = r.max - r.min;
+          else v = Number(r.state);
+          return { t: r.start, v: Number.isFinite(v) ? Math.abs(v) : 0 };
+        });
+        const sum = points.reduce((s, p) => s + p.v, 0);
+        return { points, sum };
+      };
+      const buildAvgVoltage = (entityId) => {
+        if (!entityId) return undefined;
+        const rows = (result && result[entityId]) || [];
+        const means = rows
+          .map((r) => (Number.isFinite(r.mean) ? r.mean : Number(r.state)))
+          .filter(Number.isFinite);
+        if (!means.length) return undefined;
+        return means.reduce((s, v) => s + v, 0) / means.length;
+      };
+      const discharge = buildSeries(dischargeId);
+      const charge = buildSeries(chargeId);
+      const avgVoltage = buildAvgVoltage(voltageId);
+      this._statsData = {
+        loading: false, error: false, period, groupBy, start, end,
+        discharge, charge, avgVoltage,
+        whDischarge: Number.isFinite(avgVoltage) ? discharge.sum * avgVoltage : undefined,
+        whCharge: Number.isFinite(avgVoltage) ? charge.sum * avgVoltage : undefined,
+      };
     } catch (e) {
-      // recorder/statistics_during_period недоступний для цього сенсора — тихо ігноруємо
+      // recorder/statistics_during_period недоступний (немає long-term statistics) — чесна підказка, а не поламана картка
+      this._statsData = { loading: false, error: true, period, groupBy };
     } finally {
-      this._historyFetchInFlight = false;
+      this._statsFetchInFlight = false;
+      this._render();
     }
   }
 
@@ -2741,7 +2856,31 @@ class HaBmsBleCard extends HTMLElement {
         if (tab && tab !== this._activeTab) {
           this._activeTab = tab;
           this._render();
+          if (tab === "stats") this._maybeFetchStatsPeriod();
         }
+      });
+    });
+    this.querySelectorAll(".stats-period-btn[data-period]").forEach((el) => {
+      el.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        const period = el.dataset.period;
+        if (!period || period === this._statsPeriod) return;
+        this._statsPeriod = period;
+        this._statsData = null;
+        this._render();
+        this._maybeFetchStatsPeriod();
+      });
+    });
+    this.querySelectorAll(".stats-date-input[data-role]").forEach((el) => {
+      el.addEventListener("change", (ev) => {
+        ev.stopPropagation();
+        const role = el.dataset.role;
+        const val = el.value || "";
+        if (role === "from") this._statsCustomFrom = val;
+        else if (role === "to") this._statsCustomTo = val;
+        this._statsData = null;
+        this._render();
+        this._maybeFetchStatsPeriod();
       });
     });
     this.querySelectorAll("details.info-accordion-section[data-section]").forEach((el) => {
@@ -3021,6 +3160,23 @@ class HaBmsBleCard extends HTMLElement {
         }
         .forecast-text .l1 { font-size:12.5px; color:var(--muted); line-height:1.3; }
         .forecast-text .l2 { font-size:17px; font-weight:700; margin-top:3px; }
+
+        .stats-period-bar { margin-bottom:18px; }
+        .stats-period-btns { display:flex; flex-wrap:wrap; gap:8px; }
+        .stats-period-btn {
+          font: inherit; cursor:pointer; padding:7px 14px; border-radius:999px;
+          border:1px solid var(--border); background:var(--panel); color:var(--text);
+          font-size:13px; font-weight:600;
+        }
+        .stats-period-btn.active { background:var(--green); border-color:var(--green); color:#04150a; }
+        .stats-period-custom { display:flex; flex-wrap:wrap; gap:14px; margin-top:12px; }
+        .stats-period-custom label { font-size:12.5px; color:var(--muted); display:flex; flex-direction:column; gap:4px; }
+        .stats-period-custom input[type="date"] {
+          font: inherit; padding:7px 10px; border-radius:10px; border:1px solid var(--border);
+          background:var(--panel); color:var(--text);
+        }
+        .stats-summary-grid { grid-template-columns:repeat(2,1fr); }
+        .stats-wh-note { margin-top:-12px; }
 
         .history-box {
           background:var(--panel); border:1px solid var(--border); border-radius:16px;

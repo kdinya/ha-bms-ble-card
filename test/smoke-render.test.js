@@ -487,35 +487,43 @@ console.log("Discovered:", Object.keys(discovered).sort().join(", "));
   console.log("Jar battery N/A (SOC unavailable) regression test passed.");
 }
 
-// --- Вкладка "Статистика": Розряд (з налаштованими сенсорами) і Заряд
-// (завжди "поки не налаштовано", бо своїх сенсорів у схемі ще нема) ---
+// --- Вкладка "Статистика": спільний вибір періоду (Сьогодні/Тиждень/
+// Місяць/Рік/Довільний) над Розрядом і Зарядом, одне число (сума за
+// період) + крива за один WS-запит (тут мокнуто через _statsData, бо
+// сам WS-виклик — асинхронний і живе в _maybeFetchStatsPeriod). Заряд
+// лишається "поки не налаштовано", бо своїх сенсорів у схемі ще нема. ---
 {
   const card = Object.create(mod.HaBmsBleCard.prototype);
   card._hass = {
     states: {
-      "sensor.cap_daily": { state: "42.5" },
-      "sensor.cap_weekly": { state: "210.3" },
-      "sensor.cap_monthly": { state: "890" },
       "sensor.cap_total": { state: "15230" },
       "sensor.dis_daily": { state: "3.5" },
     },
   };
   card._resolvedEntities = {
-    capacity_daily: "sensor.cap_daily",
-    capacity_weekly: "sensor.cap_weekly",
-    capacity_monthly: "sensor.cap_monthly",
     capacity_total: "sensor.cap_total",
     discharge_time_daily: "sensor.dis_daily",
   };
   card._lang = "uk";
+  card._statsPeriod = "today";
+  card._statsData = {
+    loading: false, error: false, period: "today", groupBy: "hour",
+    discharge: { sum: 42.5, points: [{ t: new Date().toISOString(), v: 42.5 }] },
+    charge: { sum: 0, points: [] },
+    avgVoltage: 52,
+    whDischarge: 42.5 * 52,
+    whCharge: undefined,
+  };
 
   const html = card._renderStatsPane();
   assert.match(html, /data-stats-section="discharge"( open)?>/, "секція Розряд присутня");
   assert.match(html, /data-stats-section="charge">/, "секція Заряд присутня (згорнута за замовчуванням)");
   // Порядок: Розряд перед Заряд.
   assert.ok(html.indexOf('data-stats-section="discharge"') < html.indexOf('data-stats-section="charge"'), "Розряд йде перед Заряд");
-  assert.match(html, /42\.5<\/span><span class="p">Ah/, "картка \"Сьогодні\" (Ah) показує реальне значення");
-  assert.match(html, /class="usage-grid"/, "використано .usage-grid для карток статистики");
+  assert.match(html, /class="stats-period-btn active" data-period="today"/, "кнопка періоду \"Сьогодні\" активна за замовчуванням");
+  assert.match(html, /42\.5<\/span><span class="p">Ah/, "сума Ah за обраний період показує реальне значення");
+  assert.match(html, /class="usage-grid stats-summary-grid"/, "використано .usage-grid для підсумкових карток статистики");
+  assert.match(html, /stats_wh_approx|≈ енергія/, "показано наближену оцінку Вт-годин (Ah × середня напруга)");
   assert.match(html, /Статистика заряду поки не налаштована/, "у Заряді — чесна підказка про відсутність сенсорів, без вигаданих цифр");
   assert.ok(!/Заряд[\s\S]{0,300}fill="#20df14"/.test(html), "жодних вигаданих значень у секції Заряд");
 
@@ -527,29 +535,53 @@ console.log("Discovered:", Object.keys(discovered).sort().join(", "));
   const htmlEmpty = cardEmpty._renderStatsPane();
   assert.match(htmlEmpty, /Немає даних/, "без сенсорів Розряд показує graceful-фолбек, а не помилку");
 
-  console.log("Statistics tab (discharge/charge sections) regression test passed.");
+  // Поки дані ще не прийшли (немає _statsData) — акуратний "завантаження", без падінь.
+  const cardLoading = Object.create(mod.HaBmsBleCard.prototype);
+  cardLoading._hass = { states: { "sensor.cap_total": { state: "15230" } } };
+  cardLoading._resolvedEntities = { capacity_total: "sensor.cap_total" };
+  cardLoading._lang = "uk";
+  const htmlLoading = cardLoading._renderStatsPane();
+  assert.match(htmlLoading, /Завантаження статистики/, "поки WS-запит ще не відповів — показуємо \"завантаження\", а не порожньо/помилку");
+
+  // recorder/statistics_during_period недоступний для цього сенсора — чесна підказка, без падіння.
+  const cardErr = Object.create(mod.HaBmsBleCard.prototype);
+  cardErr._hass = { states: { "sensor.cap_total": { state: "15230" } } };
+  cardErr._resolvedEntities = { capacity_total: "sensor.cap_total" };
+  cardErr._lang = "uk";
+  cardErr._statsPeriod = "today";
+  cardErr._statsData = { loading: false, error: true, period: "today", groupBy: "hour" };
+  const htmlErr = cardErr._renderStatsPane();
+  assert.match(htmlErr, /потрібна довготривала статистика/, "немає long-term statistics — чесна підказка замість поламаної картки");
+
+  console.log("Statistics tab (period selector + discharge/charge sections) regression test passed.");
 }
 
-// --- "Історія використання по днях" (статистика використання) має
-// лишитись ТІЛЬКИ у вкладці "Статистика" — з вкладки "Інформація" її
-// прибрано повністю (ні даних, ні заголовка секції) за проханням
-// користувача. ---
+// --- Вибір періоду статистики (stats-period-bar) і графік (history-box)
+// мають лишитись ТІЛЬКИ у вкладці "Статистика" — у вкладці "Інформація"
+// їх немає взагалі (ні заголовка, ні даних) за проханням користувача. ---
 {
   const card = Object.create(mod.HaBmsBleCard.prototype);
   card._config = { entities: {} };
-  card._hass = { ...mockHass, states: { ...mockHass.states, "sensor.cap_daily": { state: "3.5" } } };
-  card._resolvedEntities = { ...mod.autoDiscoverEntities(mockHass, deviceId), capacity_daily: "sensor.cap_daily" };
+  card._hass = { ...mockHass, states: { ...mockHass.states, "sensor.cap_total": { state: "3.5" } } };
+  card._resolvedEntities = { ...mod.autoDiscoverEntities(mockHass, deviceId), capacity_total: "sensor.cap_total" };
   card._lang = "uk";
+  card._statsPeriod = "today";
+  card._statsData = {
+    loading: false, error: false, period: "today", groupBy: "hour",
+    discharge: { sum: 3.5, points: [{ t: new Date().toISOString(), v: 3.5 }] },
+    charge: { sum: 0, points: [] },
+  };
 
   const html = card._renderFullView();
   const infoPane = html.match(/data-pane="info">([\s\S]*?)<div class="bms-tab-pane[^>]*data-pane="stats"/);
   const statsPane = html.match(/data-pane="stats">([\s\S]*?)<div class="bms-tab-pane[^>]*data-pane="settings"/);
   assert.ok(infoPane, "панель Інформація знайдена");
   assert.ok(statsPane, "панель Статистика знайдена");
-  assert.ok(!infoPane[1].includes("Історія використання по днях"), "у вкладці Інформація немає статистики використання (ні заголовка, ні даних)");
+  assert.ok(!infoPane[1].includes("stats-period-bar"), "у вкладці Інформація немає вибору періоду статистики");
   assert.ok(!infoPane[1].includes("history-box"), "у вкладці Інформація немає графіка історії використання");
-  assert.ok(statsPane[1].includes("Історія використання по днях"), "у вкладці Статистика статистика використання лишилась");
+  assert.ok(statsPane[1].includes("stats-period-bar"), "у вкладці Статистика є спільний вибір періоду");
+  assert.ok(statsPane[1].includes("history-box"), "у вкладці Статистика лишився графік (крива за період)");
 
-  console.log("Usage-history section removed from Info tab, kept in Statistics tab — regression test passed.");
+  console.log("Period selector + usage chart stay in Statistics tab only — regression test passed.");
 }
 
