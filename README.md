@@ -31,11 +31,15 @@ ANT, Seplos, Renogy та інші.
 - Прогноз часу роботи (runtime) — миттєвий, "скільки лишилось за поточним
   навантаженням"
 - **Setup Wizard прямо в редакторі картки** — кнопка сама створює:
-  - хелпери використаної ємності: сьогодні/тиждень/місяць/всього (скільки
-    ємності взяли з акумулятора)
-  - хелпери часу розряду: сьогодні/тиждень/місяць (скільки батарея
-    пропрацювала, віддаючи енергію) — потрібен `entities.charging`
-  і сама підставляє отримані entity_id у конфіг картки (див. розділ нижче)
+  - хелпери використаної ємності розряду: сьогодні/тиждень/місяць/всього
+    (скільки ємності взяли з акумулятора)
+  - хелпери отриманої ємності заряду: сьогодні/тиждень/місяць/всього
+    (дзеркально розряду — скільки ємності віддали в акумулятор)
+  - хелпери часу розряду і часу заряду: сьогодні/тиждень/місяць кожен
+    (скільки батарея пропрацювала, віддаючи/приймаючи енергію) — потрібен
+    `entities.charging`
+  і сама підставляє отримані entity_id у конфіг картки (див. розділ нижче) —
+  усе це показується окремо у вкладці "Статистика" (Розряд / Заряд)
 - Компактний layout, що адаптується під фактичну ширину картки на дашборді
   (не під ширину вікна) — 1 колонка на вузьких картках, 2 колонки на
   широких, без зайвого розтягування по вертикалі
@@ -126,14 +130,21 @@ entities:
     - sensor.redodo_cell_2
     - sensor.redodo_cell_3
     - sensor.redodo_cell_4
-  # опційно - див. розділ "Сенсори споживання і часу розряду" нижче
+  # опційно - див. розділ "Сенсори споживання і часу заряду/розряду" нижче
   capacity_daily: sensor.redodo_capacity_daily
   capacity_weekly: sensor.redodo_capacity_weekly
   capacity_monthly: sensor.redodo_capacity_monthly
   capacity_total: sensor.redodo_capacity_total
+  charge_daily: sensor.redodo_charge_daily
+  charge_weekly: sensor.redodo_charge_weekly
+  charge_monthly: sensor.redodo_charge_monthly
+  charge_total: sensor.redodo_charge_total
   discharge_time_daily: sensor.redodo_discharge_time_daily
   discharge_time_weekly: sensor.redodo_discharge_time_weekly
   discharge_time_monthly: sensor.redodo_discharge_time_monthly
+  charge_time_daily: sensor.redodo_charge_time_daily
+  charge_time_weekly: sensor.redodo_charge_time_weekly
+  charge_time_monthly: sensor.redodo_charge_time_monthly
 thresholds:
   cell_delta_warning: 0.02
   cell_delta_critical: 0.05
@@ -185,13 +196,13 @@ template:
         state_class: measurement
 ```
 
-## Сенсори споживання і часу розряду
+## Сенсори споживання і часу заряду/розряду
 
 ### Setup Wizard (автоматично, з редактора картки)
 
 Якщо в `entities` вже вказано `power` (або хоча б `current`), у GUI-редакторі
 картки (клацнути на картку → в нижній частині форми) з'явиться кнопка
-**"Створити сенсори споживання і часу розряду"**. Вона:
+**"Створити сенсори заряду/розряду"**. Вона:
 
 1. Перевіряє, чи такі helper-сенсори для цієї батареї вже створювались
    раніше (за назвою) — щоб не плодити дублікати при повторному відкритті.
@@ -209,15 +220,26 @@ template:
    > "накопичена ємність" рахувалась неправильно. Якщо у вас лишились
    > старі хелпери з версій до 1.6.0 — видаліть їх вручну в
    > Settings → Helpers і повторно натисніть кнопку майстра.
-3. Якщо в конфізі вказано `entities.charging` — додатково створює три
+3. Дзеркально — створює шаблонний сенсор **лише зарядного** струму/
+   потужності — `{{ [value, 0] | max }}` (0 під час розряду, додатне
+   значення під час заряду), і так само `integration` + три
+   `utility_meter` — **скільки ємності віддали в акумулятор**
+   (`entities.charge_daily/weekly/monthly/total`).
+4. Якщо в конфізі вказано `entities.charging` — додатково створює три
    helpers `history_stats`, які рахують, скільки часу за останню
    добу/тиждень/місяць сенсор заряду перебував у стані "off"
    (тобто АКБ не заряджався, а віддавав/тримав енергію) — **скільки часу
-   АКБ пропрацював, віддаючи енергію**. Якщо `entities.charging` не задано,
+   АКБ пропрацював, віддаючи енергію** — і ще три для стану "on" —
+   **скільки часу АКБ заряджався**. Якщо `entities.charging` не задано,
    ця частина пропускається з поясненням, а хелпери ємності все одно
    створюються.
-4. Автоматично підставляє отримані `entity_id` в `entities.capacity_*` і
-   `entities.discharge_time_*` конфіга картки.
+5. Автоматично підставляє отримані `entity_id` в `entities.capacity_*`,
+   `entities.charge_*`, `entities.discharge_time_*` і
+   `entities.charge_time_*` конфіга картки.
+
+Усе це відображається окремо у вкладці "Статистика" картки — розділи
+"Розряд" і "Заряд", кожен зі своїми картками Сьогодні/Тиждень/Місяць/
+Всього.
 
 Потрібні admin-права користувача HA; без них картка покаже повідомлення і
 запропонує мануальну інструкцію нижче. Майстер користується тим самим
@@ -225,25 +247,26 @@ template:
 знадобитись підправити вручну, якщо структура полів зміниться в майбутніх
 версіях HA — мануальний спосіб нижче завжди залишається робочим fallback.
 
-> **Про точність часу розряду.** BMS_BLE-HA не публікує окрему сутність
-> "під навантаженням" — майстер апроксимує це як "не заряджається" (стан
-> `off` сенсора `charging`), що включає і час повного простою без
-> навантаження. Якщо потрібна точніша метрика — замініть джерело
-> `history_stats` на власний template binary_sensor з умовою по struму/
+> **Про точність часу заряду/розряду.** BMS_BLE-HA не публікує окрему
+> сутність "під навантаженням" — майстер апроксимує час розряду як "не
+> заряджається" (стан `off` сенсора `charging`), що включає і час повного
+> простою без навантаження; час заряду — як стан `on` того самого
+> сенсора. Якщо потрібна точніша метрика — замініть джерело
+> `history_stats` на власний template binary_sensor з умовою по струму/
 > потужності (наприклад `current < -0.5`).
 
 ### Helper-сенсори вручну
 
-BMS_BLE-HA не рахує накопичену ємність і час розряду сам — це стандартні
-HA helpers: `template` (виділяє лише розрядну складову) + `integration`
-(Riemann sum) + `utility_meter` для ємності, `history_stats` для часу
-розряду.
+BMS_BLE-HA не рахує накопичену ємність і час заряду/розряду сам — це
+стандартні HA helpers: `template` (виділяє лише розрядну або лише
+зарядну складову) + `integration` (Riemann sum) + `utility_meter` для
+ємності, `history_stats` для часу.
 
-**Ємність.** `power`/`current` — знакозмінні (додатне під час заряду,
-від'ємне під час розряду), тому інтегрувати їх напряму **не можна** —
-заряд і розряд взаємно скасуються в сумі. Спершу виділяємо шаблоном лише
-розрядну частину (той самий прийом, що й в [офіційній інструкції
-BMS_BLE-HA для Energy
+**Ємність розряду.** `power`/`current` — знакозмінні (додатне під час
+заряду, від'ємне під час розряду), тому інтегрувати їх напряму **не
+можна** — заряд і розряд взаємно скасуються в сумі. Спершу виділяємо
+шаблоном лише розрядну частину (той самий прийом, що й в [офіційній
+інструкції BMS_BLE-HA для Energy
 Dashboard](https://github.com/patman15/BMS_BLE-HA#energy-dashboard-integration)):
 
 ```yaml
@@ -281,7 +304,44 @@ utility_meter:
 це і є `entities.capacity_total`; три `utility_meter` вище — це
 `entities.capacity_daily` / `capacity_weekly` / `capacity_monthly`.
 
-**Час розряду** (потребує `binary_sensor.redodo_battery_charging`):
+**Ємність заряду** — дзеркально, лише формула шаблону інша (`| max`
+замість `| min | abs`, без знакозаперечення — заряд уже додатний):
+
+```yaml
+template:
+  - sensor:
+      - name: redodo_charge_current
+        unique_id: redodo_charge_current
+        state: "{{ [ (states('sensor.redodo_current') | float(0)), 0 ] | max }}"
+        unit_of_measurement: "A"
+        device_class: current
+        state_class: measurement
+        availability: "{{ has_value('sensor.redodo_current') }}"
+
+sensor:
+  - platform: integration
+    name: redodo_charge_total
+    source: sensor.redodo_charge_current
+    unit_time: h
+    round: 2
+    method: trapezoidal
+
+utility_meter:
+  redodo_charge_daily:
+    source: sensor.redodo_charge_total
+    cycle: daily
+  redodo_charge_weekly:
+    source: sensor.redodo_charge_total
+    cycle: weekly
+  redodo_charge_monthly:
+    source: sensor.redodo_charge_total
+    cycle: monthly
+```
+
+`redodo_charge_total` — це `entities.charge_total`; три `utility_meter`
+вище — `entities.charge_daily` / `charge_weekly` / `charge_monthly`.
+
+**Час розряду і заряду** (потребує `binary_sensor.redodo_battery_charging`):
 
 ```yaml
 sensor:
@@ -306,15 +366,37 @@ sensor:
     type: time
     duration:
       days: 30
+  - platform: history_stats
+    name: redodo_charge_time_daily
+    entity_id: binary_sensor.redodo_battery_charging
+    state: "on"
+    type: time
+    duration:
+      days: 1
+  - platform: history_stats
+    name: redodo_charge_time_weekly
+    entity_id: binary_sensor.redodo_battery_charging
+    state: "on"
+    type: time
+    duration:
+      days: 7
+  - platform: history_stats
+    name: redodo_charge_time_monthly
+    entity_id: binary_sensor.redodo_battery_charging
+    state: "on"
+    type: time
+    duration:
+      days: 30
 ```
 
 Або через UI: **Settings → Devices & Services → Helpers → + Add helper →
-Integration - Riemann sum**, потім **Utility Meter** x4, а для часу
-розряду — **History Stats** x3 (за стандартним record retention це вимагає,
-щоб Recorder зберігав історію на потрібний період, за замовчуванням 10
-днів — для тижневого/місячного вікна збільшіть `recorder.purge_keep_days`).
-Отримані entity_id вкажіть в `entities.capacity_*` і
-`entities.discharge_time_*` конфіга картки.
+Integration - Riemann sum**, потім **Utility Meter** x8 (4 для розряду, 4
+для заряду), а для часу — **History Stats** x6 (за стандартним record
+retention це вимагає, щоб Recorder зберігав історію на потрібний період,
+за замовчуванням 10 днів — для тижневого/місячного вікна збільшіть
+`recorder.purge_keep_days`). Отримані entity_id вкажіть в
+`entities.capacity_*`, `entities.charge_*`, `entities.discharge_time_*`
+і `entities.charge_time_*` конфіга картки.
 
 ## Обмеження
 

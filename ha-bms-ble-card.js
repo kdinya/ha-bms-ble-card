@@ -7,7 +7,7 @@
  * https://github.com/kdinya/ha-bms-ble-card
  */
 
-const CARD_VERSION = "1.0.6";
+const CARD_VERSION = "1.0.7";
 
 console.info(
   `%c HA-BMS-BLE-CARD %c v${CARD_VERSION} `,
@@ -61,11 +61,12 @@ const I18N = {
     stats_charge_title: "Заряд",
     stats_ah_used: "Використано ємності",
     stats_discharge_duration: "Час під навантаженням",
+    stats_charge_duration: "Час заряду",
     stats_today: "Сьогодні",
     stats_week: "Тиждень",
     stats_month: "Місяць",
     stats_total: "Всього",
-    stats_charge_unavailable: "Статистика заряду поки не налаштована. Потрібні окремі сенсори обсягу заряду (аналогічно розряду) — додамо їх у Setup Wizard окремим кроком.",
+    stats_charge_unavailable: "Статистика заряду поки не налаштована. Відредагуйте картку (значок олівця/меню → \"Редагувати\") і натисніть кнопку майстра \"Створити сенсори заряду/розряду\" — вона створить потрібні helper-сенсори автоматично.",
     lbl_voltage: "Напруга",
     lbl_current: "Струм",
     lbl_power: "Потужність",
@@ -132,11 +133,12 @@ const I18N = {
     stats_charge_title: "Charge",
     stats_ah_used: "Capacity used",
     stats_discharge_duration: "Time under load",
+    stats_charge_duration: "Charging time",
     stats_today: "Today",
     stats_week: "Week",
     stats_month: "Month",
     stats_total: "Total",
-    stats_charge_unavailable: "Charge statistics aren't set up yet. Separate charge-capacity sensors (mirroring discharge) are needed — we'll add them as another Setup Wizard step.",
+    stats_charge_unavailable: "Charge statistics aren't set up yet. Edit the card (pencil icon/menu → \"Edit\") and click the \"Create charge/discharge sensors\" wizard button — it will create the needed helper sensors automatically.",
     lbl_voltage: "Voltage",
     lbl_current: "Current",
     lbl_power: "Power",
@@ -288,6 +290,17 @@ function haIcon(tiClass, size, color) {
 function dischargeOnlyTemplate(value) {
   const n = Number(value) || 0;
   return Math.abs(Math.min(n, 0));
+}
+
+/**
+ * Дзеркальна версія dischargeOnlyTemplate для заряду: додатне (заряд) →
+ * лишається як є, від'ємне (розряд) → 0. Той самий принцип — інтегрувати
+ * ЦЕ, а не сирий знакозмінний power/current, щоб заряд і розряд не
+ * скасовували один одного в накопиченій сумі.
+ */
+function chargeOnlyTemplate(value) {
+  const n = Number(value) || 0;
+  return Math.max(n, 0);
 }
 
 function secondsToHuman(seconds) {
@@ -866,6 +879,18 @@ const DISCHARGE_CYCLES = [
   { key: "discharge_time_monthly", label: "Місяць", days: 30 },
 ];
 
+const CHARGE_CYCLES = [
+  { key: "charge_daily", label: "Сьогодні", cycle: "daily" },
+  { key: "charge_weekly", label: "Тиждень", cycle: "weekly" },
+  { key: "charge_monthly", label: "Місяць", cycle: "monthly" },
+];
+
+const CHARGE_TIME_CYCLES = [
+  { key: "charge_time_daily", label: "Сьогодні", days: 1 },
+  { key: "charge_time_weekly", label: "Тиждень", days: 7 },
+  { key: "charge_time_monthly", label: "Місяць", days: 30 },
+];
+
 
 class SetupWizard {
   constructor(hass) {
@@ -937,6 +962,51 @@ class SetupWizard {
     let result = await this._submitStep(step.flow_id, payload);
     if (result.type !== "create_entry") {
       // Some HA builds reject unknown optional fields; try minimal set
+      result = await this._submitStep(step.flow_id, {
+        name: title,
+        state: payload.state,
+      });
+    }
+    if (result.type !== "create_entry") {
+      await this._abortFlow(flow.flow_id);
+      throw new Error(
+        "template: " + (result.errors ? JSON.stringify(result.errors) : result.type + " " + JSON.stringify(result))
+      );
+    }
+    const entityId = await this._entityForEntry(result.result.entry_id || result.result);
+    if (!entityId) throw new Error("template створено, але entity_id не з'явився в registry");
+    return { entityId, created: true };
+  }
+
+  /**
+   * Дзеркало ensureDischargeTemplateSensor для заряду: той самий Template
+   * config-flow, лише формула бере [value, 0] | max замість min | abs —
+   * додатне (заряд) лишається як є, від'ємне (розряд) стає нулем.
+   */
+  async ensureChargeTemplateSensor(sourceEntity, title, unit, deviceClass) {
+    const existing = await this._existingEntry(title);
+    if (existing) {
+      const entityId = await this._entityForEntry(existing.entry_id);
+      if (entityId) return { entityId, created: false };
+    }
+    const flow = await this._initFlow("template");
+    let step = flow;
+    if (step.type === "menu") {
+      step = await this._submitStep(step.flow_id, { next_step_id: "sensor" });
+    }
+    if (step.type !== "form") {
+      await this._abortFlow(flow.flow_id);
+      throw new Error(`template: неочікуваний крок "${step.type}"`);
+    }
+    const payload = {
+      name: title,
+      state: `{{ [ (states('${sourceEntity}') | float(0)), 0 ] | max }}`,
+      unit_of_measurement: unit,
+      device_class: deviceClass,
+      state_class: "measurement",
+    };
+    let result = await this._submitStep(step.flow_id, payload);
+    if (result.type !== "create_entry") {
       result = await this._submitStep(step.flow_id, {
         name: title,
         state: payload.state,
@@ -1087,6 +1157,30 @@ class SetupWizard {
       entities[key] = meter.entityId;
     }
 
+    // Дзеркало вище для заряду: той самий ланцюжок (template з max замість
+    // min|abs → integral → 3x utility_meter), щоб "Заряд" у Статистиці мав
+    // такі самі за суттю дані, як і "Розряд".
+    const chargeTitle = `${batteryName} — заряд (${unit}, без розряду)`;
+    report(`Створюю "${chargeTitle}"…`);
+    const charge = await this.ensureChargeTemplateSensor(
+      sourceEntity, chargeTitle, unit, deviceClass
+    );
+    report(charge.created ? `✓ ${charge.entityId}` : `↺ вже є: ${charge.entityId}`);
+
+    const chargeTotalTitle = `${batteryName} — накопичена ємність заряду`;
+    report(`Створюю "${chargeTotalTitle}"…`);
+    const chargeTotal = await this.ensureIntegral(charge.entityId, chargeTotalTitle);
+    report(chargeTotal.created ? `✓ ${chargeTotal.entityId}` : `↺ вже є: ${chargeTotal.entityId}`);
+
+    entities.charge_total = chargeTotal.entityId;
+    for (const { key, label, cycle } of CHARGE_CYCLES) {
+      const title = `${batteryName} — отримано заряду (${label.toLowerCase()})`;
+      report(`Створюю "${title}"…`);
+      const meter = await this.ensureUtilityMeter(chargeTotal.entityId, title, cycle);
+      report(meter.created ? `✓ ${meter.entityId}` : `↺ вже є: ${meter.entityId}`);
+      entities[key] = meter.entityId;
+    }
+
     if (chargingEntity) {
       for (const { key, label, days } of DISCHARGE_CYCLES) {
         const title = `${batteryName} — час розряду (${label.toLowerCase()})`;
@@ -1099,8 +1193,19 @@ class SetupWizard {
           report(`⚠ ${title}: ${err.message || err}`);
         }
       }
+      for (const { key, label, days } of CHARGE_TIME_CYCLES) {
+        const title = `${batteryName} — час заряду (${label.toLowerCase()})`;
+        report(`Створюю "${title}"…`);
+        try {
+          const hs = await this.ensureHistoryStats(chargingEntity, title, ["on"], days);
+          report(hs.created ? `✓ ${hs.entityId}` : `↺ вже є: ${hs.entityId}`);
+          entities[key] = hs.entityId;
+        } catch (err) {
+          report(`⚠ ${title}: ${err.message || err}`);
+        }
+      }
     } else {
-      report("⏱ Час розряду пропущено (немає entities.charging)");
+      report("⏱ Час розряду і заряду пропущено (немає entities.charging)");
     }
 
     return { entities, log };
@@ -1145,7 +1250,7 @@ const ENTITY_FIELD_GROUPS = [
     ],
   },
   {
-    title: "Використана ємність (можна заповнити майстром нижче)",
+    title: "Використана ємність — розряд (можна заповнити майстром нижче)",
     fields: [
       ["capacity_daily", "Сьогодні", "sensor"],
       ["capacity_weekly", "Тиждень", "sensor"],
@@ -1154,11 +1259,28 @@ const ENTITY_FIELD_GROUPS = [
     ],
   },
   {
+    title: "Отримано ємності — заряд (можна заповнити майстром нижче)",
+    fields: [
+      ["charge_daily", "Сьогодні", "sensor"],
+      ["charge_weekly", "Тиждень", "sensor"],
+      ["charge_monthly", "Місяць", "sensor"],
+      ["charge_total", "Всього", "sensor"],
+    ],
+  },
+  {
     title: "Час розряду (можна заповнити майстром нижче)",
     fields: [
       ["discharge_time_daily", "Сьогодні", "sensor"],
       ["discharge_time_weekly", "Тиждень", "sensor"],
       ["discharge_time_monthly", "Місяць", "sensor"],
+    ],
+  },
+  {
+    title: "Час заряду (можна заповнити майстром нижче)",
+    fields: [
+      ["charge_time_daily", "Сьогодні", "sensor"],
+      ["charge_time_weekly", "Тиждень", "sensor"],
+      ["charge_time_monthly", "Місяць", "sensor"],
     ],
   },
 ];
@@ -1301,9 +1423,11 @@ class HaBmsBleCardEditor extends HTMLElement {
   _wizardAlreadyConfigured() {
     const e = this._effectiveEntities();
     const capacityDone = !!(e.capacity_daily && e.capacity_weekly && e.capacity_monthly && e.capacity_total);
-    if (!e.charging) return capacityDone;
+    const chargeDone = !!(e.charge_daily && e.charge_weekly && e.charge_monthly && e.charge_total);
+    if (!e.charging) return capacityDone && chargeDone;
     const dischargeDone = !!(e.discharge_time_daily && e.discharge_time_weekly && e.discharge_time_monthly);
-    return capacityDone && dischargeDone;
+    const chargeTimeDone = !!(e.charge_time_daily && e.charge_time_weekly && e.charge_time_monthly);
+    return capacityDone && chargeDone && dischargeDone && chargeTimeDone;
   }
 
   async _runWizard() {
@@ -1352,8 +1476,8 @@ class HaBmsBleCardEditor extends HTMLElement {
 
   _renderWizard() {
     if (this._wizardAlreadyConfigured()) {
-      return `<p style="font-size:12px; opacity:0.7; margin:0;">✓ Сенсори споживання${
-        this._entities().charging ? " і часу розряду" : ""
+      return `<p style="font-size:12px; opacity:0.7; margin:0;">✓ Сенсори споживання (заряд і розряд)${
+        this._entities().charging ? " і часу заряду/розряду" : ""
       } вже налаштовані.</p>`;
     }
     if (!this._wizardEligible()) {
@@ -1371,13 +1495,14 @@ class HaBmsBleCardEditor extends HTMLElement {
         <button id="wizard-btn" ${this._wizardBusy ? "disabled" : ""}
           style="width:100%; padding:10px; border-radius:8px; border:none; cursor:pointer;
           background: var(--primary-color, #0F6E56); color: white; font-size:13px;">
-          ${this._wizardBusy ? "Створюю…" : "Створити сенсори споживання і часу розряду"}
+          ${this._wizardBusy ? "Створюю…" : "Створити сенсори заряду/розряду"}
         </button>
         <p style="font-size:11px; opacity:0.6; margin:6px 0 0;">
-          Створить helper-сенсори ємності (накопичена + сьогодні/тиждень/місяць)${
+          Створить helper-сенсори ємності розряду і заряду окремо (накопичена +
+          сьогодні/тиждень/місяць для кожного)${
             hasCharging
-              ? " та часу розряду (сьогодні/тиждень/місяць)"
-              : " — для часу розряду вкажіть сенсор \"Заряджається\" у розділі \"Статус і діагностика BMS\" вище"
+              ? " та часу розряду і заряду (сьогодні/тиждень/місяць для кожного)"
+              : " — для часу розряду/заряду вкажіть сенсор \"Заряджається\" у розділі \"Статус і діагностика BMS\" вище"
           } через вбудований механізм Helpers у HA. Потрібні admin-права.
         </p>
         ${statusHtml}
@@ -2000,13 +2125,12 @@ class HaBmsBleCard extends HTMLElement {
 
   /**
    * Вкладка "Статистика" (нижня навігація): окремо Розряд і Заряд, за
-   * проханням користувача. Розряд використовує вже наявні сенсори з
-   * Setup Wizard (capacity_daily/weekly/monthly/total — Ah використано;
-   * discharge_time_daily/weekly/monthly — час під навантаженням, у
-   * годинах з history_stats) — та ж сама щоденна історія (кілька днів),
-   * що вже показана у вкладці "Інформація". Заряд поки не має власних
-   * сенсорів у схемі (Setup Wizard створює лише розрядні хелпери), тому
-   * замість вигаданих цифр — чесна підказка.
+   * проханням користувача. Обидва тепер мають дзеркальні сенсори з Setup
+   * Wizard (capacity_*, charge_* — Ah; discharge_time_*, charge_time_* —
+   * час, у годинах з history_stats). Розряд додатково показує ту саму
+   * щоденну історію (кілька днів), що вже є у вкладці "Інформація". Якщо
+   * для Заряду сенсори ще не створені (старіший конфіг) — чесна підказка
+   * замість вигаданих цифр.
    */
   _renderStatsPane() {
     const statsSections = this._statsSections || (this._statsSections = { discharge: true, charge: false });
@@ -2030,25 +2154,44 @@ class HaBmsBleCard extends HTMLElement {
       </div>`;
     };
 
-    const ahCards = [
+    const dischargeAhCards = [
       ahCard(this._t("stats_today"), "capacity_daily"),
       ahCard(this._t("stats_week"), "capacity_weekly"),
       ahCard(this._t("stats_month"), "capacity_monthly"),
       ahCard(this._t("stats_total"), "capacity_total"),
     ].filter(Boolean).join("");
-    const timeCards = [
+    const dischargeTimeCards = [
       timeCard(this._t("stats_today"), "discharge_time_daily"),
       timeCard(this._t("stats_week"), "discharge_time_weekly"),
       timeCard(this._t("stats_month"), "discharge_time_monthly"),
     ].filter(Boolean).join("");
 
-    const dischargeBody = ahCards || timeCards || this._e("capacity_daily")
+    const dischargeBody = dischargeAhCards || dischargeTimeCards
       ? `
-        ${ahCards ? `<h2 class="section-title">${this._t("stats_ah_used")}</h2><div class="usage-grid">${ahCards}</div>` : ""}
-        ${timeCards ? `<h2 class="section-title">${this._t("stats_discharge_duration")}</h2><div class="usage-grid">${timeCards}</div>` : ""}
+        ${dischargeAhCards ? `<h2 class="section-title">${this._t("stats_ah_used")}</h2><div class="usage-grid">${dischargeAhCards}</div>` : ""}
+        ${dischargeTimeCards ? `<h2 class="section-title">${this._t("stats_discharge_duration")}</h2><div class="usage-grid">${dischargeTimeCards}</div>` : ""}
         ${this._renderHistoryBars()}
       `
       : `<p class="bms-muted">${this._t("cells_no_data")}</p>`;
+
+    const chargeAhCards = [
+      ahCard(this._t("stats_today"), "charge_daily"),
+      ahCard(this._t("stats_week"), "charge_weekly"),
+      ahCard(this._t("stats_month"), "charge_monthly"),
+      ahCard(this._t("stats_total"), "charge_total"),
+    ].filter(Boolean).join("");
+    const chargeTimeCards = [
+      timeCard(this._t("stats_today"), "charge_time_daily"),
+      timeCard(this._t("stats_week"), "charge_time_weekly"),
+      timeCard(this._t("stats_month"), "charge_time_monthly"),
+    ].filter(Boolean).join("");
+
+    const chargeBody = chargeAhCards || chargeTimeCards
+      ? `
+        ${chargeAhCards ? `<h2 class="section-title">${this._t("stats_ah_used")}</h2><div class="usage-grid">${chargeAhCards}</div>` : ""}
+        ${chargeTimeCards ? `<h2 class="section-title">${this._t("stats_charge_duration")}</h2><div class="usage-grid">${chargeTimeCards}</div>` : ""}
+      `
+      : `<p class="bms-muted">${this._t("stats_charge_unavailable")}</p>`;
 
     return `
       <details class="info-accordion-section" data-stats-section="discharge"${statsSections.discharge ? " open" : ""}>
@@ -2061,7 +2204,7 @@ class HaBmsBleCard extends HTMLElement {
       <details class="info-accordion-section" data-stats-section="charge"${statsSections.charge ? " open" : ""}>
         <summary class="info-accordion-title">${this._t("stats_charge_title")}</summary>
         <div class="info-accordion-body">
-          <p class="bms-muted">${this._t("stats_charge_unavailable")}</p>
+          ${chargeBody}
         </div>
       </details>`;
   }
@@ -3042,6 +3185,7 @@ if (typeof module !== "undefined" && module.exports) {
     secondsToHuman,
     estimateEtaSeconds,
     dischargeOnlyTemplate,
+    chargeOnlyTemplate,
     cellVoltageFraction,
     activeBalancingCells,
     moreInfoAttr,

@@ -19,6 +19,7 @@ const {
   fmt,
   secondsToHuman,
   dischargeOnlyTemplate,
+  chargeOnlyTemplate,
   cellVoltageFraction,
   activeBalancingCells,
   moreInfoAttr,
@@ -276,6 +277,28 @@ test("Setup Wizard fix: інтегрування dischargeOnlyTemplate не да
   // бути близькою до нуля або додатною) — саме тому capacity_total був
   // невірний до фіксу.
   assert.notEqual(naiveSignedSum, dischargeOnlySum);
+});
+
+test("chargeOnlyTemplate: дзеркало dischargeOnlyTemplate для заряду", () => {
+  assert.equal(chargeOnlyTemplate(27.8), 27.8, "заряд (додатне) лишається як є");
+  assert.equal(chargeOnlyTemplate(368), 368);
+  assert.equal(chargeOnlyTemplate(0), 0);
+  assert.equal(chargeOnlyTemplate(-16.8), 0, "розряд (від'ємне) дає 0");
+  assert.equal(chargeOnlyTemplate(-222), 0);
+});
+
+test("chargeOnlyTemplate + dischargeOnlyTemplate: жодного подвійного обліку і жодної втрати " +
+  "(кожен сирий зразок потрапляє рівно в одну з двох накопичених сум)", () => {
+  const samples = [-16.8, -16.8, -16.8, 27.8, 27.8, 0];
+  const chargeSum = samples.reduce((sum, v) => sum + chargeOnlyTemplate(v), 0);
+  const dischargeSum = samples.reduce((sum, v) => sum + dischargeOnlyTemplate(v), 0);
+  const naiveAbsSum = samples.reduce((sum, v) => sum + Math.abs(v), 0);
+
+  // Кожен зразок або цілком у charge, або цілком у discharge (0 в обидва) —
+  // тому сума модулів charge+discharge дорівнює сумі модулів сирих значень.
+  assert.equal(chargeSum + dischargeSum, naiveAbsSum);
+  assert.equal(chargeSum, 27.8 * 2);
+  assert.equal(dischargeSum, 16.8 * 3);
 });
 
 test("activeBalancingCells: розбирає bitmask з атрибута 'cells' balancer (BMS_BLE-HA), символ '1' на позиції i = активна комірка i+1", () => {
