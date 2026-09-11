@@ -2507,8 +2507,6 @@ class HaBmsBleCard extends HTMLElement {
             <div class="functions-grid">${funcGrid}</div>
           </div>
         </details>
-
-        ${this._renderHistoryBars()}
         </div>
 
         <div class="bms-tab-pane ${activeTab === "stats" ? "active" : ""}" data-pane="stats">

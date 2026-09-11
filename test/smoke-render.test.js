@@ -530,3 +530,26 @@ console.log("Discovered:", Object.keys(discovered).sort().join(", "));
   console.log("Statistics tab (discharge/charge sections) regression test passed.");
 }
 
+// --- "Історія використання по днях" (статистика використання) має
+// лишитись ТІЛЬКИ у вкладці "Статистика" — з вкладки "Інформація" її
+// прибрано повністю (ні даних, ні заголовка секції) за проханням
+// користувача. ---
+{
+  const card = Object.create(mod.HaBmsBleCard.prototype);
+  card._config = { entities: {} };
+  card._hass = { ...mockHass, states: { ...mockHass.states, "sensor.cap_daily": { state: "3.5" } } };
+  card._resolvedEntities = { ...mod.autoDiscoverEntities(mockHass, deviceId), capacity_daily: "sensor.cap_daily" };
+  card._lang = "uk";
+
+  const html = card._renderFullView();
+  const infoPane = html.match(/data-pane="info">([\s\S]*?)<div class="bms-tab-pane[^>]*data-pane="stats"/);
+  const statsPane = html.match(/data-pane="stats">([\s\S]*?)<div class="bms-tab-pane[^>]*data-pane="settings"/);
+  assert.ok(infoPane, "панель Інформація знайдена");
+  assert.ok(statsPane, "панель Статистика знайдена");
+  assert.ok(!infoPane[1].includes("Історія використання по днях"), "у вкладці Інформація немає статистики використання (ні заголовка, ні даних)");
+  assert.ok(!infoPane[1].includes("history-box"), "у вкладці Інформація немає графіка історії використання");
+  assert.ok(statsPane[1].includes("Історія використання по днях"), "у вкладці Статистика статистика використання лишилась");
+
+  console.log("Usage-history section removed from Info tab, kept in Statistics tab — regression test passed.");
+}
+
