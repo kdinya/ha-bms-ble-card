@@ -556,7 +556,54 @@ console.log("Discovered:", Object.keys(discovered).sort().join(", "));
   console.log("Statistics tab (period selector + discharge/charge sections) regression test passed.");
 }
 
-// --- Вибір періоду статистики (stats-period-bar) і графік (history-box)
+// --- Регресія: recorder/statistics_during_period без явного "types" міг
+// не повертати "change", і код падав на "сирий" стан (весь накопичений
+// Ah за все життя лічильника) як ніби це дельта за одну годину/день —
+// звідси нереальні цифри. Перевіряємо: (1) types запитується явно;
+// (2) при відсутньому change коректно береться дельта сусідніх sum, а не
+// сирий state; (3) сирий state НІКОЛИ не потрапляє в суму як є.
+// (Промис, а не top-level await — файл лишається звичайним CommonJS.) ---
+const _statsWsRegressionPromise = (async () => {
+  const card = Object.create(mod.HaBmsBleCard.prototype);
+  let capturedRequest = null;
+  card._hass = {
+    states: { "sensor.cap_total": { state: "15230.4" } },
+    callWS: async (req) => {
+      capturedRequest = req;
+      // recorder навмисно НЕ повертає "change" (як буває без явного types) —
+      // лише сирий накопичений "state"/"sum". Дельта має братись із sum.
+      return {
+        "sensor.cap_total": [
+          { start: "2026-09-08T00:00:00Z", sum: 15100.0, state: 15100.0 },
+          { start: "2026-09-09T00:00:00Z", sum: 15115.0, state: 15115.0 },
+          { start: "2026-09-10T00:00:00Z", sum: 15130.4, state: 15130.4 },
+        ],
+      };
+    },
+  };
+  card._resolvedEntities = { capacity_total: "sensor.cap_total" };
+  card._render = () => {};
+  card._statsPeriod = "week";
+  await card._maybeFetchStatsPeriod();
+
+  assert.ok(Array.isArray(capturedRequest.types) && capturedRequest.types.includes("change") && capturedRequest.types.includes("sum"),
+    "явно запитуємо types (change/sum), щоб recorder гарантовано повернув дельту, а не тільки сирий стан");
+
+  const d = card._statsData.discharge;
+  assert.ok(d.sum < 100, `сума за тиждень має бути реалістичною дельтою (~30 Ah), а не сирим станом 15230: отримали ${d.sum}`);
+  // Перший бакет: попередній sum невідомий (до початку діапазону) → 0, а не сирий state.
+  assert.strictEqual(d.points[0].v, 0, "для першого бакету без опорного sum беремо 0, а не сирий state 15100");
+  assert.ok(Math.abs(d.points[1].v - 15.0) < 0.01, "друга точка = дельта sum (15115.0-15100.0=15.0), не сирий стан");
+  assert.ok(Math.abs(d.points[2].v - 15.4) < 0.01, "третя точка = дельта sum (15130.4-15115.0=15.4), не сирий стан");
+
+  console.log("Statistics WS query regression (change/sum, never raw state, as bucket delta) test passed.");
+})();
+_statsWsRegressionPromise.catch((err) => {
+  console.error(err);
+  process.exitCode = 1;
+});
+
+
 // мають лишитись ТІЛЬКИ у вкладці "Статистика" — у вкладці "Інформація"
 // їх немає взагалі (ні заголовка, ні даних) за проханням користувача. ---
 {

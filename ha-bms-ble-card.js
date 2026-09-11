@@ -2304,6 +2304,8 @@ class HaBmsBleCard extends HTMLElement {
     `;
   }
 
+  /** Графік — саме крива (SVG polyline + заливка під нею), а не стовпчики:
+   *  користувач явно просив "графіки у вигляді кривої". */
   _renderStatsChart(series, groupBy) {
     const points = (series && series.points) || [];
     if (!points.length) return "";
@@ -2322,26 +2324,52 @@ class HaBmsBleCard extends HTMLElement {
       if (groupBy === "month") return d.getMonth() === nowKey.getMonth() && d.getFullYear() === nowKey.getFullYear();
       return d.toDateString() === nowKey.toDateString();
     };
-    // Не більше ~31 стовпчика, щоб графік не перетворився на кашу — за
+    // Не більше ~31 точки, щоб крива не перетворилась на кашу — за
     // потреби рівномірно проріджуємо (для custom-діапазонів на пів року+).
-    const maxBars = 31;
+    const maxPoints = 31;
     let shown = points;
-    if (shown.length > maxBars) {
-      const step = Math.ceil(shown.length / maxBars);
+    if (shown.length > maxPoints) {
+      const step = Math.ceil(shown.length / maxPoints);
       shown = points.filter((_, i) => i % step === 0 || i === points.length - 1);
     }
-    const cols = shown.map((p) => `
-      <div class="bar-col">
-        <div class="bar-val">${p.v >= 10 ? Math.round(p.v) : fmt(p.v, 1)}</div>
-        <div class="bar ${isCurrent(p.t) ? "today" : ""}" style="height:${Math.max(2, (p.v / maxV) * 100).toFixed(0)}%"></div>
-        <div class="bar-date ${isCurrent(p.t) ? "today" : ""}">${label(p.t)}</div>
-      </div>`).join("");
+
+    const W = 700, H = 220, padL = 4, padR = 4, padT = 14, padB = 30;
+    const innerW = W - padL - padR, innerH = H - padT - padB;
+    const n = shown.length;
+    const xAt = (i) => padL + (n <= 1 ? innerW / 2 : (i / (n - 1)) * innerW);
+    const yAt = (v) => padT + innerH - (v / maxV) * innerH;
+
+    const coords = shown.map((p, i) => [xAt(i), yAt(p.v)]);
+    const linePath = coords.map(([x, y], i) => `${i === 0 ? "M" : "L"}${x.toFixed(1)} ${y.toFixed(1)}`).join(" ");
+    const areaPath = `${linePath} L${coords[coords.length - 1][0].toFixed(1)} ${(padT + innerH).toFixed(1)} L${coords[0][0].toFixed(1)} ${(padT + innerH).toFixed(1)} Z`;
+
+    // Підписи по осі X — не для кожної точки (замало місця), а через крок,
+    // щоб лишалось читабельно навіть при 31 точці.
+    const labelStep = Math.max(1, Math.ceil(n / 8));
+    const dots = coords.map(([x, y], i) => {
+      const p = shown[i];
+      const cur = isCurrent(p.t);
+      const showLabel = i % labelStep === 0 || i === n - 1;
+      return `
+        <circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${cur ? 5 : 3.5}" class="stats-curve-dot${cur ? " today" : ""}">
+          <title>${label(p.t)}: ${fmt(p.v, 2)} Ah</title>
+        </circle>
+        ${showLabel ? `<text x="${x.toFixed(1)}" y="${H - 10}" class="stats-curve-xlabel${cur ? " today" : ""}" text-anchor="middle">${label(p.t)}</text>` : ""}`;
+    }).join("");
+
     return `
       <div class="history-box">
-        <div class="history-chart">
-          <div class="yaxis"><span>${fmt(maxV, 1)} Ah</span><span>${fmt(maxV / 2, 1)} Ah</span><span>0 Ah</span></div>
-          ${cols}
-        </div>
+        <svg class="stats-curve" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="${fmt(series.sum, 1)} Ah">
+          <line x1="${padL}" y1="${padT}" x2="${W - padR}" y2="${padT}" class="stats-curve-grid"/>
+          <line x1="${padL}" y1="${(padT + innerH / 2).toFixed(1)}" x2="${W - padR}" y2="${(padT + innerH / 2).toFixed(1)}" class="stats-curve-grid"/>
+          <line x1="${padL}" y1="${padT + innerH}" x2="${W - padR}" y2="${padT + innerH}" class="stats-curve-grid"/>
+          <text x="${padL + 2}" y="${padT - 3}" class="stats-curve-ylabel">${fmt(maxV, 1)} Ah</text>
+          <text x="${padL + 2}" y="${(padT + innerH / 2 - 3).toFixed(1)}" class="stats-curve-ylabel">${fmt(maxV / 2, 1)} Ah</text>
+          <text x="${padL + 2}" y="${padT + innerH - 3}" class="stats-curve-ylabel">0 Ah</text>
+          <path d="${areaPath}" class="stats-curve-area"/>
+          <path d="${linePath}" class="stats-curve-line"/>
+          ${dots}
+        </svg>
       </div>`;
   }
 
@@ -2373,16 +2401,33 @@ class HaBmsBleCard extends HTMLElement {
         end_time: end.toISOString(),
         statistic_ids: ids,
         period: groupBy,
+        // Без явного types recorder іноді не повертає "change" — тоді
+        // код мовчки падав на "сирий" стан (напр. весь накопичений
+        // Ah за все життя лічильника) як ніби це дельта за одну
+        // годину/день, звідси й нереальні цифри. Явно просимо все, що
+        // може знадобитись для правильного підрахунку приросту.
+        types: ["change", "sum", "mean", "min", "max", "state"],
       });
       const buildSeries = (entityId) => {
         if (!entityId) return { points: [], sum: 0 };
         const rows = (result && result[entityId]) || [];
+        let prevSum;
         const points = rows.map((r) => {
           let v;
-          if (Number.isFinite(r.change)) v = r.change;
-          else if (Number.isFinite(r.max) && Number.isFinite(r.min)) v = r.max - r.min;
-          else v = Number(r.state);
-          return { t: r.start, v: Number.isFinite(v) ? Math.abs(v) : 0 };
+          if (Number.isFinite(r.change)) {
+            // Офіційне поле recorder саме для приросту в цьому бакеті —
+            // коректно враховує скиди лічильника (integration-сенсор
+            // скидається в 0 при перезапуску HA).
+            v = r.change;
+          } else if (Number.isFinite(r.sum) && prevSum !== undefined) {
+            v = r.sum - prevSum;
+          } else {
+            // Ніколи не показуємо "сирий" стан/суму як дельту бакету —
+            // саме це й давало нереальні цифри раніше.
+            v = 0;
+          }
+          if (Number.isFinite(r.sum)) prevSum = r.sum;
+          return { t: r.start, v: Number.isFinite(v) ? Math.max(0, v) : 0 };
         });
         const sum = points.reduce((s, p) => s + p.v, 0);
         return { points, sum };
@@ -2879,8 +2924,14 @@ class HaBmsBleCard extends HTMLElement {
         if (role === "from") this._statsCustomFrom = val;
         else if (role === "to") this._statsCustomTo = val;
         this._statsData = null;
-        this._render();
-        this._maybeFetchStatsPeriod();
+        // Відкладаємо перерендер на наступний тік: якщо перебудувати
+        // innerHTML картки синхронно всередині обробника "change", у
+        // деяких браузерах (особливо мобільних) це зриває ще не
+        // доанімований нативний календар — він самовільно закривався.
+        setTimeout(() => {
+          this._render();
+          this._maybeFetchStatsPeriod();
+        }, 0);
       });
     });
     this.querySelectorAll("details.info-accordion-section[data-section]").forEach((el) => {
@@ -3180,27 +3231,22 @@ class HaBmsBleCard extends HTMLElement {
 
         .history-box {
           background:var(--panel); border:1px solid var(--border); border-radius:16px;
-          padding:20px 20px 12px; margin-bottom:24px;
+          padding:16px 12px 10px; margin-bottom:24px;
         }
         .muted-note {
           background:var(--panel); border:1px solid var(--border); border-radius:16px;
           padding:14px 16px; margin-bottom:24px; font-size:12.5px; color:var(--muted-2);
           line-height:1.4;
         }
-        .history-chart {
-          display:flex; align-items:flex-end; gap:18px; height:170px; margin-top:10px;
-          position:relative; padding-left:32px;
-        }
-        .yaxis {
-          position:absolute; left:0; top:0; bottom:24px; display:flex; flex-direction:column;
-          justify-content:space-between; font-size:11px; color:var(--muted-2);
-        }
-        .bar-col { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:flex-end; height:100%; gap:6px; }
-        .bar-val { font-size:12.5px; color:var(--muted); }
-        .bar { width:60%; border-radius:6px 6px 0 0; background:#3d4a5a; min-height:4px; }
-        .bar.today { background:var(--green); }
-        .bar-date { font-size:12px; color:var(--muted-2); margin-top:6px; }
-        .bar-date.today { color:var(--green); }
+        .stats-curve { display:block; width:100%; height:220px; }
+        .stats-curve-grid { stroke:var(--border); stroke-width:1; }
+        .stats-curve-ylabel { font-size:10px; fill:var(--muted-2); }
+        .stats-curve-xlabel { font-size:10px; fill:var(--muted-2); }
+        .stats-curve-xlabel.today { fill:var(--green); font-weight:700; }
+        .stats-curve-area { fill:var(--green); opacity:.14; stroke:none; }
+        .stats-curve-line { fill:none; stroke:var(--green); stroke-width:2.5; stroke-linejoin:round; stroke-linecap:round; }
+        .stats-curve-dot { fill:var(--panel); stroke:var(--green); stroke-width:2; }
+        .stats-curve-dot.today { fill:var(--green); stroke:var(--green); }
 
         .diag-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; }
         .diag-card {
