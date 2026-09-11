@@ -3074,7 +3074,7 @@ class HaBmsBleCard extends HTMLElement {
           flex:1; padding:12px 14px; border-radius:12px; border:1px solid var(--border);
           background:var(--panel); color:var(--text); font-size:14px; font-weight:600; cursor:pointer;
         }
-        .lang-btn.active { border-color:#1D9E75; background:#1f3d29; color:#1D9E75; }
+        .lang-btn.active { background:rgba(56,150,231,0.12); color:#4fb3f6; border-color:rgba(79,179,246,0.35); }
 
         .bms-mini { cursor:pointer; }
         .bms-overlay {
