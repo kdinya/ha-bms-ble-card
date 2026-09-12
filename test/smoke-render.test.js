@@ -36,6 +36,51 @@ assert.ok(mod.HaBmsBleCardEditor, "HaBmsBleCardEditor exported");
 assert.strictEqual(mod.fmt(13.24, 2, " V"), "13.24 V");
 assert.ok(mod.secondsToHuman(45000).includes("год"));
 
+// fmtWh: менше 1 кВт·год -> Вт-години (без десяткових), інакше -> кВт-години (2 знаки)
+assert.strictEqual(mod.fmtWh(350), "350 Wh");
+assert.strictEqual(mod.fmtWh(999), "999 Wh");
+assert.strictEqual(mod.fmtWh(1000), "1.00 kWh");
+assert.strictEqual(mod.fmtWh(2543), "2.54 kWh");
+console.log("fmtWh threshold (Wh below 1 kWh, kWh above) test passed.");
+
+// statsPeriodRange("yesterday"): рівно попередня доба (00:00 вчора .. 00:00 сьогодні)
+{
+  const { start, end, groupBy } = mod.statsPeriodRange("yesterday");
+  const now = new Date();
+  const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  assert.strictEqual(end.getTime(), todayMidnight.getTime(), "кінець періоду \"вчора\" = опівночі сьогодні");
+  assert.strictEqual(todayMidnight.getTime() - start.getTime(), 24 * 3600 * 1000, "\"вчора\" триває рівно 24 години");
+  assert.strictEqual(groupBy, "hour", "\"вчора\" групується погодинно");
+  console.log("statsPeriodRange(\"yesterday\") regression test passed.");
+}
+
+// fetchLoadChargeSeconds: простій (|струм| <= порогу) не рахується ні в
+// розряд, ні в заряд — саме те, що користувач вимагав явно ("!!!").
+const _idleExclusionPromise = (async () => {
+  const start = new Date("2026-09-10T00:00:00Z");
+  const end = new Date("2026-09-10T04:00:00Z");
+  const hass = {
+    callWS: async () => ({
+      "sensor.current": [
+        { s: "-5.0", lu: Math.floor(new Date("2026-09-10T00:00:00Z").getTime() / 1000) }, // 1г розряд
+        { s: "0.01", lu: Math.floor(new Date("2026-09-10T01:00:00Z").getTime() / 1000) }, // 1г простій (майже 0)
+        { s: "3.0", lu: Math.floor(new Date("2026-09-10T02:00:00Z").getTime() / 1000) }, // 1г заряд
+        { s: "0", lu: Math.floor(new Date("2026-09-10T03:00:00Z").getTime() / 1000) }, // 1г простій (точний 0)
+      ],
+    }),
+  };
+  const res = await mod.fetchLoadChargeSeconds(hass, "sensor.current", start, end);
+  assert.ok(Math.abs(res.dischargeSeconds - 3600) < 1, `розряд має бути рівно 1г (3600с), отримали ${res.dischargeSeconds}`);
+  assert.ok(Math.abs(res.chargeSeconds - 3600) < 1, `заряд має бути рівно 1г (3600с), отримали ${res.chargeSeconds}`);
+  // Разом розряд+заряд = 2г з 4г діапазону — решта 2г простою свідомо не порахована ні туди, ні сюди.
+  assert.ok(res.dischargeSeconds + res.chargeSeconds < 4 * 3600 - 1, "простій (2 год) не порахований ні в розряд, ні в заряд");
+  console.log("fetchLoadChargeSeconds idle-exclusion (\"в режимі простою нічого не рахуємо\") test passed.");
+})();
+_idleExclusionPromise.catch((err) => {
+  console.error(err);
+  process.exitCode = 1;
+});
+
 const etaCharge = mod.estimateEtaSeconds({
   soc: 81, current: 16.8, designAh: 140, storedWh: 1786, packVoltage: 13.24, charging: true,
 });
@@ -497,17 +542,19 @@ console.log("Discovered:", Object.keys(discovered).sort().join(", "));
   card._hass = {
     states: {
       "sensor.cap_total": { state: "15230" },
-      "sensor.dis_daily": { state: "3.5" },
+      "sensor.current": { state: "-4.2" },
     },
   };
   card._resolvedEntities = {
     capacity_total: "sensor.cap_total",
-    discharge_time_daily: "sensor.dis_daily",
+    current: "sensor.current",
   };
   card._lang = "uk";
   card._statsPeriod = "today";
   card._statsData = {
     loading: false, error: false, period: "today", groupBy: "hour",
+    duration: { dischargeSeconds: 3.5 * 3600, chargeSeconds: 0 },
+    durationAllTime: { dischargeSeconds: 128 * 3600, chargeSeconds: 96 * 3600 },
     discharge: { sum: 42.5, points: [{ t: new Date().toISOString(), v: 42.5 }] },
     charge: { sum: 0, points: [] },
     avgVoltage: 52,
@@ -524,6 +571,9 @@ console.log("Discovered:", Object.keys(discovered).sort().join(", "));
   assert.match(html, /42\.5<\/span><span class="p">Ah/, "сума Ah за обраний період показує реальне значення");
   assert.match(html, /class="usage-grid stats-summary-grid"/, "використано .usage-grid для підсумкових карток статистики");
   assert.match(html, /stats_wh_approx|≈ енергія/, "показано наближену оцінку Вт-годин (Ah × середня напруга)");
+  assert.match(html, /3 год 30 хв/, "час під навантаженням за обраний період показано (3.5 год)");
+  assert.match(html, /128 год/, "час під навантаженням за весь час показано");
+  assert.match(html, /За весь час/, "підпис \"за весь час\" присутній для часу під навантаженням");
   assert.match(html, /Статистика заряду поки не налаштована/, "у Заряді — чесна підказка про відсутність сенсорів, без вигаданих цифр");
   assert.ok(!/Заряд[\s\S]{0,300}fill="#20df14"/.test(html), "жодних вигаданих значень у секції Заряд");
 
@@ -604,8 +654,10 @@ _statsWsRegressionPromise.catch((err) => {
 });
 
 
-// мають лишитись ТІЛЬКИ у вкладці "Статистика" — у вкладці "Інформація"
-// їх немає взагалі (ні заголовка, ні даних) за проханням користувача. ---
+// --- Вибір періоду статистики (stats-period-bar) має лишитись ТІЛЬКИ
+// у вкладці "Статистика" — у вкладці "Інформація" його немає взагалі.
+// Графіків більше немає в жодній вкладці (прибрані за проханням
+// користувача — "зараз вони відображаються фігово"). ---
 {
   const card = Object.create(mod.HaBmsBleCard.prototype);
   card._config = { entities: {} };
@@ -615,7 +667,7 @@ _statsWsRegressionPromise.catch((err) => {
   card._statsPeriod = "today";
   card._statsData = {
     loading: false, error: false, period: "today", groupBy: "hour",
-    discharge: { sum: 3.5, points: [{ t: new Date().toISOString(), v: 3.5 }] },
+    discharge: { sum: 3.5, points: [] },
     charge: { sum: 0, points: [] },
   };
 
@@ -625,10 +677,11 @@ _statsWsRegressionPromise.catch((err) => {
   assert.ok(infoPane, "панель Інформація знайдена");
   assert.ok(statsPane, "панель Статистика знайдена");
   assert.ok(!infoPane[1].includes("stats-period-bar"), "у вкладці Інформація немає вибору періоду статистики");
-  assert.ok(!infoPane[1].includes("history-box"), "у вкладці Інформація немає графіка історії використання");
   assert.ok(statsPane[1].includes("stats-period-bar"), "у вкладці Статистика є спільний вибір періоду");
-  assert.ok(statsPane[1].includes("history-box"), "у вкладці Статистика лишився графік (крива за період)");
+  assert.ok(!html.includes("stats-curve"), "графіка (кривої) більше немає ніде в картці");
+  assert.ok(statsPane[1].includes('data-period="yesterday"'), "серед кнопок періоду є \"Вчора\"");
 
-  console.log("Period selector + usage chart stay in Statistics tab only — regression test passed.");
+  console.log("Period selector stays in Statistics tab only, charts removed — regression test passed.");
+
 }
 

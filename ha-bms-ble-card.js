@@ -63,6 +63,7 @@ const I18N = {
     stats_discharge_duration: "Час під навантаженням",
     stats_charge_duration: "Час заряду",
     stats_today: "Сьогодні",
+    stats_yesterday: "Вчора",
     stats_week: "Тиждень",
     stats_month: "Місяць",
     stats_total: "Всього",
@@ -144,6 +145,7 @@ const I18N = {
     stats_discharge_duration: "Time under load",
     stats_charge_duration: "Charging time",
     stats_today: "Today",
+    stats_yesterday: "Yesterday",
     stats_week: "Week",
     stats_month: "Month",
     stats_total: "Total",
@@ -210,6 +212,15 @@ function fmtKw(watts) {
   const num = Number(watts);
   if (!Number.isFinite(num)) return "—";
   return (Math.abs(num) / 1000).toFixed(1);
+}
+
+/** Енергія (Вт-години): менше 1 кВт·год — показуємо у Вт-годинах
+ *  (без десяткових), інакше — у кВт-годинах (2 знаки). */
+function fmtWh(wh) {
+  const num = Number(wh);
+  if (!Number.isFinite(num)) return "—";
+  if (Math.abs(num) < 1000) return `${num.toFixed(0)} Wh`;
+  return `${(num / 1000).toFixed(2)} kWh`;
 }
 
 /* ----------------------------------------------------------------------
@@ -336,12 +347,18 @@ function secondsToHuman(seconds) {
  * Діапазон дат + групування для вкладки "Статистика" залежно від обраного
  * періоду. recorder/statistics_during_period сам вміє групувати по
  * годинах/днях/тижнях/місяцях за будь-який діапазон — момент вибору
- * періоду одразу дає і суму (число), і точки (крива) одним запитом.
+ * періоду одразу дає суму (число) одним запитом (без графіків — за
+ * проханням користувача).
  */
 function statsPeriodRange(period, customFrom, customTo) {
   const now = new Date();
   let start, end = now, groupBy;
-  if (period === "week") {
+  if (period === "yesterday") {
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    start = new Date(todayStart.getTime() - 24 * 3600 * 1000);
+    end = todayStart;
+    groupBy = "hour";
+  } else if (period === "week") {
     start = new Date(now.getTime() - 7 * 24 * 3600 * 1000);
     groupBy = "day";
   } else if (period === "month") {
@@ -362,6 +379,53 @@ function statsPeriodRange(period, customFrom, customTo) {
     groupBy = "hour";
   }
   return { start, end, groupBy };
+}
+
+/**
+ * Час під навантаженням / час заряду за довільний період — напряму з
+ * історії сенсора струму (WS history/history_during_period), тим самим
+ * знаком, що й Ah (від'ємний — розряд, додатний — заряд). Простій
+ * (майже нульовий струм, |I| <= CURRENT_IDLE_EPS) свідомо НЕ рахується
+ * ні в розряд, ні в заряд — на відміну від бінарного сенсора
+ * "заряджається", у якого немає окремого стану "простій".
+ */
+const CURRENT_IDLE_EPS_A = 0.05;
+async function fetchLoadChargeSeconds(hass, currentEntityId, start, end) {
+  if (!currentEntityId || !hass || typeof hass.callWS !== "function") return undefined;
+  try {
+    const result = await hass.callWS({
+      type: "history/history_during_period",
+      start_time: start.toISOString(),
+      end_time: end.toISOString(),
+      entity_ids: [currentEntityId],
+      minimal_response: true,
+      no_attributes: true,
+      significant_changes_only: false,
+    });
+    const rows = (result && result[currentEntityId]) || [];
+    if (!rows.length) return undefined;
+    const startMs = start.getTime(), endMs = end.getTime();
+    const stateOfRow = (r) => Number(r.s !== undefined ? r.s : r.state);
+    const timeOfRow = (r) => (typeof r.lu === "number" ? r.lu * 1000 : new Date(r.last_changed || r.last_updated).getTime());
+    let dischargeMs = 0, chargeMs = 0;
+    for (let i = 0; i < rows.length; i++) {
+      const t0 = timeOfRow(rows[i]);
+      if (!Number.isFinite(t0)) continue;
+      const segStart = Math.max(startMs, t0);
+      const t1 = i + 1 < rows.length ? timeOfRow(rows[i + 1]) : endMs;
+      const segEnd = Math.min(endMs, Number.isFinite(t1) ? t1 : endMs);
+      const dur = Math.max(0, segEnd - segStart);
+      if (dur <= 0) continue;
+      const v = stateOfRow(rows[i]);
+      if (!Number.isFinite(v)) continue;
+      if (v < -CURRENT_IDLE_EPS_A) dischargeMs += dur;
+      else if (v > CURRENT_IDLE_EPS_A) chargeMs += dur;
+      // |v| <= EPS — простій, свідомо нікуди не додаємо
+    }
+    return { dischargeSeconds: dischargeMs / 1000, chargeSeconds: chargeMs / 1000 };
+  } catch (e) {
+    return undefined;
+  }
 }
 
 /**
@@ -2175,52 +2239,28 @@ class HaBmsBleCard extends HTMLElement {
 
   /**
    * Вкладка "Статистика" (нижня навігація): окремо Розряд і Заряд, за
-   * проханням користувача. Обидва тепер мають дзеркальні сенсори з Setup
-   * Wizard (capacity_*, charge_* — Ah; discharge_time_*, charge_time_* —
-   * час, у годинах з history_stats). Розряд додатково показує ту саму
-   * щоденну історію (кілька днів), що вже є у вкладці "Інформація". Якщо
-   * для Заряду сенсори ще не створені (старіший конфіг) — чесна підказка
-   * замість вигаданих цифр.
+   * проханням користувача. Обидва мають дзеркальні сенсори з Setup
+   * Wizard (capacity_*, charge_* — накопичена ємність, Ah). Час під
+   * навантаженням/заряду рахується напряму з історії сенсора струму
+   * (той самий знак, що й для Ah: <0 — розряд, >0 — заряд, біля нуля —
+   * простій і НЕ рахується) за обраний період і за весь час (best
+   * effort — обмежено тим, що ще зберігає recorder). Якщо для Заряду
+   * сенсори ще не створені (старіший конфіг) — чесна підказка замість
+   * вигаданих цифр.
    */
   _renderStatsPane() {
     const statsSections = this._statsSections || (this._statsSections = { discharge: true, charge: false });
 
-    const timeCard = (label, entityKey) => {
-      const entityId = this._e(entityKey);
-      const hours = Number(stateOf(this._hass, entityId));
-      if (!entityId || !Number.isFinite(hours)) return "";
-      return `<div class="usage-card"${moreInfoAttr(entityId)}>
-        <div class="lbl">${label}</div>
-        <div class="val-row"><span class="v">${secondsToHuman(hours * 3600)}</span></div>
-      </div>`;
-    };
-
-    const dischargeTimeCards = [
-      timeCard(this._t("stats_today"), "discharge_time_daily"),
-      timeCard(this._t("stats_week"), "discharge_time_weekly"),
-      timeCard(this._t("stats_month"), "discharge_time_monthly"),
-    ].filter(Boolean).join("");
-    const chargeTimeCards = [
-      timeCard(this._t("stats_today"), "charge_time_daily"),
-      timeCard(this._t("stats_week"), "charge_time_weekly"),
-      timeCard(this._t("stats_month"), "charge_time_monthly"),
-    ].filter(Boolean).join("");
-
     const dischargeEntityId = this._e("capacity_total");
     const chargeEntityId = this._e("charge_total");
+    const hasCurrent = !!this._e("current");
 
-    const dischargeBody = dischargeEntityId || dischargeTimeCards
-      ? `
-        ${dischargeEntityId ? this._renderStatsPeriodSection("discharge") : ""}
-        ${dischargeTimeCards ? `<h2 class="section-title">${this._t("stats_discharge_duration")}</h2><div class="usage-grid">${dischargeTimeCards}</div>` : ""}
-      `
+    const dischargeBody = dischargeEntityId || hasCurrent
+      ? this._renderStatsPeriodSection("discharge")
       : `<p class="bms-muted">${this._t("cells_no_data")}</p>`;
 
-    const chargeBody = chargeEntityId || chargeTimeCards
-      ? `
-        ${chargeEntityId ? this._renderStatsPeriodSection("charge") : ""}
-        ${chargeTimeCards ? `<h2 class="section-title">${this._t("stats_charge_duration")}</h2><div class="usage-grid">${chargeTimeCards}</div>` : ""}
-      `
+    const chargeBody = chargeEntityId || hasCurrent
+      ? this._renderStatsPeriodSection("charge")
       : `<p class="bms-muted">${this._t("stats_charge_unavailable")}</p>`;
 
     return `
@@ -2247,6 +2287,7 @@ class HaBmsBleCard extends HTMLElement {
     const period = this._statsPeriod || "today";
     const periods = [
       ["today", this._t("stats_today")],
+      ["yesterday", this._t("stats_yesterday")],
       ["week", this._t("stats_week")],
       ["month", this._t("stats_month")],
       ["year", this._t("stats_year")],
@@ -2268,117 +2309,74 @@ class HaBmsBleCard extends HTMLElement {
       </div>`;
   }
 
-  /** Число (сума за період) + наближені Вт-години + крива — усе одним
-   *  запитом recorder/statistics_during_period (див. _maybeFetchStatsPeriod). */
+  /** Ah за обраний період + наближені Вт-години (Wh якщо <1 кВт·год,
+   *  інакше kWh), "за весь час" (лічильник накопиченої ємності), і час
+   *  під навантаженням/заряду — за обраний період і за весь час
+   *  (рахується напряму зі знаку струму, без урахування простою). Без
+   *  графіків — за проханням користувача. */
   _renderStatsPeriodSection(kind) {
     const entityKey = kind === "discharge" ? "capacity_total" : "charge_total";
     const entityId = this._e(entityKey);
     const data = this._statsData;
 
-    if (!data || data.loading || data.period !== (this._statsPeriod || "today")) {
+    if (!data || data.period !== (this._statsPeriod || "today")) {
       return `<p class="bms-muted">${this._t("stats_loading")}</p>`;
     }
-    if (data.error) {
-      return `<p class="muted-note">${this._t("stats_no_longterm_stats")}</p>`;
-    }
 
-    const series = data[kind] || { points: [], sum: 0 };
-    const whVal = kind === "discharge" ? data.whDischarge : data.whCharge;
-    const lifetimeTotal = Number(stateOf(this._hass, entityId));
-
-    return `
-      <div class="usage-grid stats-summary-grid">
-        <div class="usage-card"${moreInfoAttr(entityId)}>
-          <div class="lbl">${this._t("stats_period_sum")}</div>
-          <div class="val-row"><span class="v">${fmt(series.sum, 1)}</span><span class="p">Ah</span></div>
-          ${Number.isFinite(whVal) ? `<div class="val-row"><span class="v" style="font-size:14px;">${fmt(whVal / 1000, 2)}</span><span class="p">kWh</span></div>` : ""}
-        </div>
-        ${Number.isFinite(lifetimeTotal) ? `
-        <div class="usage-card"${moreInfoAttr(entityId)}>
-          <div class="lbl">${this._t("stats_lifetime_total")}</div>
-          <div class="val-row"><span class="v">${fmt(lifetimeTotal, 1)}</span><span class="p">Ah</span></div>
-        </div>` : ""}
-      </div>
-      ${Number.isFinite(whVal) ? `<p class="muted-note stats-wh-note">${this._t("stats_wh_approx")}</p>` : ""}
-      ${this._renderStatsChart(series, data.groupBy)}
-    `;
-  }
-
-  /** Графік — саме крива (SVG polyline + заливка під нею), а не стовпчики:
-   *  користувач явно просив "графіки у вигляді кривої". */
-  _renderStatsChart(series, groupBy) {
-    const points = (series && series.points) || [];
-    if (!points.length) return "";
-    const maxRaw = Math.max(0.001, ...points.map((p) => p.v));
-    const maxV = maxRaw * 1.15;
-    const label = (iso) => {
-      const d = new Date(iso);
-      if (groupBy === "hour") return `${String(d.getHours()).padStart(2, "0")}:00`;
-      if (groupBy === "month") return `${d.getMonth() + 1}.${String(d.getFullYear()).slice(2)}`;
-      return `${String(d.getDate()).padStart(2, "0")}.${String(d.getMonth() + 1).padStart(2, "0")}`;
-    };
-    const nowKey = new Date();
-    const isCurrent = (iso) => {
-      const d = new Date(iso);
-      if (groupBy === "hour") return d.getHours() === nowKey.getHours() && d.toDateString() === nowKey.toDateString();
-      if (groupBy === "month") return d.getMonth() === nowKey.getMonth() && d.getFullYear() === nowKey.getFullYear();
-      return d.toDateString() === nowKey.toDateString();
-    };
-    // Не більше ~31 точки, щоб крива не перетворилась на кашу — за
-    // потреби рівномірно проріджуємо (для custom-діапазонів на пів року+).
-    const maxPoints = 31;
-    let shown = points;
-    if (shown.length > maxPoints) {
-      const step = Math.ceil(shown.length / maxPoints);
-      shown = points.filter((_, i) => i % step === 0 || i === points.length - 1);
-    }
-
-    const W = 700, H = 220, padL = 4, padR = 4, padT = 14, padB = 30;
-    const innerW = W - padL - padR, innerH = H - padT - padB;
-    const n = shown.length;
-    const xAt = (i) => padL + (n <= 1 ? innerW / 2 : (i / (n - 1)) * innerW);
-    const yAt = (v) => padT + innerH - (v / maxV) * innerH;
-
-    const coords = shown.map((p, i) => [xAt(i), yAt(p.v)]);
-    const linePath = coords.map(([x, y], i) => `${i === 0 ? "M" : "L"}${x.toFixed(1)} ${y.toFixed(1)}`).join(" ");
-    const areaPath = `${linePath} L${coords[coords.length - 1][0].toFixed(1)} ${(padT + innerH).toFixed(1)} L${coords[0][0].toFixed(1)} ${(padT + innerH).toFixed(1)} Z`;
-
-    // Підписи по осі X — не для кожної точки (замало місця), а через крок,
-    // щоб лишалось читабельно навіть при 31 точці.
-    const labelStep = Math.max(1, Math.ceil(n / 8));
-    const dots = coords.map(([x, y], i) => {
-      const p = shown[i];
-      const cur = isCurrent(p.t);
-      const showLabel = i % labelStep === 0 || i === n - 1;
+    const ahBlockHtml = (() => {
+      if (!entityId) {
+        // Ah-сенсори (Setup Wizard) ще не створені — чесна підказка саме
+        // для Ah, але це не блокує показ часу під навантаженням/заряду
+        // нижче (він рахується напряму зі струму, без Ah-сенсорів).
+        return kind === "charge" ? `<p class="muted-note">${this._t("stats_charge_unavailable")}</p>` : "";
+      }
+      if (data.error) return `<p class="muted-note">${this._t("stats_no_longterm_stats")}</p>`;
+      const series = data[kind] || { sum: 0 };
+      const whVal = kind === "discharge" ? data.whDischarge : data.whCharge;
+      const lifetimeTotal = Number(stateOf(this._hass, entityId));
       return `
-        <circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${cur ? 5 : 3.5}" class="stats-curve-dot${cur ? " today" : ""}">
-          <title>${label(p.t)}: ${fmt(p.v, 2)} Ah</title>
-        </circle>
-        ${showLabel ? `<text x="${x.toFixed(1)}" y="${H - 10}" class="stats-curve-xlabel${cur ? " today" : ""}" text-anchor="middle">${label(p.t)}</text>` : ""}`;
-    }).join("");
+        <div class="usage-grid stats-summary-grid">
+          <div class="usage-card"${moreInfoAttr(entityId)}>
+            <div class="lbl">${this._t("stats_period_sum")}</div>
+            <div class="val-row"><span class="v">${fmt(series.sum, 1)}</span><span class="p">Ah</span></div>
+            ${Number.isFinite(whVal) ? `<div class="val-row"><span class="v" style="font-size:14px;">${fmtWh(whVal)}</span></div>` : ""}
+          </div>
+          ${Number.isFinite(lifetimeTotal) ? `
+          <div class="usage-card"${moreInfoAttr(entityId)}>
+            <div class="lbl">${this._t("stats_lifetime_total")}</div>
+            <div class="val-row"><span class="v">${fmt(lifetimeTotal, 1)}</span><span class="p">Ah</span></div>
+          </div>` : ""}
+        </div>
+        ${Number.isFinite(whVal) ? `<p class="muted-note stats-wh-note">${this._t("stats_wh_approx")}</p>` : ""}`;
+    })();
 
-    return `
-      <div class="history-box">
-        <svg class="stats-curve" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="${fmt(series.sum, 1)} Ah">
-          <line x1="${padL}" y1="${padT}" x2="${W - padR}" y2="${padT}" class="stats-curve-grid"/>
-          <line x1="${padL}" y1="${(padT + innerH / 2).toFixed(1)}" x2="${W - padR}" y2="${(padT + innerH / 2).toFixed(1)}" class="stats-curve-grid"/>
-          <line x1="${padL}" y1="${padT + innerH}" x2="${W - padR}" y2="${padT + innerH}" class="stats-curve-grid"/>
-          <text x="${padL + 2}" y="${padT - 3}" class="stats-curve-ylabel">${fmt(maxV, 1)} Ah</text>
-          <text x="${padL + 2}" y="${(padT + innerH / 2 - 3).toFixed(1)}" class="stats-curve-ylabel">${fmt(maxV / 2, 1)} Ah</text>
-          <text x="${padL + 2}" y="${padT + innerH - 3}" class="stats-curve-ylabel">0 Ah</text>
-          <path d="${areaPath}" class="stats-curve-area"/>
-          <path d="${linePath}" class="stats-curve-line"/>
-          ${dots}
-        </svg>
-      </div>`;
+    const durKey = kind === "discharge" ? "dischargeSeconds" : "chargeSeconds";
+    const durPeriod = data.duration && data.duration[durKey];
+    const durAllTime = data.durationAllTime && data.durationAllTime[durKey];
+    const durationHtml = (durPeriod !== undefined || durAllTime !== undefined) ? `
+      <h2 class="section-title">${kind === "discharge" ? this._t("stats_discharge_duration") : this._t("stats_charge_duration")}</h2>
+      <div class="usage-grid stats-summary-grid">
+        ${durPeriod !== undefined ? `<div class="usage-card">
+          <div class="lbl">${this._t("stats_period_sum")}</div>
+          <div class="val-row"><span class="v">${secondsToHuman(durPeriod)}</span></div>
+        </div>` : ""}
+        ${durAllTime !== undefined ? `<div class="usage-card">
+          <div class="lbl">${this._t("stats_lifetime_total")}</div>
+          <div class="val-row"><span class="v">${secondsToHuman(durAllTime)}</span></div>
+        </div>` : ""}
+      </div>` : "";
+
+    return `${ahBlockHtml}${durationHtml}` || `<p class="bms-muted">${this._t("cells_no_data")}</p>`;
   }
 
   /**
    * Нова логіка вкладки "Статистика": один запит recorder/statistics_during_period,
    * згрупований відповідно до обраного періоду (today→hour, week/month→day,
-   * year→month, custom→auto), дає одночасно і суму (число), і точки (крива)
-   * для Розряду й Заряду. Плюс середня напруга за той самий період — з неї
-   * рахуємо наближені Вт-години (Ah × середня напруга), без нових сенсорів.
+   * year→month, custom→auto), дає суму (число, без графіків) для Розряду
+   * й Заряду. Плюс середня напруга за той самий період — з неї рахуємо
+   * наближені Вт-години (Ah × середня напруга), без нових сенсорів. Час
+   * під навантаженням/заряду рахується окремим запитом історії струму
+   * (fetchLoadChargeSeconds) — той самий період, простій не враховується.
    */
   async _maybeFetchStatsPeriod() {
     if (!this._hass || typeof this._hass.callWS !== "function") return;
@@ -2444,12 +2442,16 @@ class HaBmsBleCard extends HTMLElement {
       const discharge = buildSeries(dischargeId);
       const charge = buildSeries(chargeId);
       const avgVoltage = buildAvgVoltage(voltageId);
+      const currentId = this._e("current");
+      const duration = await fetchLoadChargeSeconds(this._hass, currentId, start, end);
       this._statsData = {
         loading: false, error: false, period, groupBy, start, end,
-        discharge, charge, avgVoltage,
+        discharge, charge, avgVoltage, duration,
+        durationAllTime: this._statsAllTimeDuration,
         whDischarge: Number.isFinite(avgVoltage) ? discharge.sum * avgVoltage : undefined,
         whCharge: Number.isFinite(avgVoltage) ? charge.sum * avgVoltage : undefined,
       };
+      this._maybeFetchStatsAllTimeDuration();
     } catch (e) {
       // recorder/statistics_during_period недоступний (немає long-term statistics) — чесна підказка, а не поламана картка
       this._statsData = { loading: false, error: true, period, groupBy };
@@ -2457,6 +2459,27 @@ class HaBmsBleCard extends HTMLElement {
       this._statsFetchInFlight = false;
       this._render();
     }
+  }
+
+  /** "За весь час" для часу під навантаженням/заряду — best effort
+   *  (обмежено тим, скільки історії ще фізично зберігає recorder;
+   *  окремого вічного лічильника годин, на відміну від Ah, немає).
+   *  Рахується один раз і кешується — не прив'язано до обраного
+   *  періоду, тож не бʼється з _statsFetchKey. */
+  _maybeFetchStatsAllTimeDuration() {
+    if (this._statsAllTimeDuration || this._statsAllTimeDurationInFlight) return;
+    const currentId = this._e("current");
+    if (!currentId || !this._hass) return;
+    this._statsAllTimeDurationInFlight = true;
+    fetchLoadChargeSeconds(this._hass, currentId, new Date(2000, 0, 1), new Date())
+      .then((res) => {
+        this._statsAllTimeDuration = res || {};
+        if (this._statsData) this._statsData = { ...this._statsData, durationAllTime: this._statsAllTimeDuration };
+      })
+      .finally(() => {
+        this._statsAllTimeDurationInFlight = false;
+        this._render();
+      });
   }
 
   _renderFullView() {
@@ -3229,24 +3252,11 @@ class HaBmsBleCard extends HTMLElement {
         .stats-summary-grid { grid-template-columns:repeat(2,1fr); }
         .stats-wh-note { margin-top:-12px; }
 
-        .history-box {
-          background:var(--panel); border:1px solid var(--border); border-radius:16px;
-          padding:16px 12px 10px; margin-bottom:24px;
-        }
         .muted-note {
           background:var(--panel); border:1px solid var(--border); border-radius:16px;
           padding:14px 16px; margin-bottom:24px; font-size:12.5px; color:var(--muted-2);
           line-height:1.4;
         }
-        .stats-curve { display:block; width:100%; height:220px; }
-        .stats-curve-grid { stroke:var(--border); stroke-width:1; }
-        .stats-curve-ylabel { font-size:10px; fill:var(--muted-2); }
-        .stats-curve-xlabel { font-size:10px; fill:var(--muted-2); }
-        .stats-curve-xlabel.today { fill:var(--green); font-weight:700; }
-        .stats-curve-area { fill:var(--green); opacity:.14; stroke:none; }
-        .stats-curve-line { fill:none; stroke:var(--green); stroke-width:2.5; stroke-linejoin:round; stroke-linecap:round; }
-        .stats-curve-dot { fill:var(--panel); stroke:var(--green); stroke-width:2; }
-        .stats-curve-dot.today { fill:var(--green); stroke:var(--green); }
 
         .diag-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; }
         .diag-card {
@@ -3382,6 +3392,7 @@ window.customCards.push({
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {
     fmt,
+    fmtWh,
     secondsToHuman,
     estimateEtaSeconds,
     dischargeOnlyTemplate,
@@ -3402,5 +3413,7 @@ if (typeof module !== "undefined" && module.exports) {
     I18N,
     jarBatterySvg,
     normalizeSoc,
+    statsPeriodRange,
+    fetchLoadChargeSeconds,
   };
 }
