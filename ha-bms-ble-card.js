@@ -2546,8 +2546,8 @@ class HaBmsBleCard extends HTMLElement {
           ${rows}
           <div class="badges-row">
             <div class="badge green"${moreInfoAttr(cellEntityIds && cellEntityIds[st.maxIdx])}><span>${t("cell_max")} ${st.max.toFixed(3)} V</span><b>C${st.maxIdx + 1}</b></div>
-            <div class="badge amber"${moreInfoAttr(cellEntityIds && cellEntityIds[st.minIdx])}><span>${t("cell_min")} ${st.min.toFixed(3)} V</span><b>C${st.minIdx + 1}</b></div>
-            <div class="badge blue"><span>Δ ${st.delta.toFixed(3)} V</span><b>${t("cell_diff")}</b></div>
+            <div class="badge blue"${moreInfoAttr(cellEntityIds && cellEntityIds[st.minIdx])}><span>${t("cell_min")} ${st.min.toFixed(3)} V</span><b>C${st.minIdx + 1}</b></div>
+            <div class="badge ${balancingOn ? "amber" : "green"}"><span>Δ ${st.delta.toFixed(3)} V</span><b>${t("cell_diff")}</b></div>
           </div>
         </div>`;
     }
@@ -3188,12 +3188,13 @@ class HaBmsBleCard extends HTMLElement {
            відступом між значенням і міткою комірки/підписом. flex-basis
            (не flex:1 1 0) дозволяє чіпам переноситись на другий рядок
            на вузьких картках замість обрізання тексту по еліпсису. */
-        .badges-row { display:flex; flex-wrap:wrap; gap:10px; margin-top:14px; }
+        .badges-row { display:flex; flex-direction:column; flex-wrap:wrap; gap:10px; margin-top:14px; }
         .badge {
-          flex:1 1 148px; min-width:0; display:flex; align-items:center; justify-content:space-between; gap:8px;
+          flex:1 1 auto; min-width:0; display:flex; align-items:center; justify-content:space-between; gap:8px;
           padding:10px 12px; border-radius:12px; font-size:13px; font-weight:600;
           background:var(--panel); border:1px solid var(--border);
         }
+        @media (min-width:420px) { .badges-row { flex-direction:row; } }
         .badge span { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
         .badge b {
           flex-shrink:0; font-size:11px; font-weight:700; padding:3px 8px; border-radius:999px; color:var(--bg);

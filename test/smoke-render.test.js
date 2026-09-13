@@ -558,7 +558,34 @@ console.log("Discovered:", Object.keys(discovered).sort().join(", "));
   assert.match(style, /\.badges-row\s*{/, "для рядка бейджів є CSS (раніше не було жодного)");
   assert.match(style, /\.badge\s*{/, "для самих бейджів є CSS (раніше не було жодного)");
 
+  // Кольори: Макс - зелений, Мін - синій, Різниця - зелена (без балансування).
+  assert.match(html, /<div class="badge green"[^>]*><span>Макс/, "Макс - зелений бейдж");
+  assert.match(html, /<div class="badge blue"[^>]*><span>Мін/, "Мін - синій бейдж");
+  assert.match(html, /<div class="badge green"><span>Δ/, "Різниця - зелена, коли балансування вимкнене");
+
   console.log("Cell max/min/diff badges spacing+styling regression test passed.");
+}
+
+// --- Різниця (badge) стає оранжевою (amber), коли активне балансування
+// комірок — той самий колір, у який пофарбовується комірка, що
+// балансується (.cell-row.balancing .cell-fill { background:var(--amber) }). ---
+{
+  const card = Object.create(mod.HaBmsBleCard.prototype);
+  card._hass = { states: { "binary_sensor.bal": { state: "on" } } };
+  card._resolvedEntities = { balancer: "binary_sensor.bal" };
+  card._config = { entities: {} };
+  card._lang = "uk";
+  card._cellStats = () => ({
+    cells: [3.212, 3.230, 3.198],
+    min: 3.198, max: 3.245, minIdx: 1, maxIdx: 0, delta: 0.047,
+  });
+  card._cellVoltageEntityIds = () => ["sensor.c1", "sensor.c2", "sensor.c3"];
+  card._cellBitmask = () => 0;
+
+  const html = card._renderFullView();
+  assert.match(html, /<div class="badge amber"><span>Δ/, "Різниця стає оранжевою під час балансування");
+
+  console.log("Diff badge turns amber during balancing — regression test passed.");
 }
 
 // --- Вкладка "Статистика": спільний вибір періоду (Сьогодні/Тиждень/
