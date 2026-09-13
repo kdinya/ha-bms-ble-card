@@ -532,6 +532,35 @@ console.log("Discovered:", Object.keys(discovered).sort().join(", "));
   console.log("Jar battery N/A (SOC unavailable) regression test passed.");
 }
 
+// --- Регресія: бейджі Макс/Мін/Різниця в секції "Комірки" (Інформація)
+// раніше не мали ЖОДНОГО CSS і склеювали "V" з міткою комірки без
+// пробілу ("3.245 VC4"). Перевіряємо: (1) значення й мітка розділені
+// окремими <span>/<b> вузлами (не голий текст впритул); (2) .badge
+// styling присутній (кольорові чіпи, а не голий текст). ---
+{
+  const card = Object.create(mod.HaBmsBleCard.prototype);
+  card._hass = { states: {} };
+  card._resolvedEntities = {};
+  card._config = { entities: {} };
+  card._lang = "uk";
+  card._cellStats = () => ({
+    cells: [3.212, 3.230, 3.198],
+    min: 3.198, max: 3.245, minIdx: 1, maxIdx: 0, delta: 0.047,
+  });
+  card._cellVoltageEntityIds = () => ["sensor.c1", "sensor.c2", "sensor.c3"];
+
+  const html = card._renderFullView();
+  assert.match(html, /<span>Макс 3\.245 V<\/span><b>C1<\/b>/, "Макс: значення й мітка комірки в окремих вузлах, без склеювання");
+  assert.match(html, /<span>Мін 3\.198 V<\/span><b>C2<\/b>/, "Мін: значення й мітка комірки в окремих вузлах");
+  assert.match(html, /<span>Δ 0\.047 V<\/span><b>Різниця<\/b>/, "Різниця: значення й підпис в окремих вузлах");
+  assert.ok(!/V<b>/.test(html), "\"V\" більше ніколи не приклеєна впритул до <b> (немає пробілу)");
+  const style = card._styles();
+  assert.match(style, /\.badges-row\s*{/, "для рядка бейджів є CSS (раніше не було жодного)");
+  assert.match(style, /\.badge\s*{/, "для самих бейджів є CSS (раніше не було жодного)");
+
+  console.log("Cell max/min/diff badges spacing+styling regression test passed.");
+}
+
 // --- Вкладка "Статистика": спільний вибір періоду (Сьогодні/Тиждень/
 // Місяць/Рік/Довільний) над Розрядом і Зарядом, одне число (сума за
 // період) + крива за один WS-запит (тут мокнуто через _statsData, бо
