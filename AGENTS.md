@@ -32,7 +32,7 @@
    - Maintain minimal diffs: touch only lines strictly related to the task without unprompted mass reformatting.
    - Never overwrite user configurations or introduce breaking changes without warning.
    - Git commits should be concise, following conventional commit format (`fix:`, `feat:`, `docs:`, `perf:`, `test:`).
-   - Commit author identity: `kdinya <tomchik2@gmail.com>`.
+   - Commit author identity: `kdinya <111563751+kdinya@users.noreply.github.com>`.
 
 ---
 
