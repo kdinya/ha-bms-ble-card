@@ -360,12 +360,23 @@ function getBmsLastUpdatedSecondsAgo(hass, entities) {
 
 function formatTimeAgo(sec, lang, t) {
   if (sec === null || sec === undefined || !Number.isFinite(sec)) return "";
-  if (sec < 10) return t("time_just_now");
-  if (sec < 60) return `${sec} ${t("time_sec_ago")}`;
+  const _t = typeof t === "function" ? t : (k) => k;
+  if (sec <= 0) return _t("time_just_now");
+  if (sec < 60) return `${sec} ${_t("time_sec_ago")}`;
   const mins = Math.floor(sec / 60);
-  if (mins < 60) return `${mins} ${t("time_min_ago")}`;
+  const s = sec % 60;
+  if (mins < 60) {
+    if (s > 0) {
+      return lang === "en" ? `${mins}m ${s}s ago` : `${mins} хв ${s} с тому`;
+    }
+    return `${mins} ${_t("time_min_ago")}`;
+  }
   const hrs = Math.floor(mins / 60);
-  return `>${hrs} ${t("time_hr_ago")}`;
+  const remMins = mins % 60;
+  if (remMins > 0) {
+    return lang === "en" ? `>${hrs}h ${remMins}m ago` : `>${hrs} год ${remMins} хв тому`;
+  }
+  return `>${hrs} ${_t("time_hr_ago")}`;
 }
 
 function stateOf(hass, entityId) {
@@ -2177,14 +2188,23 @@ class HaBmsBleCard extends HTMLElement {
     return false;
   }
 
+  _isCardVisible() {
+    if (typeof document !== "undefined" && document.hidden) return false;
+    if (this.isConnected === false) return false;
+    if (this._visible === false) return false;
+    if (!this._expanded && typeof this.offsetWidth === "number" && typeof this.offsetHeight === "number") {
+      if (this.offsetWidth === 0 && this.offsetHeight === 0) return false;
+    }
+    return true;
+  }
+
   _startClockTicker() {
     this._stopClockTicker();
     if (typeof window === "undefined") return;
     this._clockInterval = setInterval(() => {
-      if (typeof document !== "undefined" && document.hidden) return;
-      if (this._visible === false) return;
+      if (!this._isCardVisible()) return;
       this._updateClockFreshness();
-    }, 10000);
+    }, 1000);
   }
 
   _stopClockTicker() {
@@ -2263,8 +2283,9 @@ class HaBmsBleCard extends HTMLElement {
     // fullscreen-попап, який завжди вважаємо активним видом).
     if (typeof IntersectionObserver !== "undefined") {
       this._io = new IntersectionObserver((entries) => {
-        const ratio = entries[entries.length - 1].intersectionRatio;
-        const nowVisible = ratio > 0.39 || this._expanded;
+        const entry = entries[entries.length - 1];
+        const ratio = entry.intersectionRatio;
+        const nowVisible = (entry.isIntersecting || ratio > 0) || this._expanded;
         if (nowVisible === this._visible) return;
         this._visible = nowVisible;
         if (this.classList) this.classList.toggle("bms-idle", !this._visible);
@@ -2273,9 +2294,11 @@ class HaBmsBleCard extends HTMLElement {
             this._needsRender = false;
             this._maybeFetchStatsPeriod();
             this._render();
+          } else {
+            this._updateClockFreshness();
           }
         }
-      }, { threshold: [0, 0.39, 1] });
+      }, { threshold: [0, 0.05, 0.5, 1] });
       this._io.observe(this);
     }
   }

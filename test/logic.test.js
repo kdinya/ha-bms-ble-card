@@ -483,3 +483,33 @@ test("decodeProblemCode decodes bitmasks into human-readable alarm names", () =>
   assert.equal(decodeProblemCode(0x0003, tUk), "Перенапруга, Занижена напруга");
   assert.equal(decodeProblemCode(null, tUk), "");
 });
+
+test("formatTimeAgo formats seconds ago dynamically and localizes correctly", () => {
+  const { formatTimeAgo } = require("../ha-bms-ble-card.js");
+  const tUk = (k) => {
+    const dict = {
+      time_just_now: "щойно",
+      time_sec_ago: "с тому",
+      time_min_ago: "хв тому",
+      time_hr_ago: "год тому",
+    };
+    return dict[k] || k;
+  };
+  const tEn = (k) => {
+    const dict = {
+      time_just_now: "just now",
+      time_sec_ago: "s ago",
+      time_min_ago: "m ago",
+      time_hr_ago: "h ago",
+    };
+    return dict[k] || k;
+  };
+
+  assert.equal(formatTimeAgo(0, "uk", tUk), "щойно");
+  assert.equal(formatTimeAgo(1, "uk", tUk), "1 с тому");
+  assert.equal(formatTimeAgo(25, "uk", tUk), "25 с тому");
+  assert.equal(formatTimeAgo(60, "uk", tUk), "1 хв тому");
+  assert.equal(formatTimeAgo(75, "uk", tUk), "1 хв 15 с тому");
+  assert.equal(formatTimeAgo(75, "en", tEn), "1m 15s ago");
+  assert.equal(formatTimeAgo(null, "uk", tUk), "");
+});
