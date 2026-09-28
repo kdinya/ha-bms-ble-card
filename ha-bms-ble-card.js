@@ -3113,7 +3113,6 @@ class HaBmsBleCard extends HTMLElement {
     const phases = [
       { from: start, to: 0, duration: 3000, arrows: "discharge" },
       { from: 0, to: 100, duration: 3000, arrows: "charge" },
-      { from: 100, to: start, duration: 3000, arrows: "discharge" },
     ];
     let phaseIndex = -1;
     let phaseStartTs = null;
