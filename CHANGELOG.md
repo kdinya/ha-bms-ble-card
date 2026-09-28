@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.1.1] - 2026-09-28
+
+### Changed
+- **Power and current placement**: moved current and power metrics directly under the Grid node (when charging) and Load node (when discharging), cleaning up the connector line.
+- **Bluetooth status & freshness**: display real-time update freshness (e.g. `щойно`, `15с тому`) next to the Bluetooth icon.
+- **Stale data handling**: if BMS data hasn't updated for over 3 minutes, smoothly dims the card and indicates "Waiting for BMS" with the last seen duration.
+
+
 ## [1.1.0] - 2026-09-28
 
 ### Added

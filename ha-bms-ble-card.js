@@ -7,7 +7,7 @@
  * https://github.com/kdinya/ha-bms-ble-card
  */
 
-const CARD_VERSION = "1.1.0";
+const CARD_VERSION = "1.1.1";
 
 console.info(
   `%c HA-BMS-BLE-CARD %c v${CARD_VERSION} `,
@@ -83,6 +83,11 @@ const I18N = {
     lbl_temperature: "Температура",
     lbl_temp_sensors: "Датчики температури",
     lbl_problem_code: "Код помилки",
+    status_waiting_bms: "Очікування BMS",
+    time_just_now: "щойно",
+    time_sec_ago: "с тому",
+    time_min_ago: "хв тому",
+    time_hr_ago: "год тому",
     lbl_soc: "Заряд (SOC)",
     lbl_soh: "SOH",
     lbl_capacity: "Ємність",
@@ -167,6 +172,11 @@ const I18N = {
     lbl_temperature: "Temperature",
     lbl_temp_sensors: "Temperature Sensors",
     lbl_problem_code: "Problem Code",
+    status_waiting_bms: "Waiting for BMS",
+    time_just_now: "just now",
+    time_sec_ago: "s ago",
+    time_min_ago: "m ago",
+    time_hr_ago: "h ago",
     lbl_soc: "Charge (SOC)",
     lbl_soh: "SOH",
     lbl_capacity: "Capacity",
@@ -272,6 +282,33 @@ function normalizeSoc(value) {
   const n = Number(value);
   if (!Number.isFinite(n)) return null;
   return Math.max(0, Math.min(100, n));
+}
+
+
+function getBmsLastUpdatedSecondsAgo(hass, entities) {
+  if (!hass || !hass.states || !entities) return null;
+  let maxTime = 0;
+  for (const k of Object.keys(entities)) {
+    const entityId = entities[k];
+    if (!entityId || typeof entityId !== "string") continue;
+    const s = hass.states[entityId];
+    if (s && s.last_updated) {
+      const t = new Date(s.last_updated).getTime();
+      if (t > maxTime) maxTime = t;
+    }
+  }
+  if (!maxTime) return null;
+  return Math.max(0, Math.floor((Date.now() - maxTime) / 1000));
+}
+
+function formatTimeAgo(sec, lang, t) {
+  if (sec === null || sec === undefined || !Number.isFinite(sec)) return "";
+  if (sec < 10) return t("time_just_now");
+  if (sec < 60) return `${sec} ${t("time_sec_ago")}`;
+  const mins = Math.floor(sec / 60);
+  if (mins < 60) return `${mins} ${t("time_min_ago")}`;
+  const hrs = Math.floor(mins / 60);
+  return `>${hrs} ${t("time_hr_ago")}`;
 }
 
 function stateOf(hass, entityId) {
@@ -2660,34 +2697,40 @@ class HaBmsBleCard extends HTMLElement {
     const currentN = Number(current);
 
     const linkN = Number(link);
-    const signalColor = !Number.isFinite(linkN) ? "#8b96a3" : linkN >= 50 ? "#4b9bf0" : linkN >= 25 ? "#EF9F27" : "#E24B4A";
+    const secAgo = getBmsLastUpdatedSecondsAgo(this._hass, this._effectiveEntities());
+    const isStale = secAgo !== null && secAgo >= 180;
+    const signalColor = isStale ? "#8b96a3" : (!Number.isFinite(linkN) ? "#8b96a3" : linkN >= 50 ? "#4b9bf0" : linkN >= 25 ? "#EF9F27" : "#E24B4A");
     const nowStr = new Date().toLocaleTimeString(this._lang === "en" ? "en-US" : "uk-UA", { hour: "2-digit", minute: "2-digit" });
+    const timeAgoText = formatTimeAgo(secAgo, this._lang, t);
+    const clockDisplay = isStale
+      ? `${t("status_waiting_bms")}${timeAgoText ? ` (${timeAgoText})` : ""}`
+      : (timeAgoText || nowStr);
 
     return `
-      <div class="bms-full">
+      <div class="bms-full ${isStale ? "bms-stale" : ""}">
         <div class="header">
           <div>
             <h1>${this._batteryName()}</h1>
           </div>
           <div class="hdr-right"${moreInfoAttr(this._e("link_quality") || this._e("rssi"))}>
-            <span class="hdr-clock">${nowStr}</span>
-            <ha-icon icon="mdi:bluetooth" style="color:${signalColor};--mdc-icon-size:20px"></ha-icon>
+            <span class="hdr-clock ${isStale ? "stale" : ""}" title="${nowStr}">${clockDisplay}</span>
+            <ha-icon icon="mdi:bluetooth" style="color:${signalColor};--mdc-icon-size:20px" class="${isStale ? "bms-bt-stale" : ""}"></ha-icon>
           </div>
         </div>
 
         <div class="bms-tab-pane ${activeTab === "home" ? "active" : ""}" data-pane="home">
         <div class="flow-status-wrap">
         <div class="flow-row">
-          <div class="flow-node grid-node">
+          <div class="flow-node grid-node"${moreInfoAttr(this._e("current") || this._e("power"))}>
             ${gridPylonSvg()}
             <div class="node-lbl">${t("node_grid")}</div>
+            ${flowState === "charging" ? `<div class="node-val">${current !== undefined && current !== null ? `${fmt(Math.abs(currentN), 1)} A` : "—"}<br>${fmtKw(power)} кВт</div>` : ""}
           </div>
           <div class="flow-connector-wrap">
             <div class="flow-arrows">
               ${flowArrowSvg(false, flowState === "charging", "#1D9E75")}
               ${flowArrowSvg(true, flowState === "charging", "#1D9E75")}
             </div>
-            ${flowState === "charging" ? `<div class="connector-info">${current !== undefined && current !== null ? `${fmt(Math.abs(currentN), 1)} A` : "—"}<br>${fmtKw(power)} кВт</div>` : ""}
           </div>
           <div class="flow-battery"${moreInfoAttr(this._e("soc"))}>
             ${jarBatterySvg(this._uid, soc, fmt(voltage, 2))}
@@ -2697,11 +2740,11 @@ class HaBmsBleCard extends HTMLElement {
               ${flowArrowSvg(false, flowState === "discharging", "#EF9F27", true)}
               ${flowArrowSvg(true, flowState === "discharging", "#EF9F27", true)}
             </div>
-            ${flowState === "discharging" ? `<div class="connector-info">${current !== undefined && current !== null ? `${fmt(Math.abs(currentN), 1)} A` : "—"}<br>${fmtKw(power)} кВт</div>` : ""}
           </div>
-          <div class="flow-node load-node">
+          <div class="flow-node load-node"${moreInfoAttr(this._e("current") || this._e("power"))}>
             ${houseLoadSvg()}
             <div class="node-lbl">${t("node_load")}</div>
+            ${flowState === "discharging" ? `<div class="node-val">${current !== undefined && current !== null ? `${fmt(Math.abs(currentN), 1)} A` : "—"}<br>${fmtKw(power)} кВт</div>` : ""}
           </div>
         </div>
 
@@ -3143,6 +3186,13 @@ class HaBmsBleCard extends HTMLElement {
            коефіцієнтом, що й сам вузол (flexbox рахує % відносно вже
            стиснутої ширини батька), тож нічого не "розсинхронізується". */
         .node-icon { width:64%; height:auto; flex-shrink:0; }
+                .node-val {
+          font-size:clamp(8px, 2.4vw, 12px); font-weight:600; color:#1D9E75; text-align:center;
+          line-height:1.25; margin-top:2px; white-space:nowrap;
+        }
+        .load-node .node-val { color:#EF9F27; }
+        .bms-full.bms-stale { opacity:0.88; }
+        .hdr-clock.stale { color:#E24B4A; font-size:12px; }
         .node-lbl {
           font-size:clamp(9px, 3vw, 13px); font-weight:700; letter-spacing:0.4px; color:#dfe7ee; margin-top:2px;
           white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%;
@@ -3505,6 +3555,8 @@ window.customCards.push({
 // У браузері `module` не визначений, тому цей блок там просто не спрацює.
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {
+  getBmsLastUpdatedSecondsAgo,
+  formatTimeAgo,
     escapeHtml,
     fmt,
     fmtWh,
