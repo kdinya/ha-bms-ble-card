@@ -7,7 +7,7 @@
  * https://github.com/kdinya/ha-bms-ble-card
  */
 
-const CARD_VERSION = "1.0.8";
+const CARD_VERSION = "1.0.9";
 
 console.info(
   `%c HA-BMS-BLE-CARD %c v${CARD_VERSION} `,
@@ -196,6 +196,16 @@ const DEFAULT_THRESHOLDS = {
 // для візуального заповнення міні-іконки комірки (0% = lo, 100% = hi).
 // Це НЕ SOC, а суто орієнтир по напрузі клітинки.
 const CELL_VOLTAGE_RANGE = { lo: 2.5, hi: 3.65 };
+
+function escapeHtml(str) {
+  if (str === null || str === undefined) return "";
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
 
 function fmt(value, digits = 2, unit = "") {
   if (value === undefined || value === null || value === "unknown" || value === "unavailable") {
@@ -1813,7 +1823,7 @@ class HaBmsBleCardEditor extends HTMLElement {
         ${this._tab === "main" ? `
         <div>
           <label style="display:block; font-size:13px; margin-bottom:4px;">Назва (порожньо = автоматично з пристрою)</label>
-          <input id="name" type="text" value="${c.name || ""}" placeholder="Автоматично"
+          <input id="name" type="text" value="${escapeHtml(c.name || "")}" placeholder="Автоматично"
             style="width:100%; box-sizing:border-box;" />
         </div>
         <div>
@@ -2022,15 +2032,51 @@ class HaBmsBleCard extends HTMLElement {
   }
 
   set hass(hass) {
+    const oldHass = this._hass;
     this._hass = hass;
-    if (this._visible === false) return;
+    if (typeof document !== "undefined" && document.hidden) {
+      this._needsRender = true;
+      return;
+    }
+    if (this._visible === false) {
+      this._needsRender = true;
+      return;
+    }
     // Поки триває демо-анімація розряду/заряду банки (довге утримання),
     // не перерендерюємо картку на кожне оновлення hass — це стерло б
     // DOM, який анімація оновлює напряму через jarBatterySvg(). Після
     // завершення анімація сама викликає _render() і надолужує стан.
     if (this._batteryAnimating) return;
+    if (oldHass && !this._hasRelevantStateChanged(oldHass, hass)) {
+      return;
+    }
+    this._needsRender = false;
     this._maybeFetchStatsPeriod();
     this._render();
+  }
+
+  _hasRelevantStateChanged(oldHass, newHass) {
+    if (!oldHass || !newHass) return true;
+    if (oldHass.language !== newHass.language || oldHass.locale !== newHass.locale) return true;
+    if (!this._resolvedEntities) {
+      this._resolvedEntities = this._effectiveEntities();
+    }
+    const ents = this._resolvedEntities;
+    for (const val of Object.values(ents)) {
+      if (!val) continue;
+      if (Array.isArray(val)) {
+        for (const id of val) {
+          if (typeof id === "string" && oldHass.states[id] !== newHass.states[id]) {
+            return true;
+          }
+        }
+      } else if (typeof val === "string") {
+        if (oldHass.states[val] !== newHass.states[val]) {
+          return true;
+        }
+      }
+    }
+    return false;
   }
 
   getCardSize() {
@@ -2041,6 +2087,18 @@ class HaBmsBleCard extends HTMLElement {
     window.addEventListener("orientationchange", this._onOrient = () => {
       if (this._expanded) this._render();
     });
+    this._onVisibilityChange = () => {
+      if (typeof document !== "undefined" && !document.hidden) {
+        if (this._visible && this._needsRender) {
+          this._needsRender = false;
+          this._maybeFetchStatsPeriod();
+          this._render();
+        }
+      }
+    };
+    if (typeof document !== "undefined") {
+      document.addEventListener("visibilitychange", this._onVisibilityChange);
+    }
     // Коли картка закрита/поза екраном (проскрольована, згорнута
     // вкладка тощо) — зупиняємо анімації й перестаємо перерендерювати
     // на кожне оновлення hass, щоб не навантажувати ПК даремно.
@@ -2054,8 +2112,11 @@ class HaBmsBleCard extends HTMLElement {
         this._visible = nowVisible;
         if (this.classList) this.classList.toggle("bms-idle", !this._visible);
         if (this._visible) {
-          this._maybeFetchStatsPeriod();
-          this._render();
+          if (this._needsRender || !this._mounted) {
+            this._needsRender = false;
+            this._maybeFetchStatsPeriod();
+            this._render();
+          }
         }
       }, { threshold: [0, 0.39, 1] });
       this._io.observe(this);
@@ -2064,6 +2125,10 @@ class HaBmsBleCard extends HTMLElement {
 
   disconnectedCallback() {
     if (this._onOrient) window.removeEventListener("orientationchange", this._onOrient);
+    if (this._onVisibilityChange && typeof document !== "undefined") {
+      document.removeEventListener("visibilitychange", this._onVisibilityChange);
+      this._onVisibilityChange = null;
+    }
     if (this._io) { this._io.disconnect(); this._io = undefined; }
     this._stopBatteryDemoAnimation();
     if (this._batteryPressTimer) { clearTimeout(this._batteryPressTimer); this._batteryPressTimer = null; }
@@ -2096,15 +2161,16 @@ class HaBmsBleCard extends HTMLElement {
   }
 
   _batteryName() {
-    if (this._config.name && this._config.name.trim()) return this._config.name.trim();
+    if (this._config.name && this._config.name.trim()) return escapeHtml(this._config.name.trim());
     const deviceId = this._resolvedDeviceId();
     if (deviceId && this._hass && this._hass.devices) {
       const device = this._hass.devices[deviceId];
       if (device) {
         const deviceName = device.name_by_user || device.name;
-        if (deviceName) return deviceName;
+        if (deviceName) return escapeHtml(deviceName);
       }
     }
+    let result = "BMS Battery";
     const anchorEntity = this._e("soc") || this._e("voltage") || this._e("current") || this._e("power");
     if (anchorEntity && this._hass) {
       const friendly = attrOf(this._hass, anchorEntity, "friendly_name");
@@ -2112,10 +2178,10 @@ class HaBmsBleCard extends HTMLElement {
         const stripped = friendly
           .replace(/\s*(voltage|напруга|current|струм|power|потужність|soc|заряд).*$/i, "")
           .trim();
-        if (stripped) return stripped;
+        if (stripped) result = stripped;
       }
     }
-    return "BMS Battery";
+    return escapeHtml(result);
   }
 
   _cellVoltages() {
@@ -2480,6 +2546,7 @@ class HaBmsBleCard extends HTMLElement {
         this._statsAllTimeDuration = res || {};
         if (this._statsData) this._statsData = { ...this._statsData, durationAllTime: this._statsAllTimeDuration };
       })
+      .catch(() => {})
       .finally(() => {
         this._statsAllTimeDurationInFlight = false;
         this._render();
@@ -3353,7 +3420,7 @@ class HaBmsBleCard extends HTMLElement {
         <ha-card style="padding:16px;border-radius:18px;">
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;font-weight:600;">
             ${haIcon("ti-bluetooth",16)}
-            <span>${this._config.name && this._config.name.trim() ? this._config.name.trim() : "BMS Battery"}</span>
+            <span>${escapeHtml(this._config.name && this._config.name.trim() ? this._config.name.trim() : "BMS Battery")}</span>
           </div>
           <p style="font-size:13px;opacity:0.75;margin:0;">
             Не вдалося знайти акумулятор BMS_BLE-HA. Перевірте інтеграцію або оберіть пристрій у редакторі картки.
@@ -3420,6 +3487,7 @@ window.customCards.push({
 // У браузері `module` не визначений, тому цей блок там просто не спрацює.
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {
+    escapeHtml,
     fmt,
     fmtWh,
     secondsToHuman,

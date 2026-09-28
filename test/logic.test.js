@@ -394,3 +394,45 @@ test("normalizeSoc: рядкове число з пробілами по кра�
   assert.equal(normalizeSoc(0), 0);
   assert.notEqual(normalizeSoc(0), null, "0% — це валідний заряд, а не 'даних немає'");
 });
+
+test("escapeHtml sanitizes special characters", () => {
+  const { escapeHtml } = require("../ha-bms-ble-card.js");
+  assert.equal(escapeHtml("Battery <48V>"), "Battery &lt;48V&gt;");
+  assert.equal(escapeHtml('Say "Hello" & "Bye"'), "Say &quot;Hello&quot; &amp; &quot;Bye&quot;");
+  assert.equal(escapeHtml("It's fine"), "It&#039;s fine");
+  assert.equal(escapeHtml(null), "");
+  assert.equal(escapeHtml(undefined), "");
+});
+
+test("activeBalancingCells parses reversed bitmask correctly", () => {
+  const { activeBalancingCells } = require("../ha-bms-ble-card.js");
+  // String is reversed: position i corresponds to cell index i (cell i+1)
+  const set1 = activeBalancingCells("1000");
+  assert.equal(set1.has(0), true);
+  assert.equal(set1.has(1), false);
+  assert.equal(set1.size, 1);
+
+  const set2 = activeBalancingCells("10101");
+  assert.equal(set2.has(0), true);
+  assert.equal(set2.has(2), true);
+  assert.equal(set2.has(4), true);
+  assert.equal(set2.size, 3);
+
+  const setEmpty = activeBalancingCells(null);
+  assert.equal(setEmpty.size, 0);
+});
+
+test("estimateEtaSeconds handles zero/near-zero current and edge capacity", () => {
+  const { estimateEtaSeconds } = require("../ha-bms-ble-card.js");
+  // Idle current
+  assert.equal(estimateEtaSeconds({ soc: 50, current: 0.01, designAh: 100, charging: true }), undefined);
+  assert.equal(estimateEtaSeconds({ soc: 50, current: -0.01, designAh: 100, charging: false }), undefined);
+  // Missing capacity and storedWh
+  assert.equal(estimateEtaSeconds({ soc: 50, current: 10, designAh: 0, charging: true }), undefined);
+  // Valid charging
+  const etaCharge = estimateEtaSeconds({ soc: 50, current: 10, designAh: 100, charging: true });
+  assert.equal(etaCharge, 18000); // 50Ah / 10A * 3600 = 18000s
+  // Valid discharging
+  const etaDischarge = estimateEtaSeconds({ soc: 50, current: -10, designAh: 100, charging: false });
+  assert.equal(etaDischarge, 18000);
+});
