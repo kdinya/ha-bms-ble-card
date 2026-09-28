@@ -7,7 +7,7 @@
  * https://github.com/kdinya/ha-bms-ble-card
  */
 
-const CARD_VERSION = "1.0.9";
+const CARD_VERSION = "1.1.0";
 
 console.info(
   `%c HA-BMS-BLE-CARD %c v${CARD_VERSION} `,
@@ -81,6 +81,8 @@ const I18N = {
     lbl_current: "Струм",
     lbl_power: "Потужність",
     lbl_temperature: "Температура",
+    lbl_temp_sensors: "Датчики температури",
+    lbl_problem_code: "Код помилки",
     lbl_soc: "Заряд (SOC)",
     lbl_soh: "SOH",
     lbl_capacity: "Ємність",
@@ -163,6 +165,8 @@ const I18N = {
     lbl_current: "Current",
     lbl_power: "Power",
     lbl_temperature: "Temperature",
+    lbl_temp_sensors: "Temperature Sensors",
+    lbl_problem_code: "Problem Code",
     lbl_soc: "Charge (SOC)",
     lbl_soh: "SOH",
     lbl_capacity: "Capacity",
@@ -2208,10 +2212,14 @@ class HaBmsBleCard extends HTMLElement {
     const problem = stateOf(this._hass, this._e("problem"));
     const charging = stateOf(this._hass, this._e("charging"));
     const current = Number(stateOf(this._hass, this._e("current")));
-    if (problem === "on") return { label: "Проблема", icon: "ti-alert-triangle", color: "danger" };
-    if (charging === "on" || current > 0.3) return { label: "Заряджається", icon: "ti-bolt", color: "success" };
-    if (current < -0.3) return { label: "Розряджається", icon: "ti-bolt-off", color: "warning" };
-    return { label: "У простої", icon: "ti-pause", color: "neutral" };
+    const bmsMode = (attrOf(this._hass, this._e("charging"), "battery_mode") ||
+                     attrOf(this._hass, this._e("problem"), "battery_mode") || "").toLowerCase();
+    const problemCode = attrOf(this._hass, this._e("problem"), "problem_code");
+
+    if (problem === "on") return { label: "Проблема", icon: "ti-alert-triangle", color: "danger", problemCode, mode: bmsMode };
+    if (bmsMode === "charging" || charging === "on" || current > 0.3) return { label: "Заряджається", icon: "ti-bolt", color: "success", mode: bmsMode };
+    if (bmsMode === "discharging" || current < -0.3) return { label: "Розряджається", icon: "ti-bolt-off", color: "warning", mode: bmsMode };
+    return { label: "У простої", icon: "ti-pause", color: "neutral", mode: bmsMode };
   }
 
   _statusColorVars(color) {
@@ -2640,7 +2648,11 @@ class HaBmsBleCard extends HTMLElement {
     if (chrgM !== undefined) funcGrid += func("ti-plug-connected", t("func_charge_mosfet"), on(chrgM) ? t("state_enabled") : t("state_disabled"), on(chrgM) ? G : M, this._e("chrg_mosfet"));
     if (disM !== undefined) funcGrid += func("ti-plug-connected", t("func_discharge_mosfet"), on(disM) ? t("state_enabled") : t("state_disabled"), on(disM) ? G : M, this._e("dischrg_mosfet"));
     if (heat !== undefined) funcGrid += func("ti-flame", t("func_heater"), on(heat) ? t("state_enabled") : t("state_disabled"), on(heat) ? A : M, this._e("heater"));
-    if (prob !== undefined) funcGrid += func("ti-alert-triangle", t("func_problem"), on(prob) ? t("state_yes") : t("state_no"), on(prob) ? R : G, this._e("problem"));
+    if (prob !== undefined) {
+      const pCode = attrOf(this._hass, this._e("problem"), "problem_code");
+      const probText = on(prob) ? (pCode ? `${t("state_yes")} (${pCode})` : t("state_yes")) : t("state_no");
+      funcGrid += func("ti-alert-triangle", t("func_problem"), probText, on(prob) ? R : G, this._e("problem"));
+    }
     const modeLabel = status.color === "success" ? t("mode_charge") : status.color === "warning" ? t("mode_discharge") : statusLabelText(status);
     const modeTone = status.color === "success" ? G : status.color === "warning" ? A : M;
     funcGrid += func(status.icon || "ti-bolt", t("func_mode"), modeLabel, modeTone);
@@ -2699,9 +2711,10 @@ class HaBmsBleCard extends HTMLElement {
             <div class="discharge-text">
               <div class="l1">${statusLabelText(status)}</div>
               ${(() => {
+                const probPart = status.color === "danger" && status.problemCode ? `${t("lbl_problem_code")}: ${escapeHtml(String(status.problemCode))}` : "";
                 const etaPart = showEta ? `${etaLabelText}${eta.seconds !== undefined ? ": ~" + secondsToHuman(eta.seconds) : ""}` : "";
                 const balPart = balancingOn ? `${haIcon("ti-topology-star-3", 12)} ${t("balancing")}${st ? ` (${st.cells.map((v) => (Number.isFinite(v) ? v.toFixed(3) : "—")).join(", ")} В, Δ${st.delta.toFixed(3)} В)` : ""}` : "";
-                const line2 = [etaPart, balPart].filter(Boolean).join(" · ");
+                const line2 = [probPart, etaPart, balPart].filter(Boolean).join(" · ");
                 return line2 ? `<div class="l2">${line2}</div>` : "";
               })()}
             </div>
@@ -2733,6 +2746,11 @@ class HaBmsBleCard extends HTMLElement {
               addRow(t("lbl_current"), Number.isFinite(Number(current)) ? `${fmt(current, 1)} A` : undefined, this._e("current"));
               addRow(t("lbl_power"), Number.isFinite(Number(power)) ? `${fmt(power, 0)} W` : undefined, this._e("power"));
               addRow(t("lbl_temperature"), Number.isFinite(Number(temp)) ? `${fmt(temp, 1)} °C` : undefined, this._e("temperature"));
+              const tempSensors = attrOf(this._hass, this._e("temperature"), "temperature_sensors");
+              if (Array.isArray(tempSensors) && tempSensors.length > 1) {
+                const sensorsStr = tempSensors.map((v, i) => `T${i + 1}: ${fmt(v, 1)}°C`).join(" · ");
+                addRow(t("lbl_temp_sensors"), sensorsStr, this._e("temperature"));
+              }
               addRow(t("lbl_soc"), Number.isFinite(soc) ? `${fmt(soc, 0)}%` : undefined, this._e("soc"));
               addRow(t("lbl_soh"), soh !== undefined ? `${fmt(soh, 0)}%` : undefined, this._e("soh"));
               addRow(t("lbl_capacity"), Number.isFinite(designN) ? `${fmt(designN, 0)} Ah` : undefined, this._e("design_capacity"));

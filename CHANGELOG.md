@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.1.0] - 2026-09-28
+
+### Added
+- **Multi-probe temperature sensors display**: parses and displays individual sensors (`temperature_sensors` attribute from `BMS_BLE-HA`) in the Info view.
+- **Problem code visibility**: extracts `problem_code` from `binary_sensor.*_problem` and displays the hex code in status alerts and the function grid.
+- **BMS operational mode detection**: reads `battery_mode` attribute (`charging`, `discharging`, `idle`) from `BMS_BLE-HA` for more reliable status determination.
+- **Upstream documentation links**: documented upstream `patman15/BMS_BLE-HA` and `patman15/aiobmsble` references in `AGENTS.md`.
+
+
 ## 1.0.9 — Енергоефективність, ізоляція фонових оновлень та безпека
 
 - **Оптимізація `set hass`:** перевірка змін стану лише для прив'язаних до картки сутностей. Картка більше не викликає перерендер при зміні сторонніх сутностей у Home Assistant.

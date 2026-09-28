@@ -92,3 +92,20 @@ Before pushing any commit or releasing:
    ```bash
    git status
    ```
+
+## 4. Upstream Integration Reference (`BMS_BLE-HA`)
+
+- **Primary Upstream Repository**: [`patman15/BMS_BLE-HA`](https://github.com/patman15/BMS_BLE-HA)
+- **Upstream BLE Driver Library**: [`patman15/aiobmsble`](https://github.com/patman15/aiobmsble)
+- **Guideline for AI**:
+  - Whenever researching BMS behavior, entity naming conventions, translation keys, default entity states, or attributes, ALWAYS check `BMS_BLE-HA` documentation and source code first (`custom_components/bms_ble/const.py`, `sensor.py`, `binary_sensor.py`).
+  - Key upstream characteristics to always keep in mind:
+    - **Polling interval**: Default is ~30 seconds (Bluetooth LE constraints).
+    - **Disabled by default**: Several entities (`max_cell_voltage`, `min_cell_voltage`, `balancer`, `chrg_mosfet`, `dischrg_mosfet`, `heater`, `rssi`, `link_quality`) have `entity_registry_enabled_default = False` in Home Assistant and need user activation in HA device settings.
+    - **Attributes available**:
+      - `temperature_sensors`: array of individual physical temperature probe readings on the temperature sensor.
+      - `problem_code`: hex error/alarm code on `binary_sensor.*_problem`.
+      - `battery_mode`: operational mode (`charging`, `discharging`, `idle`) on `binary_sensor.*_battery_charging`.
+      - `cells`: active balancing bitmask on `binary_sensor.*_balancer`.
+      - `cell_voltages`: array of individual cell voltages on `sensor.*_delta_cell_voltage`.
+      - `cell_number`: 1-based index of extreme cells on `max_cell_voltage` and `min_cell_voltage`.

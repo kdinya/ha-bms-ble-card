@@ -436,3 +436,17 @@ test("estimateEtaSeconds handles zero/near-zero current and edge capacity", () =
   const etaDischarge = estimateEtaSeconds({ soc: 50, current: -10, designAh: 100, charging: false });
   assert.equal(etaDischarge, 18000);
 });
+
+test("I18N: uk and en dictionary keys match completely", () => {
+  const fs = require("node:fs");
+  const src = fs.readFileSync("ha-bms-ble-card.js", "utf8");
+  const ukMatch = src.match(/uk:\s*\{([\s\S]*?)\n\s*\},/);
+  const enMatch = src.match(/en:\s*\{([\s\S]*?)\n\s*\}/);
+  assert.ok(ukMatch && enMatch);
+  const ukKeys = new Set(Array.from(ukMatch[1].matchAll(/(\w+):/g)).map(m => m[1]));
+  const enKeys = new Set(Array.from(enMatch[1].matchAll(/(\w+):/g)).map(m => m[1]));
+  assert.strictEqual(ukKeys.size, enKeys.size);
+  for (const k of ukKeys) {
+    assert.ok(enKeys.has(k), `Missing en key for ${k}`);
+  }
+});
