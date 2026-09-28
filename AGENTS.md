@@ -26,6 +26,13 @@
      - `package.json` (`version`)
      - `ha-bms-ble-card.js` (`CARD_VERSION` and console log)
      - `README.md` and `CHANGELOG.md` (if applicable)
+   - **HACS & GitHub Release Requirement (Mandatory for HACS visibility)**:
+     - HACS discovers and tracks card updates strictly via GitHub Releases and Git tags. Simply pushing commits to `main` without creating a release makes new versions invisible to HACS.
+     - Whenever a new version is created:
+       1. Commit and push code changes to `main`.
+       2. Create and push an annotated Git tag matching the version (e.g., `git tag -a v1.0.9 -m "v1.0.9" && git push origin v1.0.9`).
+       3. Create a published GitHub Release for that tag with release notes describing changes.
+       4. Upload the built/root distribution file (`ha-bms-ble-card.js`) as an attached release asset so HACS and direct downloaders can fetch it reliably.
 
 5. **Source of Truth & Git Discipline**:
    - Always verify and rebase against the latest `origin/main` before making changes.
