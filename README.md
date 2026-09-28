@@ -1,422 +1,83 @@
 # ha-bms-ble-card
 
-Lovelace-картка для Home Assistant, яка візуалізує максимум параметрів з BLE
-BMS-акумуляторів (LiFePO4), інтегрованих через
-[BMS_BLE-HA](https://github.com/patman15/BMS_BLE-HA).
+[Українська версія (Ukrainian)](README_UA.md)
 
-Не прив'язана до конкретного бренду — працює з будь-якою батареєю, яку
-підтримує ця інтеграція: Redodo, LiTime, PowerQueen, JBD/Jiabaida, Daly, JK,
-ANT, Seplos, Renogy та інші.
+[![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/default)
+[![GitHub Release](https://img.shields.io/github/v/release/kdinya/ha-bms-ble-card)](https://github.com/kdinya/ha-bms-ble-card/releases)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-![Скріншот картки: головний екран із заряджанням](images/screenshot.png)
+A modern, informative, and responsive Lovelace card for Home Assistant designed to monitor and visualize batteries with BLE BMS (Redodo, LiTime, JBD, Daly, JK, Seplos, and others) integrated via [BMS_BLE-HA](https://github.com/patman15/BMS_BLE-HA).
 
-## Можливості
+![Card Screenshot](images/screenshot.png)
 
-- Два режими відображення: `widget` (компактний вигляд + fullscreen попап при
-  натисканні) і `inline` (одразу повна картка, вбудована в дашборд)
-- SOC-індикатор у вигляді справжньої форми батареї (з анімацією рівня
-  заряду, щоб рівень було краще видно), напруга/струм/потужність/температура
-- Напруга кожної комірки — окремою мініатюрною батарейкою (не смужкою),
-  з кольоровим кодуванням дисбалансу (configurable пороги). **Кількість
-  комірок картка визначає автоматично** — за довжиною масиву
-  `entities.cell_voltages` або, якщо він не заданий, за довжиною атрибута
-  `cell_voltages` сенсора `delta_cell_voltage`. Нічого прошивати вручну
-  не потрібно
-- **Назва батареї підтягується автоматично** з Device Registry (пристрій,
-  до якого прив'язана BMS_BLE-HA), з fallback на friendly_name сенсора;
-  `name` в конфізі — опційний override, а не обов'язкове поле
-- Статус BMS: заряджається/розряджається/проблема, балансир, MOSFET заряду і
-  розряду, нагрівач
-- Link quality / RSSI Bluetooth-з'єднання
-- Прогноз часу роботи (runtime) — миттєвий, "скільки лишилось за поточним
-  навантаженням"
-- **Setup Wizard прямо в редакторі картки** — кнопка сама створює:
-  - хелпери використаної ємності розряду: сьогодні/тиждень/місяць/всього
-    (скільки ємності взяли з акумулятора)
-  - хелпери отриманої ємності заряду: сьогодні/тиждень/місяць/всього
-    (дзеркально розряду — скільки ємності віддали в акумулятор)
-  - хелпери часу розряду і часу заряду: сьогодні/тиждень/місяць кожен
-    (скільки батарея пропрацювала, віддаючи/приймаючи енергію) — потрібен
-    `entities.charging`
-  і сама підставляє отримані entity_id у конфіг картки (див. розділ нижче) —
-  усе це показується окремо у вкладці "Статистика" (Розряд / Заряд)
-- Компактний layout, що адаптується під фактичну ширину картки на дашборді
-  (не під ширину вікна) — 1 колонка на вузьких картках, 2 колонки на
-  широких, без зайвого розтягування по вертикалі
-- Адаптивний layout під портретну/альбомну орієнтацію (fullscreen попап у
-  widget-режимі)
+---
 
-## Встановлення
+## Features
 
-### HACS (рекомендовано)
+- **Interactive State Animation**: Real-time flow visualization for charging and discharging, dynamic battery jar graphic, and estimated time to full charge or discharge (ETA).
+- **Per-Cell Monitoring**: Individual cell voltage bars with automatic detection of maximum, minimum, and voltage delta, plus active balancing cell highlighting.
+- **Consumption & Duration Statistics**: Dedicated tracking of capacity used (Ah) and energy (Wh/kWh), alongside active charge and discharge runtimes across periods (today, yesterday, week, month, year, custom range).
+- **Zero-Config Auto-Discovery**: Select your battery device in the visual card editor — all relevant entities, including disabled-by-default sensors, are automatically populated.
+- **One-Click Setup Wizard**: Automatically creates the required Home Assistant helper sensors directly from the visual card editor for accurate statistics.
+- **Bilingual Interface (UA / EN)**: Seamless in-card language switcher on the Settings tab without requiring a browser reload.
 
-1. HACS → три крапки у верхньому правому куті → **Custom repositories**
-2. URL: `https://github.com/kdinya/ha-bms-ble-card`, категорія **Lovelace**
-3. Знайти **BMS BLE Battery Card** і встановити
-4. Перезавантажити браузер (Ctrl+F5)
+---
 
-### Вручну
+## Installation
 
-1. Завантажити `ha-bms-ble-card.js` з останнього
-   [релізу](https://github.com/kdinya/ha-bms-ble-card/releases)
-2. Покласти у `config/www/ha-bms-ble-card.js`
-3. Settings → Dashboards → три крапки → Resources → додати
-   `/local/ha-bms-ble-card.js` як JavaScript Module
+### Method 1: HACS (Recommended)
 
-## Передумова: інтеграція BMS_BLE-HA
+1. Open **HACS** → **Integrations / Frontend** → three dots in the top right → **Custom repositories**.
+2. Enter repository URL: `https://github.com/kdinya/ha-bms-ble-card`
+3. Select Type: **Lovelace (Dashboard)** and click **Add**.
+4. Search for **BMS BLE Battery Card** and click **Download**.
+5. Refresh your browser page.
 
-Ця картка не читає Bluetooth напряму — вона відображає entities, які створює
-[BMS_BLE-HA](https://github.com/patman15/BMS_BLE-HA). Встановіть і
-налаштуйте цю інтеграцію першою (доступна в HACS за замовчуванням).
+### Method 2: Manual
 
-Після додавання батареї увімкніть diagnostic-сенсори (вимкнені за
-замовчуванням): `delta cell voltage`, `max/min cell voltage`, `link quality`,
-`RSSI`, а також binary_sensors `balancer`, `chrg/dischrg mosfet`, `heater`.
+1. Download `ha-bms-ble-card.js` from the [latest release](https://github.com/kdinya/ha-bms-ble-card/releases).
+2. Copy the file into your Home Assistant directory: `config/www/ha-bms-ble-card.js`.
+3. In Home Assistant, go to **Settings** → **Dashboards** → three dots in the top right → **Resources** and add:
+   - URL: `/local/ha-bms-ble-card.js`
+   - Resource type: `JavaScript Module`
 
-## Конфігурація картки
+---
 
-**За замовчуванням нічого вказувати не треба.** Картка сама знаходить
-пристрій інтеграції [BMS_BLE-HA](https://github.com/patman15/BMS_BLE-HA)
-і підбирає потрібні сенсори за device_class і назвою сутності. Якщо в
-системі декілька акумуляторів BMS_BLE-HA — оберіть потрібний у полі
-"Акумулятор" у візуальному редакторі картки. Мінімальний конфіг:
+## Quick Start
+
+1. Ensure your battery is connected via the [BMS_BLE-HA](https://github.com/patman15/BMS_BLE-HA) integration.
+2. Add the card via the dashboard visual editor or use YAML:
 
 ```yaml
 type: custom:ha-bms-ble-card
+device_id: YOUR_BMS_BLE_DEVICE_ID
 ```
 
-Усі `entities.*` нижче — це **ручне перевизначення**, потрібне лише якщо
-автопошук помилився (наприклад, конкретна BMS-плата публікує якийсь
-сенсор нетипово) або якщо ви хочете зібрати картку з різних, не
-пов'язаних одним пристроєм сутностей. Їх так само можна вибрати у
-візуальному редакторі картки — для кожного поля є звичний HA entity
-picker (пошук за назвою, автодоповнення), поля згруповані у розділи, що
-розгортаються. YAML нижче — те саме, просто у текстовому вигляді (зручно
-для копіювання/бекапу конфігурації):
+*(The card automatically resolves all sensors tied to the device).*
 
-```yaml
-type: custom:ha-bms-ble-card
-display_mode: widget   # або: inline
-# name: необов'язково — якщо не вказати, картка сама підтягне назву
-# з Device Registry (пристрій батареї в BMS_BLE-HA) або з friendly_name сенсора
-entities:
-  # опційно: явно вказати пристрій, якщо в системі декілька акумуляторів
-  # BMS_BLE-HA і автопошук не може обрати однозначно
-  # device_id: <id з Device Registry, зазвичай зручніше обрати в редакторі>
-  voltage: sensor.redodo_voltage
-  current: sensor.redodo_current
-  power: sensor.redodo_power
-  soc: sensor.redodo_soc
-  temperature: sensor.redodo_temperature
-  runtime: sensor.redodo_runtime
-  cycle_capacity: sensor.redodo_cycle_capacity
-  charge_cycles: sensor.redodo_charge_cycles
-  delta_cell_voltage: sensor.redodo_delta_cell_voltage
-  max_cell_voltage: sensor.redodo_max_cell_voltage
-  min_cell_voltage: sensor.redodo_min_cell_voltage
-  link_quality: sensor.redodo_link_quality
-  rssi: sensor.redodo_rssi
-  charging: binary_sensor.redodo_battery_charging
-  balancer: binary_sensor.redodo_balancer
-  chrg_mosfet: binary_sensor.redodo_chrg_mosfet
-  dischrg_mosfet: binary_sensor.redodo_dischrg_mosfet
-  heater: binary_sensor.redodo_heater
-  problem: binary_sensor.redodo_problem
-  # опційно, якщо не задано - картка сама візьме масив із cell_voltages
-  # attribute сенсора delta_cell_voltage (кількість комірок = довжина масиву,
-  # визначається автоматично в обох випадках)
-  cell_voltages:
-    - sensor.redodo_cell_1
-    - sensor.redodo_cell_2
-    - sensor.redodo_cell_3
-    - sensor.redodo_cell_4
-  # опційно - див. розділ "Сенсори споживання і часу заряду/розряду" нижче
-  capacity_daily: sensor.redodo_capacity_daily
-  capacity_weekly: sensor.redodo_capacity_weekly
-  capacity_monthly: sensor.redodo_capacity_monthly
-  capacity_total: sensor.redodo_capacity_total
-  charge_daily: sensor.redodo_charge_daily
-  charge_weekly: sensor.redodo_charge_weekly
-  charge_monthly: sensor.redodo_charge_monthly
-  charge_total: sensor.redodo_charge_total
-  discharge_time_daily: sensor.redodo_discharge_time_daily
-  discharge_time_weekly: sensor.redodo_discharge_time_weekly
-  discharge_time_monthly: sensor.redodo_discharge_time_monthly
-  charge_time_daily: sensor.redodo_charge_time_daily
-  charge_time_weekly: sensor.redodo_charge_time_weekly
-  charge_time_monthly: sensor.redodo_charge_time_monthly
-thresholds:
-  cell_delta_warning: 0.02
-  cell_delta_critical: 0.05
-```
+---
 
-Всі ключі в `entities` опційні — якщо якийсь сенсор не вказано (і його не
-вдалось підібрати автоматично), відповідний блок картки просто не
-рендериться замість помилки.
+## Statistics & Helper Sensors
 
-## Individual cell voltages без окремих сенсорів
+To accurately calculate cycle capacity and charge/discharge durations, the card relies on helper sensors. You can set them up in seconds:
+1. Open the card in **Edit** mode.
+2. Click the **Setup Wizard** button.
+3. Follow the guided prompt to automatically create and bind the helpers.
 
-BMS_BLE-HA не створює entity на кожну комірку — вони лежать в атрибуті
-`cell_voltages` сенсора `delta cell voltage`. Якщо не хочете створювати
-`cell_voltages` вручну в конфізі картки, залиште цей ключ пустим — картка сама
-прочитає масив з атрибута, і кількість мініатюрних батарейок-комірок у
-картці автоматично відповідатиме довжині цього масиву. Якщо ж хочете окремі
-сенсори (наприклад, для графіків історії в HA), додайте template sensors:
+*(If you prefer manual YAML configuration, see the [Manual Helper Setup Guide](docs/manual-helpers.md)).*
 
-```yaml
-template:
-  - sensor:
-      - name: redodo_cell_1
-        unique_id: redodo_cell_1
-        state: >-
-          {{ state_attr('sensor.redodo_delta_cell_voltage', 'cell_voltages')[0] }}
-        unit_of_measurement: "V"
-        device_class: voltage
-        state_class: measurement
-      - name: redodo_cell_2
-        unique_id: redodo_cell_2
-        state: >-
-          {{ state_attr('sensor.redodo_delta_cell_voltage', 'cell_voltages')[1] }}
-        unit_of_measurement: "V"
-        device_class: voltage
-        state_class: measurement
-      - name: redodo_cell_3
-        unique_id: redodo_cell_3
-        state: >-
-          {{ state_attr('sensor.redodo_delta_cell_voltage', 'cell_voltages')[2] }}
-        unit_of_measurement: "V"
-        device_class: voltage
-        state_class: measurement
-      - name: redodo_cell_4
-        unique_id: redodo_cell_4
-        state: >-
-          {{ state_attr('sensor.redodo_delta_cell_voltage', 'cell_voltages')[3] }}
-        unit_of_measurement: "V"
-        device_class: voltage
-        state_class: measurement
-```
+---
 
-## Сенсори споживання і часу заряду/розряду
-
-### Setup Wizard (автоматично, з редактора картки)
-
-Якщо в `entities` вже вказано `power` (або хоча б `current`), у GUI-редакторі
-картки (клацнути на картку → в нижній частині форми) з'явиться кнопка
-**"Створити сенсори заряду/розряду"**. Вона:
-
-1. Перевіряє, чи такі helper-сенсори для цієї батареї вже створювались
-   раніше (за назвою) — щоб не плодити дублікати при повторному відкритті.
-2. Створює шаблонний сенсор **лише розрядного** струму/потужності —
-   `{{ [value, 0] | min | abs }}` (0 під час заряду, додатне значення під
-   час розряду; той самий прийом, що й у [офіційному README
-   BMS_BLE-HA](https://github.com/patman15/BMS_BLE-HA#energy-dashboard-integration)
-   для інтеграції з Energy Dashboard) — і на ньому один helper
-   `integration` (Riemann sum, накопичена ємність за весь час — не
-   скидається) плюс три helpers `utility_meter` (daily/weekly/monthly) —
-   **скільки ємності взято з акумулятора**. Джерело — `entities.current`
-   (Ah), або `entities.power` (Wh), якщо `current` не вказано.
-   > У ранніх версіях майстер інтегрував сирий знакозмінний `power`
-   > напряму, через що заряд і розряд взаємно скасовувались у сумі і
-   > "накопичена ємність" рахувалась неправильно. Якщо у вас лишились
-   > старі хелпери з версій ранніх версій — видаліть їх вручну в
-   > Settings → Helpers і повторно натисніть кнопку майстра.
-3. Дзеркально — створює шаблонний сенсор **лише зарядного** струму/
-   потужності — `{{ [value, 0] | max }}` (0 під час розряду, додатне
-   значення під час заряду), і так само `integration` + три
-   `utility_meter` — **скільки ємності віддали в акумулятор**
-   (`entities.charge_daily/weekly/monthly/total`).
-4. Якщо в конфізі вказано `entities.charging` — додатково створює три
-   helpers `history_stats`, які рахують, скільки часу за останню
-   добу/тиждень/місяць сенсор заряду перебував у стані "off"
-   (тобто АКБ не заряджався, а віддавав/тримав енергію) — **скільки часу
-   АКБ пропрацював, віддаючи енергію** — і ще три для стану "on" —
-   **скільки часу АКБ заряджався**. Якщо `entities.charging` не задано,
-   ця частина пропускається з поясненням, а хелпери ємності все одно
-   створюються.
-5. Автоматично підставляє отримані `entity_id` в `entities.capacity_*`,
-   `entities.charge_*`, `entities.discharge_time_*` і
-   `entities.charge_time_*` конфіга картки.
-
-Усе це відображається окремо у вкладці "Статистика" картки — розділи
-"Розряд" і "Заряд", кожен зі своїми картками Сьогодні/Тиждень/Місяць/
-Всього.
-
-Потрібні admin-права користувача HA; без них картка покаже повідомлення і
-запропонує мануальну інструкцію нижче. Майстер користується тим самим
-внутрішнім механізмом, що і Settings → Helpers → + Add helper, тому може
-знадобитись підправити вручну, якщо структура полів зміниться в майбутніх
-версіях HA — мануальний спосіб нижче завжди залишається робочим fallback.
-
-> **Про точність часу заряду/розряду.** BMS_BLE-HA не публікує окрему
-> сутність "під навантаженням" — майстер апроксимує час розряду як "не
-> заряджається" (стан `off` сенсора `charging`), що включає і час повного
-> простою без навантаження; час заряду — як стан `on` того самого
-> сенсора. Якщо потрібна точніша метрика — замініть джерело
-> `history_stats` на власний template binary_sensor з умовою по струму/
-> потужності (наприклад `current < -0.5`).
-
-### Helper-сенсори вручну
-
-BMS_BLE-HA не рахує накопичену ємність і час заряду/розряду сам — це
-стандартні HA helpers: `template` (виділяє лише розрядну або лише
-зарядну складову) + `integration` (Riemann sum) + `utility_meter` для
-ємності, `history_stats` для часу.
-
-**Ємність розряду.** `power`/`current` — знакозмінні (додатне під час
-заряду, від'ємне під час розряду), тому інтегрувати їх напряму **не
-можна** — заряд і розряд взаємно скасуються в сумі. Спершу виділяємо
-шаблоном лише розрядну частину (той самий прийом, що й в [офіційній
-інструкції BMS_BLE-HA для Energy
-Dashboard](https://github.com/patman15/BMS_BLE-HA#energy-dashboard-integration)):
-
-```yaml
-template:
-  - sensor:
-      - name: redodo_discharge_current
-        unique_id: redodo_discharge_current
-        state: "{{ [ (states('sensor.redodo_current') | float(0)), 0 ] | min | abs }}"
-        unit_of_measurement: "A"
-        device_class: current
-        state_class: measurement
-        availability: "{{ has_value('sensor.redodo_current') }}"
-
-sensor:
-  - platform: integration
-    name: redodo_capacity_total
-    source: sensor.redodo_discharge_current
-    unit_time: h
-    round: 2
-    method: trapezoidal
-
-utility_meter:
-  redodo_capacity_daily:
-    source: sensor.redodo_capacity_total
-    cycle: daily
-  redodo_capacity_weekly:
-    source: sensor.redodo_capacity_total
-    cycle: weekly
-  redodo_capacity_monthly:
-    source: sensor.redodo_capacity_total
-    cycle: monthly
-```
-
-`redodo_capacity_total` (сам integration-сенсор, ніколи не скидається) —
-це і є `entities.capacity_total`; три `utility_meter` вище — це
-`entities.capacity_daily` / `capacity_weekly` / `capacity_monthly`.
-
-**Ємність заряду** — дзеркально, лише формула шаблону інша (`| max`
-замість `| min | abs`, без знакозаперечення — заряд уже додатний):
-
-```yaml
-template:
-  - sensor:
-      - name: redodo_charge_current
-        unique_id: redodo_charge_current
-        state: "{{ [ (states('sensor.redodo_current') | float(0)), 0 ] | max }}"
-        unit_of_measurement: "A"
-        device_class: current
-        state_class: measurement
-        availability: "{{ has_value('sensor.redodo_current') }}"
-
-sensor:
-  - platform: integration
-    name: redodo_charge_total
-    source: sensor.redodo_charge_current
-    unit_time: h
-    round: 2
-    method: trapezoidal
-
-utility_meter:
-  redodo_charge_daily:
-    source: sensor.redodo_charge_total
-    cycle: daily
-  redodo_charge_weekly:
-    source: sensor.redodo_charge_total
-    cycle: weekly
-  redodo_charge_monthly:
-    source: sensor.redodo_charge_total
-    cycle: monthly
-```
-
-`redodo_charge_total` — це `entities.charge_total`; три `utility_meter`
-вище — `entities.charge_daily` / `charge_weekly` / `charge_monthly`.
-
-**Час розряду і заряду** (потребує `binary_sensor.redodo_battery_charging`):
-
-```yaml
-sensor:
-  - platform: history_stats
-    name: redodo_discharge_time_daily
-    entity_id: binary_sensor.redodo_battery_charging
-    state: "off"
-    type: time
-    duration:
-      days: 1
-  - platform: history_stats
-    name: redodo_discharge_time_weekly
-    entity_id: binary_sensor.redodo_battery_charging
-    state: "off"
-    type: time
-    duration:
-      days: 7
-  - platform: history_stats
-    name: redodo_discharge_time_monthly
-    entity_id: binary_sensor.redodo_battery_charging
-    state: "off"
-    type: time
-    duration:
-      days: 30
-  - platform: history_stats
-    name: redodo_charge_time_daily
-    entity_id: binary_sensor.redodo_battery_charging
-    state: "on"
-    type: time
-    duration:
-      days: 1
-  - platform: history_stats
-    name: redodo_charge_time_weekly
-    entity_id: binary_sensor.redodo_battery_charging
-    state: "on"
-    type: time
-    duration:
-      days: 7
-  - platform: history_stats
-    name: redodo_charge_time_monthly
-    entity_id: binary_sensor.redodo_battery_charging
-    state: "on"
-    type: time
-    duration:
-      days: 30
-```
-
-Або через UI: **Settings → Devices & Services → Helpers → + Add helper →
-Integration - Riemann sum**, потім **Utility Meter** x8 (4 для розряду, 4
-для заряду), а для часу — **History Stats** x6 (за стандартним record
-retention це вимагає, щоб Recorder зберігав історію на потрібний період,
-за замовчуванням 10 днів — для тижневого/місячного вікна збільшіть
-`recorder.purge_keep_days`). Отримані entity_id вкажіть в
-`entities.capacity_*`, `entities.charge_*`, `entities.discharge_time_*`
-і `entities.charge_time_*` конфіга картки.
-
-## Обмеження
-
-- Картка не надає керування зарядом/розрядом БМС (switches) — це свідоме
-  рішення автора BMS_BLE-HA з міркувань безпеки акумулятора. Картка — тільки
-  моніторинг.
-- Одна картка = одна батарея. Для кількох акумуляторів додайте кілька карток.
-- Час розряду — апроксимація за станом `charging` (див. примітку вище), а
-  не пряме вимірювання струму розряду під навантаженням.
-
-## Розробка і тести
+## Testing & Quality Assurance
 
 ```bash
+# Verify JavaScript syntax
+node --check ha-bms-ble-card.js
+
+# Run test suite
 npm test
 ```
 
-Тести (`node --test`) перевіряють чисті допоміжні функції картки:
-форматування значень, кольори SOC/комірок, заповнення міні-батарейок
-комірок за напругою, пороги дисбалансу.
+## License
 
-## Ліцензія
-
-MIT
+This project is licensed under the [MIT License](LICENSE).

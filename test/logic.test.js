@@ -75,6 +75,8 @@ test("fmt: невідомі/недоступні значення -> проче�
   assert.equal(fmt(null), "—");
   assert.equal(fmt("unknown"), "—");
   assert.equal(fmt("unavailable"), "—");
+  assert.equal(fmt(Infinity), "—");
+  assert.equal(fmt(NaN), "—");
 });
 
 test("fmt: нечислове значення повертається як є з юнітом", () => {
@@ -94,6 +96,8 @@ test("secondsToHuman: некоректні значення -> прочерк", 
   assert.equal(secondsToHuman(undefined), "—");
   assert.equal(secondsToHuman(null), "—");
   assert.equal(secondsToHuman("abc"), "—");
+  assert.equal(secondsToHuman(Infinity), "—");
+  assert.equal(secondsToHuman(-50), "—");
 });
 
 test("cellVoltageFraction: клемп в межах 0..1 по діапазону LiFePO4", () => {

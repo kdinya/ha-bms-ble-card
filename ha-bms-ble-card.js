@@ -201,8 +201,12 @@ function fmt(value, digits = 2, unit = "") {
   if (value === undefined || value === null || value === "unknown" || value === "unavailable") {
     return "—";
   }
+  if (typeof value === "number" && !Number.isFinite(value)) {
+    return "—";
+  }
   const num = Number(value);
   if (Number.isNaN(num)) return `${value}${unit}`;
+  if (!Number.isFinite(num)) return "—";
   return `${num.toFixed(digits)}${unit}`;
 }
 
@@ -333,9 +337,9 @@ function chargeOnlyTemplate(value) {
 }
 
 function secondsToHuman(seconds) {
-  if (seconds === undefined || seconds === null || Number.isNaN(Number(seconds))) return "—";
+  if (seconds === undefined || seconds === null) return "—";
   const s = Number(seconds);
-  if (s < 0) return "—";
+  if (!Number.isFinite(s) || s < 0) return "—";
   const totalMinutes = Math.round(s / 60);
   const h = Math.floor(totalMinutes / 60);
   const m = totalMinutes % 60;
