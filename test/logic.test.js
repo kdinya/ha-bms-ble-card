@@ -450,3 +450,36 @@ test("I18N: uk and en dictionary keys match completely", () => {
     assert.ok(enKeys.has(k), `Missing en key for ${k}`);
   }
 });
+
+test("fmtPower formats watts below 1000W and kW above with localized units", () => {
+  const { fmtPower } = require("../ha-bms-ble-card.js");
+  const tUk = (k) => (k === "unit_w" ? "Вт" : "кВт");
+  const tEn = (k) => (k === "unit_w" ? "W" : "kW");
+
+  assert.equal(fmtPower(250, tUk), "250 Вт");
+  assert.equal(fmtPower(-450, tUk), "450 Вт");
+  assert.equal(fmtPower(1200, tUk), "1.2 кВт");
+  assert.equal(fmtPower(250, tEn), "250 W");
+  assert.equal(fmtPower(1500, tEn), "1.5 kW");
+  assert.equal(fmtPower(null, tUk), "—");
+  assert.equal(fmtPower(undefined, tUk), "—");
+});
+
+test("decodeProblemCode decodes bitmasks into human-readable alarm names", () => {
+  const { decodeProblemCode } = require("../ha-bms-ble-card.js");
+  const tUk = (k) => {
+    const dict = {
+      problem_overvoltage: "Перенапруга",
+      problem_undervoltage: "Занижена напруга",
+      problem_overtemp: "Перегрів",
+      problem_short_circuit: "Коротке замикання",
+    };
+    return dict[k] || k;
+  };
+
+  assert.equal(decodeProblemCode("0x0001", tUk), "Перенапруга");
+  assert.equal(decodeProblemCode("0x0002", tUk), "Занижена напруга");
+  assert.equal(decodeProblemCode("0x0400", tUk), "Коротке замикання");
+  assert.equal(decodeProblemCode(0x0003, tUk), "Перенапруга, Занижена напруга");
+  assert.equal(decodeProblemCode(null, tUk), "");
+});

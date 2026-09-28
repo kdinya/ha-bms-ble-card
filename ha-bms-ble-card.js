@@ -83,6 +83,15 @@ const I18N = {
     lbl_temperature: "Температура",
     lbl_temp_sensors: "Датчики температури",
     lbl_problem_code: "Код помилки",
+    unit_w: "Вт",
+    unit_kw: "кВт",
+    unit_a: "А",
+    problem_overvoltage: "Перенапруга",
+    problem_undervoltage: "Занижена напруга",
+    problem_overtemp: "Перегрів",
+    problem_undertemp: "Низька температура",
+    problem_overcurrent: "Перевантаження по струму",
+    problem_short_circuit: "Коротке замикання",
     status_waiting_bms: "Очікування BMS",
     time_just_now: "щойно",
     time_sec_ago: "с тому",
@@ -172,6 +181,15 @@ const I18N = {
     lbl_temperature: "Temperature",
     lbl_temp_sensors: "Temperature Sensors",
     lbl_problem_code: "Problem Code",
+    unit_w: "W",
+    unit_kw: "kW",
+    unit_a: "A",
+    problem_overvoltage: "Overvoltage",
+    problem_undervoltage: "Undervoltage",
+    problem_overtemp: "Overtemperature",
+    problem_undertemp: "Undertemperature",
+    problem_overcurrent: "Overcurrent",
+    problem_short_circuit: "Short Circuit",
     status_waiting_bms: "Waiting for BMS",
     time_just_now: "just now",
     time_sec_ago: "s ago",
@@ -236,6 +254,45 @@ function fmt(value, digits = 2, unit = "") {
 
 /** Потужність (Вт) у кВт з одним десятковим знаком, для вузлів
  *  "Мережа"/"Навантаження" у flow-row. */
+function fmtPower(watts, t) {
+  if (watts === null || watts === undefined || watts === "unknown" || watts === "unavailable" || watts === "") return "—";
+  const num = Number(watts);
+  if (!Number.isFinite(num)) return "—";
+  const abs = Math.abs(num);
+  const wUnit = t ? t("unit_w") : "Вт";
+  const kwUnit = t ? t("unit_kw") : "кВт";
+  if (abs < 1000) {
+    return `${abs.toFixed(0)} ${wUnit}`;
+  }
+  return `${(abs / 1000).toFixed(1)} ${kwUnit}`;
+}
+
+function decodeProblemCode(code, t) {
+  if (code === undefined || code === null || code === "") return "";
+  let num = NaN;
+  if (typeof code === "number") {
+    num = code;
+  } else if (typeof code === "string") {
+    num = code.startsWith("0x") || code.startsWith("0X") ? parseInt(code, 16) : parseInt(code, 10);
+  }
+  if (!Number.isFinite(num) || num === 0) return String(code);
+
+  const alarms = [];
+  if (num & 0x0001) alarms.push(t ? t("problem_overvoltage") : "Overvoltage");
+  if (num & 0x0002) alarms.push(t ? t("problem_undervoltage") : "Undervoltage");
+  if (num & 0x0004) alarms.push(t ? t("problem_overvoltage") : "Overvoltage");
+  if (num & 0x0008) alarms.push(t ? t("problem_undervoltage") : "Undervoltage");
+  if (num & 0x0010 || num & 0x0040) alarms.push(t ? t("problem_overtemp") : "Overtemperature");
+  if (num & 0x0020 || num & 0x0080) alarms.push(t ? t("problem_undertemp") : "Undertemperature");
+  if (num & 0x0100 || num & 0x0200) alarms.push(t ? t("problem_overcurrent") : "Overcurrent");
+  if (num & 0x0400) alarms.push(t ? t("problem_short_circuit") : "Short Circuit");
+
+  if (alarms.length > 0) {
+    return Array.from(new Set(alarms)).join(", ");
+  }
+  return String(code);
+}
+
 function fmtKw(watts) {
   const num = Number(watts);
   if (!Number.isFinite(num)) return "—";
@@ -2120,20 +2177,79 @@ class HaBmsBleCard extends HTMLElement {
     return false;
   }
 
+  _startClockTicker() {
+    this._stopClockTicker();
+    if (typeof window === "undefined") return;
+    this._clockInterval = setInterval(() => {
+      if (typeof document !== "undefined" && document.hidden) return;
+      if (this._visible === false) return;
+      this._updateClockFreshness();
+    }, 10000);
+  }
+
+  _stopClockTicker() {
+    if (this._clockInterval) {
+      clearInterval(this._clockInterval);
+      this._clockInterval = null;
+    }
+  }
+
+  _updateClockFreshness() {
+    if (!this._hass) return;
+    const clockEl = this.querySelector ? this.querySelector(".hdr-clock") : null;
+    if (!clockEl) return;
+    const secAgo = getBmsLastUpdatedSecondsAgo(this._hass, this._effectiveEntities());
+    const isStale = secAgo !== null && secAgo >= 180;
+    if (this._lastStaleState !== undefined && this._lastStaleState !== isStale) {
+      this._lastStaleState = isStale;
+      this._render();
+      return;
+    }
+    this._lastStaleState = isStale;
+    const t = (k) => this._t(k);
+    const nowStr = new Date().toLocaleTimeString(this._lang === "en" ? "en-US" : "uk-UA", { hour: "2-digit", minute: "2-digit" });
+    const timeAgoText = formatTimeAgo(secAgo, this._lang, t);
+    const clockDisplay = isStale
+      ? `${t("status_waiting_bms")}${timeAgoText ? ` (${timeAgoText})` : ""}`
+      : (timeAgoText || nowStr);
+
+    clockEl.textContent = clockDisplay;
+    clockEl.title = nowStr;
+    clockEl.classList.toggle("stale", isStale);
+
+    const btIcon = this.querySelector ? this.querySelector(".hdr-right ha-icon") : null;
+    if (btIcon) {
+      const link = stateOf(this._hass, this._e("link_quality") || this._e("rssi"));
+      const linkN = Number(link);
+      const signalColor = isStale ? "#8b96a3" : (!Number.isFinite(linkN) ? "#8b96a3" : linkN >= 50 ? "#4b9bf0" : linkN >= 25 ? "#EF9F27" : "#E24B4A");
+      btIcon.style.color = signalColor;
+      btIcon.classList.toggle("bms-bt-stale", isStale);
+    }
+    const bmsFull = this.querySelector ? this.querySelector(".bms-full") : null;
+    if (bmsFull) {
+      bmsFull.classList.toggle("bms-stale", isStale);
+    }
+  }
+
   getCardSize() {
     return this._config && this._config.display_mode === "inline" ? 6 : 3;
   }
 
   connectedCallback() {
+    this._startClockTicker();
     window.addEventListener("orientationchange", this._onOrient = () => {
       if (this._expanded) this._render();
     });
     this._onVisibilityChange = () => {
       if (typeof document !== "undefined" && !document.hidden) {
-        if (this._visible && this._needsRender) {
-          this._needsRender = false;
-          this._maybeFetchStatsPeriod();
-          this._render();
+        if (this._visible) {
+          if (this._needsRender) {
+            this._needsRender = false;
+            this._maybeFetchStatsPeriod();
+            this._render();
+          } else {
+            this._updateClockFreshness();
+          }
         }
       }
     };
@@ -2165,6 +2281,7 @@ class HaBmsBleCard extends HTMLElement {
   }
 
   disconnectedCallback() {
+    this._stopClockTicker();
     if (this._onOrient) window.removeEventListener("orientationchange", this._onOrient);
     if (this._onVisibilityChange && typeof document !== "undefined") {
       document.removeEventListener("visibilitychange", this._onVisibilityChange);
@@ -2687,7 +2804,9 @@ class HaBmsBleCard extends HTMLElement {
     if (heat !== undefined) funcGrid += func("ti-flame", t("func_heater"), on(heat) ? t("state_enabled") : t("state_disabled"), on(heat) ? A : M, this._e("heater"));
     if (prob !== undefined) {
       const pCode = attrOf(this._hass, this._e("problem"), "problem_code");
-      const probText = on(prob) ? (pCode ? `${t("state_yes")} (${pCode})` : t("state_yes")) : t("state_no");
+      const pDesc = decodeProblemCode(pCode, t);
+      const codeDetail = pCode ? (pDesc && pDesc !== String(pCode) ? `${pCode}: ${pDesc}` : pCode) : "";
+      const probText = on(prob) ? (codeDetail ? `${t("state_yes")} (${codeDetail})` : t("state_yes")) : t("state_no");
       funcGrid += func("ti-alert-triangle", t("func_problem"), probText, on(prob) ? R : G, this._e("problem"));
     }
     const modeLabel = status.color === "success" ? t("mode_charge") : status.color === "warning" ? t("mode_discharge") : statusLabelText(status);
@@ -2724,7 +2843,7 @@ class HaBmsBleCard extends HTMLElement {
           <div class="flow-node grid-node"${moreInfoAttr(this._e("current") || this._e("power"))}>
             ${gridPylonSvg()}
             <div class="node-lbl">${t("node_grid")}</div>
-            ${flowState === "charging" ? `<div class="node-val">${current !== undefined && current !== null ? `${fmt(Math.abs(currentN), 1)} A` : "—"}<br>${fmtKw(power)} кВт</div>` : ""}
+            ${flowState === "charging" ? `<div class="node-val">${current !== undefined && current !== null ? `${fmt(Math.abs(currentN), 1)} ${t("unit_a")}` : "—"}<br>${fmtPower(power, t)}</div>` : ""}
           </div>
           <div class="flow-connector-wrap">
             <div class="flow-arrows">
@@ -2744,7 +2863,7 @@ class HaBmsBleCard extends HTMLElement {
           <div class="flow-node load-node"${moreInfoAttr(this._e("current") || this._e("power"))}>
             ${houseLoadSvg()}
             <div class="node-lbl">${t("node_load")}</div>
-            ${flowState === "discharging" ? `<div class="node-val">${current !== undefined && current !== null ? `${fmt(Math.abs(currentN), 1)} A` : "—"}<br>${fmtKw(power)} кВт</div>` : ""}
+            ${flowState === "discharging" ? `<div class="node-val">${current !== undefined && current !== null ? `${fmt(Math.abs(currentN), 1)} ${t("unit_a")}` : "—"}<br>${fmtPower(power, t)}</div>` : ""}
           </div>
         </div>
 
@@ -2754,7 +2873,8 @@ class HaBmsBleCard extends HTMLElement {
             <div class="discharge-text">
               <div class="l1">${statusLabelText(status)}</div>
               ${(() => {
-                const probPart = status.color === "danger" && status.problemCode ? `${t("lbl_problem_code")}: ${escapeHtml(String(status.problemCode))}` : "";
+                const pDesc = decodeProblemCode(status.problemCode, t);
+                const probPart = status.color === "danger" && status.problemCode ? `${t("lbl_problem_code")}: ${escapeHtml(String(status.problemCode))}${pDesc && pDesc !== String(status.problemCode) ? ` (${escapeHtml(pDesc)})` : ""}` : "";
                 const etaPart = showEta ? `${etaLabelText}${eta.seconds !== undefined ? ": ~" + secondsToHuman(eta.seconds) : ""}` : "";
                 const balPart = balancingOn ? `${haIcon("ti-topology-star-3", 12)} ${t("balancing")}${st ? ` (${st.cells.map((v) => (Number.isFinite(v) ? v.toFixed(3) : "—")).join(", ")} В, Δ${st.delta.toFixed(3)} В)` : ""}` : "";
                 const line2 = [probPart, etaPart, balPart].filter(Boolean).join(" · ");
@@ -3344,7 +3464,7 @@ class HaBmsBleCard extends HTMLElement {
         .badge.green b { background:var(--green); }
         .badge.amber b { background:var(--amber); }
         .badge.blue b { background:var(--blue); }
-        .badge[data-more-info] { cursor:pointer; }
+        [data-more-info] { cursor:pointer; }
 
         .info-accordion-section {
           border:1px solid var(--divider, rgba(127,127,127,0.18));
@@ -3555,6 +3675,8 @@ window.customCards.push({
 // У браузері `module` не визначений, тому цей блок там просто не спрацює.
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {
+  fmtPower,
+  decodeProblemCode,
   getBmsLastUpdatedSecondsAgo,
   formatTimeAgo,
     escapeHtml,
