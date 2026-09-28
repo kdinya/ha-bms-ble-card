@@ -38,28 +38,32 @@
 
 ## 2. Core Architecture & Strict Invariants
 
-1. **Single-File Distribution (No Build Step)**:
+1. **Strict Battery Graphic Protection (Design Lock)**:
+   - The AI is CATEGORICALLY FORBIDDEN from editing, redesigning, modifying, or refactoring the battery visualization graphic (including the battery jar SVG `jarBatterySvg`, dimensions, liquid level fill logic, terminal styling, and image assets) without explicit, prior user permission.
+   - Any visual adjustments to the battery container or liquid representation must be proposed and explicitly approved before touching the related code or assets.
+
+2. **Single-File Distribution (No Build Step)**:
    - `ha-bms-ble-card.js` in the repository root is the sole source of truth for the card logic (no `src/`/`dist/` split).
    - The card is distributed via HACS directly from the repository root (`content_in_root: true` in `hacs.json`).
    - Do not introduce bundlers (webpack, vite, rollup) or heavy external runtime dependencies unless explicitly requested.
 
-2. **BLE & Entity Resilience (No Crashing on Missing Data)**:
+3. **BLE & Entity Resilience (No Crashing on Missing Data)**:
    - BLE connections to BMS devices are inherently intermittent and can drop or produce partial data.
    - The card must NEVER crash or render a white screen when entities are missing, unavailable, unknown, or returning `null`/`undefined`.
    - Always implement safe fallback values, skeleton/loading states, or disconnected indicators.
 
-3. **Full Localization & Translation Coverage (`I18N`)**:
+4. **Full Localization & Translation Coverage (`I18N`)**:
    - Every user-facing text element (labels, navigation tabs, statuses, errors, tooltips, sections) must be routed through the `I18N` dictionary (currently `uk` by default and `en`).
    - Hardcoded, non-translatable text strings in markup or templates are strictly prohibited.
    - When adding new text elements, add corresponding keys to all supported languages in `I18N`.
    - When removing functionality, remove orphaned translation keys.
    - Language switching in card settings must re-render the card dynamically without requiring a full browser reload.
 
-4. **Lifecycle & Zero Resource Leaks**:
+5. **Lifecycle & Zero Resource Leaks**:
    - All active timers, interval loops (e.g. ETA calculations, polling), and event listeners must be cleanly torn down in `disconnectedCallback`.
    - Prevent background rendering cycles and heavy computations when the card is hidden or the browser tab is inactive.
 
-5. **Settings Persistence & Responsive Layout**:
+6. **Settings Persistence & Responsive Layout**:
    - User settings (selected language, active tab, preferences) must persist reliably without resetting during card updates or cache clears.
    - Responsive design is mandatory: the card must scale and adapt cleanly across mobile devices, tablets, standard Masonry columns, and panel/fullscreen view.
 
