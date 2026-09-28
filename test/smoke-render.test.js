@@ -741,3 +741,23 @@ _statsWsRegressionPromise.catch((err) => {
 
 }
 
+// --- Головна вкладка: швидкі показники (metric-grid) і чіпи стану системи
+// (state-chips) — нові секції redesign v2. Батарея/flow-блок не змінювались. ---
+{
+  const card = Object.create(mod.HaBmsBleCard.prototype);
+  card._config = { entities: {} };
+  card._hass = mockHass;
+  card._resolvedEntities = mod.autoDiscoverEntities(mockHass, deviceId);
+  card._lang = "uk";
+  const html = card._renderFullView();
+
+  assert.match(html, /class="quick-section"/, "секція швидких показників присутня");
+  assert.match(html, /class="metric-grid"/, "сітка metric-grid присутня");
+  assert.match(html, /class="metric-card"[^>]*data-more-info="sensor\.bat_voltage"/, "картка напруги клікабельна (data-more-info)");
+  assert.match(html, /class="chip-row"/, "рядок чіпів стану системи присутній");
+  assert.match(html, /data-more-info="binary_sensor\.bat_chrg_mosfet"/, "чіп MOSFET заряду клікабельний");
+  // Старі класи не повертаються
+  assert.ok(!html.includes("usage-grid"), "немає usage-grid на головній");
+
+  console.log("Home quick-metrics + state-chips (redesign v2) regression test passed.");
+}

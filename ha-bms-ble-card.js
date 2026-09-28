@@ -25,6 +25,8 @@ const I18N = {
     nav_info: "ІНФОРМАЦІЯ",
     nav_stats: "СТАТИСТИКА",
     nav_settings: "НАЛАШТ.",
+    home_metrics: "Ключові показники",
+    home_status: "Стан системи",
     status_connected: "Підключено",
     node_grid: "МЕРЕЖА",
     node_load: "НАВАНТАЖЕННЯ",
@@ -123,6 +125,8 @@ const I18N = {
     nav_info: "INFO",
     nav_stats: "STATS",
     nav_settings: "SETTINGS",
+    home_metrics: "Key metrics",
+    home_status: "System state",
     status_connected: "Connected",
     node_grid: "GRID",
     node_load: "LOAD",
@@ -2836,6 +2840,34 @@ class HaBmsBleCard extends HTMLElement {
     const modeTone = status.color === "success" ? G : status.color === "warning" ? A : M;
     funcGrid += func(status.icon || "ti-bolt", t("func_mode"), modeLabel, modeTone);
 
+    const chip = (icon, label, val, tone, entityId) => `<div class="state-chip"${moreInfoAttr(entityId)}>${haIcon(icon, 13, tone)}<span>${label}</span><b style="color:${tone}">${val}</b></div>`;
+    let chipsHtml = "";
+    if (bal !== undefined) chipsHtml += chip("ti-topology-star-3", t("func_balancer"), on(bal) ? t("state_active") : t("state_disabled"), on(bal) ? G : M, this._e("balancer"));
+    if (chrgM !== undefined) chipsHtml += chip("ti-plug-connected", t("func_charge_mosfet"), on(chrgM) ? t("state_enabled") : t("state_disabled"), on(chrgM) ? G : M, this._e("chrg_mosfet"));
+    if (disM !== undefined) chipsHtml += chip("ti-plug-connected", t("func_discharge_mosfet"), on(disM) ? t("state_enabled") : t("state_disabled"), on(disM) ? G : M, this._e("dischrg_mosfet"));
+    if (heat !== undefined) chipsHtml += chip("ti-flame", t("func_heater"), on(heat) ? t("state_enabled") : t("state_disabled"), on(heat) ? A : M, this._e("heater"));
+    if (prob !== undefined) chipsHtml += chip("ti-alert-triangle", t("func_problem"), on(prob) ? t("state_yes") : t("state_no"), on(prob) ? R : G, this._e("problem"));
+
+    const metric = (icon, label, value, tone, entityId) => `
+      <div class="metric-card"${moreInfoAttr(entityId)}>
+        <div class="metric-icon" style="background:${tone}1f;color:${tone}">${haIcon(icon, 16, tone)}</div>
+        <div class="metric-meta"><div class="metric-lbl">${label}</div><div class="metric-val">${value}</div></div>
+      </div>`;
+    const powerN = Number(power);
+    const powerTone = !Number.isFinite(powerN) || Math.abs(powerN) < 1 ? "#8b96a3" : powerN < 0 ? "#EF9F27" : "#1D9E75";
+    const tempN = Number(temp);
+    const tempTone = !Number.isFinite(tempN) ? "#8b96a3" : tempN >= 45 ? "#E24B4A" : tempN >= 35 ? "#EF9F27" : "#4b9bf0";
+    const voltN = Number(voltage);
+    let metricsHtml = "";
+    metricsHtml += metric("ti-bolt", t("lbl_voltage"), Number.isFinite(voltN) ? `${fmt(voltN, 2)} V` : "—", "#4b9bf0", this._e("voltage"));
+    metricsHtml += metric("ti-current", t("lbl_current"), Number.isFinite(Number(current)) ? `${fmt(current, 1)} A` : "—", "#14d8a6", this._e("current"));
+    metricsHtml += metric("ti-plug", t("lbl_power"), Number.isFinite(powerN) ? fmtPower(power, t) : "—", powerTone, this._e("power"));
+    metricsHtml += metric("ti-thermometer", t("lbl_temperature"), Number.isFinite(tempN) ? `${fmt(tempN, 1)} °C` : "—", tempTone, this._e("temperature"));
+    if (soh !== undefined) metricsHtml += metric("ti-heart-rate", t("lbl_soh"), `${fmt(soh, 0)} %`, "#a78bfa", this._e("soh"));
+    if (cycles !== undefined) metricsHtml += metric("ti-refresh", t("lbl_cycles"), fmt(cycles, 0), "#f472b6", this._e("charge_cycles"));
+    if (remainingAh !== undefined) metricsHtml += metric("ti-battery-2", t("lbl_remaining"), `${fmt(remainingAh, 1)} Ah`, "#1D9E75", this._e("design_capacity"));
+    if (stored !== undefined) metricsHtml += metric("ti-database", t("lbl_stored_energy"), fmtWh(stored), "#EF9F27", this._e("cycle_capacity"));
+
     const currentN = Number(current);
 
     const linkN = Number(link);
@@ -2853,6 +2885,7 @@ class HaBmsBleCard extends HTMLElement {
         <div class="header">
           <div>
             <h1>${this._batteryName()}</h1>
+            <span class="hdr-status-pill" style="background:${statusSc.bg};color:${statusSc.fg}"><span class="hdr-status-dot"></span>${statusLabelText(status)}</span>
           </div>
           <div class="hdr-right"${moreInfoAttr(this._e("link_quality") || this._e("rssi"))}>
             <span class="hdr-clock ${isStale ? "stale" : ""}" title="${nowStr}">${clockDisplay}</span>
@@ -2906,6 +2939,16 @@ class HaBmsBleCard extends HTMLElement {
             </div>
           </div>
         </div>
+        </div>
+
+        <div class="quick-section">
+          <div class="section-head"><span>${t("home_metrics")}</span></div>
+          <div class="metric-grid">${metricsHtml}</div>
+        </div>
+
+        <div class="quick-section">
+          <div class="section-head"><span>${t("home_status")}</span></div>
+          <div class="chip-row">${chipsHtml}</div>
         </div>
         </div>
 
@@ -3895,6 +3938,85 @@ class HaBmsBleCard extends HTMLElement {
         }
         .forecast-text .l1, .diag-text .l1 { font-size: 11px; color: var(--muted); }
         .forecast-text .l2, .diag-text .l2 { font-size: 15px; font-weight: 700; margin-top: 2px; }
+
+        /* ===== Redesign v2: графіт + електричний бірюзовий акцент ===== */
+        ha-card.bms-card, .bms-card {
+          --bg: #04060a;
+          --card: #0a0d14;
+          --panel: rgba(255, 255, 255, 0.035);
+          --panel-hover: rgba(255, 255, 255, 0.07);
+          --border: rgba(255, 255, 255, 0.07);
+          --accent: #14d8a6;
+          --accent-dim: rgba(20, 216, 166, 0.12);
+          background: linear-gradient(180deg, #0c111c 0%, #070a10 40%, #04060a 100%) !important;
+          border-radius: 20px !important;
+          box-shadow: 0 24px 60px -24px rgba(0, 0, 0, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.06) !important;
+        }
+        .header h1 { letter-spacing: -0.03em; font-size: clamp(15px, 3.4vw, 18px); }
+        .hdr-status-pill {
+          display: inline-flex; align-items: center; gap: 6px;
+          margin-top: 5px; padding: 3px 10px; border-radius: 999px;
+          font-size: 11px; font-weight: 700; letter-spacing: 0.02em; width: fit-content;
+        }
+        .hdr-status-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; animation: bmsPulse 2.4s ease-in-out infinite; }
+        @keyframes bmsPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+        .hdr-clock { background: var(--panel); border: 1px solid var(--border); border-radius: 999px; padding: 4px 12px; font-size: 11.5px; font-variant-numeric: tabular-nums; }
+        .section-head {
+          display: flex; align-items: center; gap: 10px; margin: 18px 2px 10px;
+          font-size: 11px; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted);
+        }
+        .section-head::after { content: ""; flex: 1; height: 1px; background: linear-gradient(90deg, var(--border), transparent); }
+        .metric-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+        .metric-card {
+          display: flex; align-items: center; gap: 10px; padding: 12px 14px;
+          background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
+          transition: background 0.2s, border-color 0.2s, transform 0.15s;
+        }
+        [data-more-info].metric-card { cursor: pointer; }
+        .metric-card:hover { background: var(--panel-hover); border-color: rgba(20, 216, 166, 0.3); transform: translateY(-1px); }
+        .metric-icon { width: 32px; height: 32px; border-radius: 10px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+        .metric-meta { min-width: 0; }
+        .metric-lbl { font-size: 10.5px; color: var(--muted); letter-spacing: 0.04em; text-transform: uppercase; font-weight: 600; }
+        .metric-val { font-size: 16px; font-weight: 750; margin-top: 2px; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+        .chip-row { display: flex; flex-wrap: wrap; gap: 8px; }
+        .state-chip {
+          display: inline-flex; align-items: center; gap: 7px; padding: 7px 12px;
+          background: var(--panel); border: 1px solid var(--border); border-radius: 999px;
+          font-size: 12px; color: var(--muted); transition: background 0.2s;
+        }
+        .state-chip b { font-weight: 700; }
+        [data-more-info].state-chip { cursor: pointer; }
+        .state-chip:hover { background: var(--panel-hover); }
+        .info-accordion-section { background: var(--panel); border: 1px solid var(--border); border-radius: 16px; margin-bottom: 10px; overflow: hidden; }
+        .info-accordion-title { padding: 14px 16px; font-size: 13px; font-weight: 700; letter-spacing: 0.01em; }
+        .info-accordion-title::marker { content: ""; }
+        .info-accordion-title::after { content: ""; }
+        .info-accordion-body { padding: 0 14px 14px; }
+        .info-tile { background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; }
+        .info-tile-lbl { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; }
+        .info-tile-val { font-size: 14.5px; font-weight: 700; margin-top: 3px; font-variant-numeric: tabular-nums; }
+        .nav-bar {
+          position: sticky; bottom: 8px; margin-top: 16px;
+          display: flex; gap: 4px; padding: 6px;
+          background: rgba(13, 18, 28, 0.88); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+          border: 1px solid var(--border); border-radius: 18px;
+          box-shadow: 0 12px 32px -12px rgba(0, 0, 0, 0.7);
+        }
+        .nav-item {
+          flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px;
+          padding: 8px 4px; border-radius: 13px; color: var(--muted); font-size: 9.5px;
+          font-weight: 700; letter-spacing: 0.06em; transition: color 0.2s, background 0.2s;
+        }
+        .nav-item svg { width: 19px; height: 19px; }
+        .nav-item.active { color: #06120e; background: linear-gradient(135deg, #2ee6b7 0%, #14d8a6 60%, #0fb891 100%); box-shadow: 0 6px 18px -6px rgba(20, 216, 166, 0.55); }
+        .lang-switch { display: inline-flex; gap: 6px; background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 5px; }
+        .lang-btn { border-radius: 10px; padding: 8px 18px; font-weight: 700; color: var(--muted); background: transparent; border: none; }
+        .lang-btn.active { background: var(--accent); color: #06120e; box-shadow: 0 4px 14px -4px rgba(20, 216, 166, 0.5); }
+        .stats-period-btn { border-radius: 10px; }
+        .stats-period-btn.active { background: var(--accent); color: #06120e; }
+        @media (min-width: 560px) {
+          .metric-grid { grid-template-columns: repeat(4, 1fr); }
+        }
       </style>
     `;
   }
