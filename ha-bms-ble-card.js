@@ -7,7 +7,7 @@
  * https://github.com/kdinya/ha-bms-ble-card
  */
 
-const CARD_VERSION = "1.1.1";
+const CARD_VERSION = "1.2.0";
 
 console.info(
   `%c HA-BMS-BLE-CARD %c v${CARD_VERSION} `,
@@ -3269,354 +3269,632 @@ class HaBmsBleCard extends HTMLElement {
       <style>
         :host { display:block; max-width:100%; }
         * { box-sizing: border-box; }
-        /* Картка невидима (<39%) — глушимо анімації, щоб не вантажити ПК даремно. */
+        /* Картка невидима (<39%) — глушимо анімації, щоб не вантажити систему */
         .bms-idle, .bms-idle * { animation: none !important; }
+
+        /* Головний контейнер картки у преміальному сучасному стилі */
         ha-card.bms-card, .bms-card {
-          --bg:#020608; --card:#050e14; --panel:#0a141c; --border:rgba(255,255,255,0.06);
-          --text:#f2f4f7; --muted:#8b96a3; --muted-2:#5f6b78;
-          --green:#1D9E75; --green-dim:#1f3d29; --amber:#EF9F27; --blue:#4b9bf0; --red:#E24B4A;
-          background: var(--card) !important;
+          --bg: #070b10;
+          --card: #0b121c;
+          --panel: rgba(18, 28, 42, 0.65);
+          --panel-hover: rgba(26, 40, 58, 0.85);
+          --panel-solid: #101a26;
+          --border: rgba(255, 255, 255, 0.08);
+          --border-subtle: rgba(255, 255, 255, 0.04);
+          --border-focus: rgba(79, 179, 246, 0.4);
+          --text: #f0f4f8;
+          --muted: #8fa0b5;
+          --muted-2: #627284;
+          --green: #10b981;
+          --green-dim: rgba(16, 185, 129, 0.15);
+          --green-glow: rgba(16, 185, 129, 0.35);
+          --amber: #f59e0b;
+          --amber-dim: rgba(245, 158, 11, 0.15);
+          --blue: #3b82f6;
+          --blue-dim: rgba(59, 130, 246, 0.15);
+          --red: #ef4444;
+          --red-dim: rgba(239, 68, 68, 0.15);
+
+          background: radial-gradient(120% 120% at 50% 0%, #111b27 0%, var(--card) 60%, var(--bg) 100%) !important;
           color: var(--text);
-          border-radius: 22px !important;
+          border-radius: 24px !important;
           border: 1px solid var(--border) !important;
-          padding: 22px !important;
-          box-shadow: none;
+          padding: 20px !important;
+          box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.08) !important;
           font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
           max-width: 100%;
           overflow: hidden;
+          backdrop-filter: blur(12px);
+          -webkit-backdrop-filter: blur(12px);
         }
+
         ha-icon { --mdc-icon-size: 20px; }
-        .header { display:flex; align-items:flex-start; justify-content:space-between; margin-bottom:18px; gap:10px; }
-        .header h1 { font-size:16px; margin:0 0 6px 0; font-weight:700; display:flex; align-items:center; gap:8px; }
-        .hdr-right { display:flex; align-items:center; gap:8px; flex-shrink:0; padding-top:2px; }
-        .hdr-clock { font-size:14px; color:var(--muted); font-weight:600; }
-        .status { display:flex; align-items:center; gap:6px; color:var(--green); font-size:14px; font-weight:500; }
-        .dot { width:8px; height:8px; border-radius:50%; background:var(--green); display:inline-block; }
 
-        .top-row { display:flex; gap:14px; margin-bottom:14px; align-items:stretch; flex-wrap:wrap; }
+        /* Верхній рядок: назва батареї, бейдж статусу та Bluetooth-індикатор свіжості */
+        .header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          margin-bottom: 16px;
+          gap: 12px;
+          flex-wrap: wrap;
+        }
+        .header h1 {
+          font-size: clamp(16px, 3.5vw, 19px);
+          margin: 0;
+          font-weight: 700;
+          letter-spacing: -0.02em;
+          color: var(--text);
+          display: flex;
+          align-items: center;
+          gap: 10px;
+        }
+        .hdr-right {
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+          padding: 6px 12px;
+          border-radius: 999px;
+          background: var(--panel);
+          border: 1px solid var(--border);
+          box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.2);
+          flex-shrink: 0;
+        }
+        .hdr-clock {
+          font-size: 12px;
+          color: var(--muted);
+          font-weight: 600;
+          font-variant-numeric: tabular-nums;
+          letter-spacing: 0.02em;
+        }
+        .hdr-clock.stale { color: var(--red); }
+        .bms-full.bms-stale { opacity: 0.88; }
 
-        /* Flow-діаграма заряд/розряд навколо батареї: іконка джерела зліва,
-           наша батарея (з анімацією потоку) в центрі замість кола, іконка
-           навантаження справа, з'єднані зігнутими стрілками з наконечником.
-           Розміри вузлів масштабуються ПРОПОРЦІЙНО через flexbox
-           (flex-basis = цільовий розмір "на весь зріст" ×1.3, min-width =
-           нижня межа стиснення) замість CSS zoom + фіксованих px на
-           кожен @media-брейкпоінт: раніше zoom масштабував уже готовий
-           layout цілком, через що на портретних екранах різні елементи
-           "стискались" по-різному (деякі — по фіксованому брейкпоінту,
-           деякі — по flex), а на альбомних — рядок "мережа/батарея/
-           навантаження" переставав влазити в картку й обрізався. Тепер усі
-           вузли одного ряду стискаються з тим самим коефіцієнтом і ніколи
-           не виходять за межі картки, на будь-якій орієнтації екрана. */
-        .flow-status-wrap { display:flex; flex-direction:column; margin-bottom:14px; }
-        .flow-row { display:flex; align-items:center; justify-content:center; gap:4px; margin:10px 0 16px; width:100%; }
+        .status {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          color: var(--green);
+          font-size: 13px;
+          font-weight: 600;
+        }
+        .dot {
+          width: 8px;
+          height: 8px;
+          border-radius: 50%;
+          background: var(--green);
+          box-shadow: 0 0 10px var(--green);
+          display: inline-block;
+          animation: bms-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+        @keyframes bms-pulse {
+          0%, 100% { opacity: 1; transform: scale(1); }
+          50% { opacity: 0.6; transform: scale(0.85); }
+        }
+
+        .top-row { display: flex; gap: 14px; margin-bottom: 14px; align-items: stretch; flex-wrap: wrap; }
+
+        /* Flow-діаграма заряд/розряд навколо батареї (захищена геометрія) */
+        .flow-status-wrap { display: flex; flex-direction: column; margin-bottom: 14px; }
+        .flow-row { display: flex; align-items: center; justify-content: center; gap: 4px; margin: 6px 0 16px; width: 100%; }
         .flow-node {
-          display:flex; flex-direction:column; align-items:center; gap:4px;
-          flex:1 1 135px; min-width:54px; max-width:135px;
+          display: flex; flex-direction: column; align-items: center; gap: 4px;
+          flex: 1 1 135px; min-width: 54px; max-width: 135px;
         }
         .flow-icon-circle {
-          width:78px; height:78px; border-radius:50%; border:2px solid #4a5764;
-          background:radial-gradient(circle at 35% 30%, #232c34, #0a0f14);
-          box-shadow: inset 0 1px 2px rgba(255,255,255,0.12);
-          display:flex; align-items:center; justify-content:center; transition:border-color 0.3s ease, box-shadow 0.3s ease;
+          width: 78px; height: 78px; border-radius: 50%; border: 2px solid #334155;
+          background: radial-gradient(circle at 35% 30%, #1e293b, #090d13);
+          box-shadow: inset 0 1px 2px rgba(255, 255, 255, 0.12);
+          display: flex; align-items: center; justify-content: center;
+          transition: border-color 0.3s ease, box-shadow 0.3s ease;
         }
-        .flow-icon-circle.flow-active-charge { border-color:var(--green); box-shadow:0 0 18px rgba(29,158,117,0.5), inset 0 1px 2px rgba(255,255,255,0.12); }
-        .flow-icon-circle.flow-active-discharge { border-color:var(--amber); box-shadow:0 0 18px rgba(239,159,39,0.45), inset 0 1px 2px rgba(255,255,255,0.12); }
-        /* Вузли "Мережа"/"Навантаження" — точна копія стилю референсного
-           прев'ю: іконка без кола-обгортки, підпис і значення під нею.
-           width у % від .flow-node — іконка стискається тим самим
-           коефіцієнтом, що й сам вузол (flexbox рахує % відносно вже
-           стиснутої ширини батька), тож нічого не "розсинхронізується". */
-        .node-icon { width:64%; height:auto; flex-shrink:0; }
-                .node-val {
-          font-size:clamp(8px, 2.4vw, 12px); font-weight:600; color:#1D9E75; text-align:center;
-          line-height:1.25; margin-top:2px; white-space:nowrap;
+        .flow-icon-circle.flow-active-charge {
+          border-color: var(--green);
+          box-shadow: 0 0 20px var(--green-glow), inset 0 1px 2px rgba(255, 255, 255, 0.12);
         }
-        .load-node .node-val { color:#EF9F27; }
-        .bms-full.bms-stale { opacity:0.88; }
-        .hdr-clock.stale { color:#E24B4A; font-size:12px; }
+        .flow-icon-circle.flow-active-discharge {
+          border-color: var(--amber);
+          box-shadow: 0 0 20px rgba(245, 158, 11, 0.45), inset 0 1px 2px rgba(255, 255, 255, 0.12);
+        }
+        .node-icon { width: 64%; height: auto; flex-shrink: 0; filter: drop-shadow(0 4px 10px rgba(0,0,0,0.3)); }
+        .node-val {
+          font-size: clamp(8px, 2.4vw, 12px); font-weight: 700; color: var(--green); text-align: center;
+          line-height: 1.25; margin-top: 2px; white-space: nowrap; font-variant-numeric: tabular-nums;
+        }
+        .load-node .node-val { color: var(--amber); }
         .node-lbl {
-          font-size:clamp(9px, 3vw, 13px); font-weight:700; letter-spacing:0.4px; color:#dfe7ee; margin-top:2px;
-          white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%;
+          font-size: clamp(9px, 3vw, 12px); font-weight: 700; letter-spacing: 0.05em; color: #cbd5e1; margin-top: 2px;
+          white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; text-transform: uppercase;
         }
         .flow-battery {
-          display:flex; flex-direction:column; align-items:center; gap:8px;
-          flex:1 1 203px; min-width:70px; max-width:210px;
+          display: flex; flex-direction: column; align-items: center; gap: 8px;
+          flex: 1 1 203px; min-width: 70px; max-width: 210px;
+          filter: drop-shadow(0 8px 18px rgba(0, 0, 0, 0.4));
         }
-        .battery-svg { width:100%; height:auto; }
-        /* Фотореалістична банка-батарея (WebP-зображення + прозорий SVG-
-           оверлей рідини/тексту поверх нього, координати оверлея завжди
-           в espace вихідного зображення 769x1536, тому саме зображення
-           може вільно масштабуватись через .battery-svg{width:100%}. */
-        .jar-battery { position:relative; line-height:0; }
-        .jar-battery-overlay { width:100%; height:auto; display:block; }
-        .jar-battery-img { position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none; }
-        .connector-info { font-size:clamp(7px, 2.2vw, 13.6px); font-weight:600; color:var(--muted); text-align:center; line-height:1.25; white-space:nowrap; }
-        /* На ширших екранах (планшет/десктоп/телефон горизонтально) блок
-           не розтягується на всю ширину картки, а лишається по центру,
-           з тою шириною, яку фактично займає ряд мережа/батарея/
-           навантаження. Розмір самих вузлів це вже не зачіпає — про
-           це піклується flex-basis/max-width вище. */
-        @media (min-width:481px) {
-          .flow-status-wrap { width:fit-content; max-width:100%; margin-left:auto; margin-right:auto; }
-          .flow-status-wrap .discharge-box { width:100%; }
-        }
+        .battery-svg { width: 100%; height: auto; }
+        .jar-battery { position: relative; line-height: 0; }
+        .jar-battery-overlay { width: 100%; height: auto; display: block; }
+        .jar-battery-img { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
+        .connector-info { font-size: clamp(7px, 2.2vw, 13.6px); font-weight: 600; color: var(--muted); text-align: center; line-height: 1.25; white-space: nowrap; }
 
-        /* Нижня навігація вкладок — реальні перемикачі вмісту картки, як
-           у референсному прев'ю (Головна/Параметри/Історія/Налаштування). */
-        .bms-tab-pane { display:none; }
-        .bms-tab-pane.active { display:block; }
-        .nav-bar {
-          margin-top:16px; padding-top:12px; border-top:1px solid var(--border);
-          display:flex; justify-content:space-around; align-items:stretch; gap:2px;
+        @media (min-width: 481px) {
+          .flow-status-wrap { width: fit-content; max-width: 100%; margin-left: auto; margin-right: auto; }
+          .flow-status-wrap .discharge-box { width: 100%; }
         }
-        .nav-item {
-          display:flex; flex-direction:column; align-items:center; justify-content:center;
-          gap:4px; padding:6px 4px; border-radius:10px; color:#8fa0ad; font-size:11px; font-weight:700;
-          letter-spacing:0.3px; cursor:pointer; flex:1 1 0; min-width:0;
-          border:1px solid transparent; user-select:none; transition:background 0.15s, color 0.15s, border-color 0.15s;
-        }
-        .nav-item:hover { color:#b0c0d0; }
-        .nav-item.active { background:rgba(56,150,231,0.12); color:#4fb3f6; border-color:rgba(79,179,246,0.35); }
-        .nav-item svg { width:20px; height:20px; flex-shrink:0; }
-        .nav-item span { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%; }
 
         .flow-connector-wrap {
-          flex:0 1 96px; min-width:20px; max-width:96px;
-          display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px;
+          flex: 0 1 96px; min-width: 20px; max-width: 96px;
+          display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
         }
-        .flow-arrows { display:flex; flex-direction:column; align-items:center; width:100%; gap:2px; }
-        .flow-arrow { width:100%; height:clamp(26px, 9vw, 83px); overflow:visible; flex-shrink:0; }
-        .flow-arrow-v { display:none; }
+        .flow-arrows { display: flex; flex-direction: column; align-items: center; width: 100%; gap: 2px; }
+        .flow-arrow { width: 100%; height: clamp(26px, 9vw, 83px); overflow: visible; flex-shrink: 0; }
+        .flow-arrow-v { display: none; }
         .flow-arrow-path { transition: stroke 0.3s ease; }
         .flow-arrow-head { transition: fill 0.3s ease; }
-        @keyframes bms-arrow-flow { 0% { stroke-dashoffset:0; opacity:1; } 50% { opacity:0.85; } 100% { stroke-dashoffset:-48; opacity:1; } }
-        .flow-arrow-path.flow-arrow-active { stroke-dasharray:12 10 4 10; animation: bms-arrow-flow 0.7s linear infinite; filter:drop-shadow(0 0 5px rgba(57,231,95,0.6)); }
+        @keyframes bms-arrow-flow { 0% { stroke-dashoffset: 0; opacity: 1; } 50% { opacity: 0.85; } 100% { stroke-dashoffset: -48; opacity: 1; } }
+        .flow-arrow-path.flow-arrow-active {
+          stroke-dasharray: 12 10 4 10; animation: bms-arrow-flow 0.7s linear infinite; filter: drop-shadow(0 0 6px var(--green));
+        }
         @media (prefers-reduced-motion: reduce) {
-          .flow-arrow-path.flow-arrow-active { animation:none; }
-        }
-        /* Ряд "мережа/батарея/навантаження" лишається рядком на будь-якій
-           ширині — вузли (.flow-node/.flow-connector-wrap/.flow-battery)
-           самі пропорційно стискаються через flex-basis/min-width вище,
-           тож окремого набору фіксованих px на вузький екран більше не
-           потрібно (і немає ризику, що на ширшому екрані сума
-           фіксованих ширин перевищить ширину картки). */
-        @media (max-width: 480px) {
-          .charge-badge {
-            font-size:clamp(9px, 2.8vw, 12px); padding:5px 8px; gap:3px;
-            white-space:nowrap; width:max-content; max-width:100%;
-            overflow:hidden; text-overflow:ellipsis;
-          }
-        }
-        .battery-box {
-          background:var(--panel); border:1px solid var(--border); border-radius:16px;
-          width:230px; flex-shrink:0; padding:16px; display:flex; flex-direction:column; align-items:center; gap:14px;
+          .flow-arrow-path.flow-arrow-active { animation: none; }
         }
 
+        /* Преміальний блок статусу / режиму під батареєю */
         .discharge-box {
-          background:var(--panel); border:1px solid var(--border); border-radius:14px;
-          padding:16px 18px; display:flex; flex-direction:column; gap:10px;
+          background: var(--panel);
+          border: 1px solid var(--border);
+          border-radius: 18px;
+          padding: 14px 18px;
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+          box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+          backdrop-filter: blur(10px);
+          -webkit-backdrop-filter: blur(10px);
+          transition: background 0.2s ease, border-color 0.2s ease;
         }
-        .discharge-top { display:flex; align-items:center; gap:16px; }
+        .discharge-box:hover {
+          border-color: rgba(255, 255, 255, 0.14);
+        }
+        .discharge-top { display: flex; align-items: center; gap: 14px; }
         .icon-circle {
-          width:40px; height:40px; border-radius:50%; background:#1a222c;
-          display:flex; align-items:center; justify-content:center; flex-shrink:0;
+          width: 44px; height: 44px; border-radius: 12px; background: rgba(255, 255, 255, 0.05);
+          border: 1px solid var(--border);
+          display: flex; align-items: center; justify-content: center; flex-shrink: 0;
         }
-        .discharge-top .icon-circle { width:52px; height:52px; display:flex; align-items:center; justify-content:center; }
-        .discharge-top .icon-circle ha-icon { display:flex; align-items:center; justify-content:center; }
-        .discharge-text .l1 { font-size:18px; font-weight:700; }
-        .discharge-text .l2 { font-size:13px; color:var(--muted); margin-top:3px; line-height:1.35; }
-
-        .functions-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-bottom:14px; }
-        .func-box {
-          background:var(--panel); border:1px solid var(--border); border-radius:14px;
-          padding:14px 16px; display:flex; align-items:center; gap:12px;
-          min-width:0; box-sizing:border-box;
+        .discharge-top .icon-circle {
+          width: 48px; height: 48px; border-radius: 14px;
+          box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
         }
-        .func-text { min-width:0; flex:1; }
-        .func-text .l1, .func-text .l2 { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-        .func-text .l1 { font-size:13px; color:var(--muted); }
-        .func-text .l2 { font-size:15px; font-weight:700; margin-top:2px; }
+        .discharge-top .icon-circle ha-icon { display: flex; align-items: center; justify-content: center; }
+        .discharge-text { min-width: 0; flex: 1; }
+        .discharge-text .l1 { font-size: 16px; font-weight: 700; letter-spacing: -0.01em; color: var(--text); }
+        .discharge-text .l2 { font-size: 12.5px; color: var(--muted); margin-top: 4px; line-height: 1.4; }
 
-        .metrics-row {
-          display:grid; grid-template-columns:repeat(7,1fr); gap:0;
-          background:var(--panel); border:1px solid var(--border); border-radius:16px;
-          margin-bottom:22px; overflow:hidden;
+        /* Вкладки та сторінки */
+        .bms-tab-pane { display: none; }
+        .bms-tab-pane.active { display: block; animation: bms-fade-in 0.25s ease; }
+        @keyframes bms-fade-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+
+        /* Сучасна плаваюча панель навігації (Segmented Dock) */
+        .nav-bar {
+          margin-top: 18px;
+          padding: 6px;
+          background: rgba(11, 18, 28, 0.85);
+          border: 1px solid var(--border);
+          border-radius: 16px;
+          display: flex;
+          justify-content: space-around;
+          align-items: stretch;
+          gap: 6px;
+          box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+          backdrop-filter: blur(12px);
+          -webkit-backdrop-filter: blur(12px);
         }
-        .metric { padding:16px 10px; text-align:left; border-right:1px solid var(--border); }
-        .metric:last-child { border-right:none; }
-        .metric .val { font-size:19px; font-weight:700; }
-        .metric .val span { font-size:12px; color:var(--muted); font-weight:500; }
-        .metric .lbl { font-size:12.5px; color:var(--muted); margin-top:4px; }
-
-        h2.section-title { font-size:17px; font-weight:700; margin:0 0 12px 2px; color:var(--text); }
-        .bms-muted { color:var(--muted); font-size:13px; }
-
-        /* Візуальне відображення рівня заряду комірок (раніше цих правил
-           не було взагалі — .cell-track/.cell-fill малювались без жодного
-           стилю, тому був видно тільки текст). */
-        .cell-row { display:flex; align-items:center; gap:8px; margin-bottom:6px; cursor:pointer; }
-        .cell-name { flex-shrink:0; width:26px; font-size:12px; font-weight:700; color:var(--muted); }
-        .cell-track { flex:1; height:10px; min-width:0; border-radius:6px; background:rgba(127,127,127,0.18); overflow:hidden; }
-        .cell-fill { height:100%; border-radius:6px; background:var(--green); transition:width 0.4s ease; }
-        .cell-fill.warn { background:var(--red); }
-        .cell-row.balancing .cell-fill { background:var(--amber); }
-        .cell-val { flex-shrink:0; font-size:12.5px; font-weight:600; color:var(--text); display:flex; align-items:center; gap:4px; }
-
-        /* .badges-row/.badge (Макс/Мін/Різниця під списком комірок) теж
-           не мали жодного стилю — текст і "V<b>C1</b>" йшли суцільним
-           рядком без відступів. Тепер це охайні кольорові чіпи з чітким
-           відступом між значенням і міткою комірки/підписом. flex-basis
-           (не flex:1 1 0) дозволяє чіпам переноситись на другий рядок
-           на вузьких картках замість обрізання тексту по еліпсису. */
-        .badges-row { display:flex; flex-direction:column; flex-wrap:wrap; gap:10px; margin-top:14px; }
-        .badge {
-          flex:1 1 auto; min-width:0; display:flex; align-items:center; justify-content:space-between; gap:8px;
-          padding:10px 12px; border-radius:12px; font-size:13px; font-weight:600;
-          background:var(--panel); border:1px solid var(--border);
+        .nav-item {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          gap: 4px;
+          padding: 8px 12px;
+          border-radius: 12px;
+          color: var(--muted);
+          font-size: 11px;
+          font-weight: 700;
+          letter-spacing: 0.03em;
+          cursor: pointer;
+          flex: 1 1 0;
+          min-width: 0;
+          border: 1px solid transparent;
+          user-select: none;
+          transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
         }
-        @media (min-width:420px) { .badges-row { flex-direction:row; } }
-        .badge span { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-        .badge b {
-          flex-shrink:0; font-size:11px; font-weight:700; padding:3px 8px; border-radius:999px; color:var(--bg);
+        .nav-item:hover { color: var(--text); background: rgba(255, 255, 255, 0.04); }
+        .nav-item.active {
+          background: linear-gradient(135deg, rgba(59, 130, 246, 0.2) 0%, rgba(16, 185, 129, 0.15) 100%);
+          color: #60a5fa;
+          border-color: rgba(96, 165, 250, 0.3);
+          box-shadow: 0 2px 10px rgba(59, 130, 246, 0.2);
         }
-        .badge.green { color:var(--green); border-color:rgba(29,158,117,0.35); background:rgba(29,158,117,0.08); }
-        .badge.amber { color:var(--amber); border-color:rgba(239,159,39,0.35); background:rgba(239,159,39,0.08); }
-        .badge.blue { color:var(--blue); border-color:rgba(75,155,240,0.35); background:rgba(75,155,240,0.08); }
-        .badge.green b { background:var(--green); }
-        .badge.amber b { background:var(--amber); }
-        .badge.blue b { background:var(--blue); }
-        [data-more-info] { cursor:pointer; }
+        .nav-item svg { width: 18px; height: 18px; flex-shrink: 0; transition: transform 0.2s ease; }
+        .nav-item.active svg { transform: scale(1.08); stroke: #60a5fa; }
+        .nav-item span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 
+        /* Акордеонні секції у вкладках */
         .info-accordion-section {
-          border:1px solid var(--divider, rgba(127,127,127,0.18));
-          border-radius:14px;
-          margin-bottom:14px;
-          overflow:hidden;
-          background:transparent;
+          border: 1px solid var(--border);
+          border-radius: 16px;
+          margin-bottom: 12px;
+          overflow: hidden;
+          background: var(--panel);
+          transition: border-color 0.2s ease;
+        }
+        .info-accordion-section[open] {
+          border-color: rgba(255, 255, 255, 0.14);
+          background: rgba(18, 28, 42, 0.75);
         }
         .info-accordion-title {
-          list-style:none;
-          cursor:pointer;
-          font-size:17px;
-          font-weight:700;
-          color:var(--text);
-          padding:14px 16px;
-          display:flex;
-          align-items:center;
-          justify-content:space-between;
-          user-select:none;
-          background:var(--panel);
+          list-style: none;
+          cursor: pointer;
+          font-size: 15px;
+          font-weight: 700;
+          color: var(--text);
+          padding: 14px 18px;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          user-select: none;
+          background: transparent;
+          transition: background 0.15s ease;
         }
-        .info-accordion-title::-webkit-details-marker { display:none; }
+        .info-accordion-title:hover { background: rgba(255, 255, 255, 0.03); }
+        .info-accordion-title::-webkit-details-marker { display: none; }
         .info-accordion-title::after {
-          content:"";
-          width:9px;
-          height:9px;
-          border-right:2px solid var(--muted);
-          border-bottom:2px solid var(--muted);
-          transform:rotate(-45deg);
-          transition:transform 0.2s ease;
-          flex-shrink:0;
+          content: "";
+          width: 8px;
+          height: 8px;
+          border-right: 2px solid var(--muted);
+          border-bottom: 2px solid var(--muted);
+          transform: rotate(-45deg);
+          transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+          flex-shrink: 0;
         }
-        .info-accordion-section[open] > .info-accordion-title::after { transform:rotate(45deg); }
-        .info-accordion-section[open] { border-color:transparent; }
-        .info-accordion-body { padding:10px 0 16px; background:transparent; }
+        .info-accordion-section[open] > .info-accordion-title::after { transform: rotate(45deg); border-color: #60a5fa; }
+        .info-accordion-body { padding: 8px 16px 16px; }
 
-        .usage-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:24px; }
-        .usage-card {
-          background:var(--panel); border:1px solid var(--border); border-radius:16px; padding:14px 16px 8px;
+        /* Комірки (Cells View) - преміальний вигляд */
+        .cells-box { display: flex; flex-direction: column; gap: 8px; }
+        .cells-title {
+          font-size: 13.5px;
+          font-weight: 700;
+          color: var(--text);
+          margin-bottom: 6px;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
         }
-        .usage-card .lbl { font-size:13px; color:var(--muted); margin-bottom:6px; }
-        .usage-card .val-row { display:flex; align-items:baseline; gap:8px; margin-bottom:8px; }
-        .usage-card .val-row .v { font-size:19px; font-weight:700; }
-        .usage-card .val-row .p { font-size:13px; color:var(--green); font-weight:600; }
-        .usage-card svg, .bms-spark { display:block; width:100%; height:36px; }
+        .balance-badge {
+          display: inline-flex;
+          align-items: center;
+          gap: 4px;
+          font-size: 11px;
+          padding: 2px 8px;
+          border-radius: 999px;
+          background: var(--amber-dim);
+          color: var(--amber);
+          border: 1px solid rgba(245, 158, 11, 0.3);
+          font-weight: 700;
+          text-transform: uppercase;
+        }
+        .cell-row {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          padding: 6px 10px;
+          border-radius: 10px;
+          background: rgba(255, 255, 255, 0.02);
+          border: 1px solid var(--border-subtle);
+          cursor: pointer;
+          transition: background 0.15s ease, border-color 0.15s ease;
+        }
+        .cell-row:hover {
+          background: rgba(255, 255, 255, 0.05);
+          border-color: var(--border);
+        }
+        .cell-name {
+          flex-shrink: 0;
+          width: 28px;
+          font-size: 12px;
+          font-weight: 700;
+          color: var(--muted);
+          text-align: center;
+          background: rgba(255, 255, 255, 0.04);
+          padding: 3px 0;
+          border-radius: 6px;
+        }
+        .cell-track {
+          flex: 1;
+          height: 10px;
+          min-width: 0;
+          border-radius: 999px;
+          background: rgba(255, 255, 255, 0.08);
+          overflow: hidden;
+          box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.4);
+        }
+        .cell-fill {
+          height: 100%;
+          border-radius: 999px;
+          background: linear-gradient(90deg, #059669 0%, var(--green) 100%);
+          box-shadow: 0 0 8px var(--green-glow);
+          transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .cell-fill.warn {
+          background: linear-gradient(90deg, #dc2626 0%, var(--red) 100%);
+          box-shadow: 0 0 8px rgba(239, 68, 68, 0.5);
+        }
+        .cell-row.balancing .cell-fill {
+          background: linear-gradient(90deg, #d97706 0%, var(--amber) 100%);
+          box-shadow: 0 0 8px rgba(245, 158, 11, 0.5);
+        }
+        .cell-row.balancing .cell-name {
+          color: var(--amber);
+          background: var(--amber-dim);
+          border: 1px solid rgba(245, 158, 11, 0.3);
+        }
+        .cell-val {
+          flex-shrink: 0;
+          font-size: 13px;
+          font-weight: 700;
+          color: var(--text);
+          font-variant-numeric: tabular-nums;
+          font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+          display: flex;
+          align-items: center;
+          gap: 6px;
+        }
 
-        .forecast-row { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:24px; }
-        .forecast-card {
-          background:var(--panel); border:1px solid var(--border); border-radius:14px; padding:14px 16px;
-          display:flex; align-items:center; gap:12px;
+        /* Бейджі Макс / Мін / Різниця */
+        .badges-row {
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+          margin-top: 12px;
         }
-        .forecast-text .l1 { font-size:12.5px; color:var(--muted); line-height:1.3; }
-        .forecast-text .l2 { font-size:17px; font-weight:700; margin-top:3px; }
+        @media (min-width: 420px) { .badges-row { flex-direction: row; } }
+        .badge {
+          flex: 1 1 0;
+          min-width: 0;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 8px;
+          padding: 8px 12px;
+          border-radius: 12px;
+          font-size: 12.5px;
+          font-weight: 600;
+          background: var(--panel);
+          border: 1px solid var(--border);
+          box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+          transition: transform 0.15s ease;
+        }
+        .badge:hover { transform: translateY(-1px); }
+        .badge span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .badge b {
+          flex-shrink: 0;
+          font-size: 11px;
+          font-weight: 800;
+          padding: 2px 7px;
+          border-radius: 999px;
+          color: #070b10;
+        }
+        .badge.green { color: var(--green); border-color: rgba(16, 185, 129, 0.3); background: rgba(16, 185, 129, 0.08); }
+        .badge.amber { color: var(--amber); border-color: rgba(245, 158, 11, 0.3); background: rgba(245, 158, 11, 0.08); }
+        .badge.blue  { color: #60a5fa; border-color: rgba(96, 165, 250, 0.3); background: rgba(59, 130, 246, 0.08); }
+        .badge.green b { background: var(--green); }
+        .badge.amber b { background: var(--amber); }
+        .badge.blue b  { background: #60a5fa; }
+        [data-more-info] { cursor: pointer; }
 
-        .stats-period-bar { margin-bottom:18px; }
-        .stats-period-btns { display:flex; flex-wrap:wrap; gap:8px; }
-        .stats-period-btn {
-          font: inherit; cursor:pointer; padding:7px 14px; border-radius:999px;
-          border:1px solid var(--border); background:var(--panel); color:var(--text);
-          font-size:13px; font-weight:600;
+        /* Показники (Bento Grid) - адаптивність до мобільного, планшета і ПК */
+        .info-tiles {
+          display: grid;
+          grid-template-columns: repeat(2, 1fr);
+          gap: 8px;
+          margin-bottom: 12px;
         }
-        .stats-period-btn.active { background:var(--green); border-color:var(--green); color:#04150a; }
-        .stats-period-custom { display:flex; flex-wrap:wrap; gap:14px; margin-top:12px; }
-        .stats-period-custom label { font-size:12.5px; color:var(--muted); display:flex; flex-direction:column; gap:4px; }
-        .stats-period-custom input[type="date"] {
-          font: inherit; padding:7px 10px; border-radius:10px; border:1px solid var(--border);
-          background:var(--panel); color:var(--text);
+        @media (min-width: 540px) {
+          .info-tiles { grid-template-columns: repeat(3, 1fr); gap: 10px; }
         }
-        .stats-summary-grid { grid-template-columns:repeat(2,1fr); }
-        .stats-wh-note { margin-top:-12px; }
-
-        .muted-note {
-          background:var(--panel); border:1px solid var(--border); border-radius:16px;
-          padding:14px 16px; margin-bottom:24px; font-size:12.5px; color:var(--muted-2);
-          line-height:1.4;
+        @media (min-width: 820px) {
+          .info-tiles { grid-template-columns: repeat(4, 1fr); gap: 10px; }
         }
-
-        .diag-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; }
-        .diag-card {
-          background:var(--panel); border:1px solid var(--border); border-radius:14px; padding:14px 16px;
-          display:flex; align-items:center; gap:12px;
-        }
-        .diag-icon {
-          width:40px; height:40px; border-radius:10px; background:#1a222c;
-          display:flex; align-items:center; justify-content:center; flex-shrink:0;
-        }
-        .diag-text .l1 { font-size:12.5px; color:var(--muted); }
-        .diag-text .l2 { font-size:16px; font-weight:700; margin-top:2px; }
-
-        .info-tiles { display:grid; grid-template-columns:repeat(auto-fit, minmax(250px, 1fr)); gap:10px; margin-bottom:20px; }
         .info-tile {
-          background:var(--panel); border:1px solid var(--border); border-radius:14px;
-          padding:12px 14px; display:flex; flex-direction:column; gap:4px; min-width:0;
+          background: rgba(255, 255, 255, 0.025);
+          border: 1px solid var(--border);
+          border-radius: 14px;
+          padding: 10px 12px;
+          display: flex;
+          flex-direction: column;
+          gap: 3px;
+          min-width: 0;
+          transition: all 0.2s ease;
         }
-        .info-tile-lbl { font-size:11.5px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-        .info-tile-val { font-size:15px; font-weight:700; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-        @media (max-width:480px) {
-          .info-tiles { grid-template-columns:repeat(2, 1fr); }
+        .info-tile:hover {
+          background: rgba(255, 255, 255, 0.05);
+          border-color: rgba(255, 255, 255, 0.16);
+          transform: translateY(-1px);
+        }
+        .info-tile-lbl {
+          font-size: 11px;
+          font-weight: 600;
+          color: var(--muted);
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          text-transform: uppercase;
+          letter-spacing: 0.03em;
+        }
+        .info-tile-val {
+          font-size: 15px;
+          font-weight: 700;
+          color: var(--text);
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          font-variant-numeric: tabular-nums;
         }
 
-        .lang-switch { display:flex; gap:10px; margin-top:6px; }
+        /* Функції (Функціональні перемикачі) */
+        .functions-grid {
+          display: grid;
+          grid-template-columns: repeat(1, 1fr);
+          gap: 8px;
+          margin-bottom: 10px;
+        }
+        @media (min-width: 480px) {
+          .functions-grid { grid-template-columns: repeat(2, 1fr); }
+        }
+        @media (min-width: 768px) {
+          .functions-grid { grid-template-columns: repeat(3, 1fr); }
+        }
+        .func-box {
+          background: rgba(255, 255, 255, 0.025);
+          border: 1px solid var(--border);
+          border-radius: 14px;
+          padding: 12px 14px;
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          min-width: 0;
+          transition: all 0.2s ease;
+        }
+        .func-box:hover {
+          background: rgba(255, 255, 255, 0.05);
+          border-color: rgba(255, 255, 255, 0.16);
+        }
+        .func-text { min-width: 0; flex: 1; }
+        .func-text .l1, .func-text .l2 { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .func-text .l1 { font-size: 12px; color: var(--muted); font-weight: 600; }
+        .func-text .l2 { font-size: 14px; font-weight: 700; margin-top: 2px; }
+
+        /* Вкладка Статистика */
+        .stats-period-bar { margin-bottom: 16px; }
+        .stats-period-btns { display: flex; flex-wrap: wrap; gap: 6px; }
+        .stats-period-btn {
+          font: inherit;
+          cursor: pointer;
+          padding: 6px 14px;
+          border-radius: 999px;
+          border: 1px solid var(--border);
+          background: var(--panel);
+          color: var(--muted);
+          font-size: 12px;
+          font-weight: 600;
+          transition: all 0.2s ease;
+        }
+        .stats-period-btn:hover { color: var(--text); border-color: rgba(255, 255, 255, 0.15); }
+        .stats-period-btn.active {
+          background: linear-gradient(135deg, var(--green) 0%, #059669 100%);
+          border-color: var(--green);
+          color: #04150a;
+          box-shadow: 0 2px 10px var(--green-glow);
+        }
+        .stats-period-custom { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 12px; }
+        .stats-period-custom label { font-size: 12px; color: var(--muted); display: flex; flex-direction: column; gap: 4px; }
+        .stats-period-custom input[type="date"] {
+          font: inherit; padding: 6px 10px; border-radius: 10px; border: 1px solid var(--border);
+          background: var(--panel); color: var(--text);
+        }
+        .usage-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 16px; }
+        @media (min-width: 640px) {
+          .usage-grid { grid-template-columns: repeat(4, 1fr); }
+        }
+        .stats-summary-grid { grid-template-columns: repeat(2, 1fr) !important; }
+        .usage-card {
+          background: rgba(255, 255, 255, 0.025);
+          border: 1px solid var(--border);
+          border-radius: 14px;
+          padding: 12px 14px;
+          transition: transform 0.15s ease;
+        }
+        .usage-card:hover { transform: translateY(-1px); border-color: rgba(255, 255, 255, 0.15); }
+        .usage-card .lbl { font-size: 11.5px; color: var(--muted); margin-bottom: 4px; text-transform: uppercase; font-weight: 600; }
+        .usage-card .val-row { display: flex; align-items: baseline; gap: 6px; }
+        .usage-card .val-row .v { font-size: 18px; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
+        .usage-card .val-row .p { font-size: 12px; color: var(--green); font-weight: 700; }
+        .stats-wh-note { margin-top: -8px; }
+        .muted-note {
+          background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
+          padding: 12px 14px; margin-bottom: 16px; font-size: 12px; color: var(--muted-2); line-height: 1.4;
+        }
+
+        /* Налаштування мови */
+        h2.section-title { font-size: 15px; font-weight: 700; margin: 0 0 8px 0; color: var(--text); }
+        .bms-muted { color: var(--muted); font-size: 12.5px; line-height: 1.4; }
+        .lang-switch { display: flex; gap: 10px; margin-top: 10px; }
         .lang-btn {
-          flex:1; padding:12px 14px; border-radius:12px; border:1px solid var(--border);
-          background:var(--panel); color:var(--text); font-size:14px; font-weight:600; cursor:pointer;
+          flex: 1;
+          padding: 10px 14px;
+          border-radius: 12px;
+          border: 1px solid var(--border);
+          background: var(--panel);
+          color: var(--muted);
+          font-size: 13.5px;
+          font-weight: 600;
+          cursor: pointer;
+          transition: all 0.2s ease;
         }
-        .lang-btn.active { background:rgba(56,150,231,0.12); color:#4fb3f6; border-color:rgba(79,179,246,0.35); }
+        .lang-btn:hover { color: var(--text); border-color: rgba(255, 255, 255, 0.15); }
+        .lang-btn.active {
+          background: linear-gradient(135deg, rgba(59, 130, 246, 0.2) 0%, rgba(16, 185, 129, 0.15) 100%);
+          color: #60a5fa;
+          border-color: rgba(96, 165, 250, 0.35);
+          box-shadow: 0 2px 10px rgba(59, 130, 246, 0.2);
+        }
 
-        .bms-mini { cursor:pointer; }
+        /* Компактний вигляд (Mini View) */
+        .bms-mini { cursor: pointer; }
+        .battery-box {
+          background: var(--panel); border: 1px solid var(--border); border-radius: 16px;
+          width: 230px; flex-shrink: 0; padding: 16px; display: flex; flex-direction: column; align-items: center; gap: 14px;
+        }
         .bms-overlay {
-          position:fixed; inset:0; background:rgba(0,0,0,0.65); z-index:1000;
-          display:flex; align-items:center; justify-content:center; padding:12px; backdrop-filter:blur(8px);
+          position: fixed; inset: 0; background: rgba(0, 0, 0, 0.75); z-index: 1000;
+          display: flex; align-items: center; justify-content: center; padding: 12px; backdrop-filter: blur(10px);
         }
         .bms-overlay-inner {
-          background:var(--card); border-radius:22px; max-width:min(1000px,100%); width:100%;
-          max-height:94vh; overflow:auto; padding:22px; position:relative; border:1px solid var(--border);
+          background: var(--card); border-radius: 24px; max-width: min(1000px, 100%); width: 100%;
+          max-height: 94vh; overflow: auto; padding: 22px; position: relative; border: 1px solid var(--border);
         }
         .bms-overlay-close {
-          position:absolute; top:12px; right:14px; border:none; background:transparent;
-          color:var(--text); font-size:18px; cursor:pointer; opacity:0.7;
+          position: absolute; top: 14px; right: 16px; border: none; background: transparent;
+          color: var(--muted); font-size: 20px; cursor: pointer; transition: color 0.15s ease;
         }
+        .bms-overlay-close:hover { color: var(--text); }
 
-        @media (max-width:820px) {
-          .functions-grid { grid-template-columns:repeat(2,1fr); }
-          .metrics-row { grid-template-columns:repeat(4,1fr); }
-          .usage-grid, .forecast-row, .diag-grid { grid-template-columns:repeat(2,1fr); }
-          .battery-box { width:100%; }
+        /* Сумісність з іншими діагностичними сітками якщо є */
+        .metrics-row {
+          display: grid; grid-template-columns: repeat(4, 1fr); gap: 0;
+          background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
+          margin-bottom: 16px; overflow: hidden;
         }
-        @media (max-width:420px) {
-          .functions-grid { grid-template-columns:repeat(1,1fr); }
+        .metric { padding: 12px 10px; text-align: left; border-right: 1px solid var(--border); }
+        .metric:last-child { border-right: none; }
+        .metric .val { font-size: 16px; font-weight: 700; }
+        .metric .val span { font-size: 11px; color: var(--muted); font-weight: 500; }
+        .metric .lbl { font-size: 11px; color: var(--muted); margin-top: 2px; }
+        .forecast-row, .diag-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 16px; }
+        .forecast-card, .diag-card {
+          background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 12px 14px;
+          display: flex; align-items: center; gap: 10px;
         }
+        .diag-icon {
+          width: 36px; height: 36px; border-radius: 10px; background: rgba(255, 255, 255, 0.05);
+          display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+        }
+        .forecast-text .l1, .diag-text .l1 { font-size: 11px; color: var(--muted); }
+        .forecast-text .l2, .diag-text .l2 { font-size: 15px; font-weight: 700; margin-top: 2px; }
       </style>
     `;
   }
