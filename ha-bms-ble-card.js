@@ -117,6 +117,11 @@ const I18N = {
     lbl_cell_min: "Мін. напруга комірки",
     settings_language: "Мова",
     settings_language_hint: "Мова інтерфейсу картки",
+    settings_home_sections: "Відображення на головній",
+    settings_home_sections_hint: "Оберіть інформаційні блоки для головної вкладки",
+    settings_show_status: "Статус (під батареєю)",
+    settings_show_metrics: "Ключові показники",
+    settings_show_chips: "Стан системи",
     lang_uk: "Українська",
     lang_en: "English",
   },
@@ -217,11 +222,17 @@ const I18N = {
     lbl_cell_min: "Min Cell Voltage",
     settings_language: "Language",
     settings_language_hint: "Card interface language",
+    settings_home_sections: "Home tab display",
+    settings_home_sections_hint: "Choose information sections to display on the main tab",
+    settings_show_status: "Status (below battery)",
+    settings_show_metrics: "Key metrics",
+    settings_show_chips: "System state",
     lang_uk: "Українська",
     lang_en: "English",
   },
 };
 const I18N_LANG_KEY = "ha-bms-ble-card-lang";
+const HOME_SECTIONS_STORAGE_KEY = "ha-bms-ble-card-home-sections";
 
 const DEFAULT_THRESHOLDS = {
   cell_delta_warning: 0.02,
@@ -2122,6 +2133,9 @@ class HaBmsBleCard extends HTMLElement {
     let storedLang;
     try { storedLang = window.localStorage.getItem(I18N_LANG_KEY); } catch (e) { storedLang = null; }
     this._lang = storedLang === "en" ? "en" : "uk";
+    let storedHomeSecs;
+    try { storedHomeSecs = JSON.parse(window.localStorage.getItem(HOME_SECTIONS_STORAGE_KEY) || "null"); } catch (e) { storedHomeSecs = null; }
+    this._homeSections = Object.assign({ status: true, metrics: true, chips: true }, storedHomeSecs || {});
   }
 
   /** Переклад одного рядка інтерфейсу за ключем словника I18N, з
@@ -2401,6 +2415,12 @@ class HaBmsBleCard extends HTMLElement {
     if (bmsMode === "charging" || charging === "on" || current > 0.3) return { label: "Заряджається", icon: "ti-bolt", color: "success", mode: bmsMode };
     if (bmsMode === "discharging" || current < -0.3) return { label: "Розряджається", icon: "ti-bolt-off", color: "warning", mode: bmsMode };
     return { label: "У простої", icon: "ti-pause", color: "neutral", mode: bmsMode };
+  }
+
+  _setHomeSection(key, val) {
+    this._homeSections = Object.assign({}, this._homeSections, { [key]: !!val });
+    try { window.localStorage.setItem(HOME_SECTIONS_STORAGE_KEY, JSON.stringify(this._homeSections)); } catch (e) { /* ignore */ }
+    this._render();
   }
 
   _statusColorVars(color) {
@@ -2923,6 +2943,7 @@ class HaBmsBleCard extends HTMLElement {
           </div>
         </div>
 
+        ${(this._homeSections && this._homeSections.status === false) ? "" : `
         <div class="discharge-box"${moreInfoAttr(this._e("problem") || this._e("charging"))}>
           <div class="discharge-top">
             <div class="icon-circle" style="background:${statusSc.bg}">${haIcon(status.icon,20,statusSc.fg)}</div>
@@ -2938,18 +2959,20 @@ class HaBmsBleCard extends HTMLElement {
               })()}
             </div>
           </div>
-        </div>
+        </div>`}
         </div>
 
+        ${(this._homeSections && this._homeSections.metrics === false) ? "" : `
         <div class="quick-section">
           <div class="section-head"><span>${t("home_metrics")}</span></div>
           <div class="metric-grid">${metricsHtml}</div>
-        </div>
+        </div>`}
 
+        ${(this._homeSections && this._homeSections.chips === false) ? "" : `
         <div class="quick-section">
           <div class="section-head"><span>${t("home_status")}</span></div>
           <div class="chip-row">${chipsHtml}</div>
-        </div>
+        </div>`}
         </div>
 
 
@@ -3021,6 +3044,26 @@ class HaBmsBleCard extends HTMLElement {
           <button type="button" class="lang-btn ${this._lang === "uk" ? "active" : ""}" data-lang="uk">${t("lang_uk")}</button>
           <button type="button" class="lang-btn ${this._lang === "en" ? "active" : ""}" data-lang="en">${t("lang_en")}</button>
         </div>
+
+        <h2 class="section-title" style="margin-top:24px;">${t("settings_home_sections")}</h2>
+        <p class="bms-muted">${t("settings_home_sections_hint")}</p>
+        <div class="settings-toggles">
+          <label class="settings-toggle-row">
+            <span class="toggle-title">${t("settings_show_status")}</span>
+            <input type="checkbox" class="bms-switch" data-home-section="status"${(this._homeSections && this._homeSections.status === false) ? "" : " checked"}>
+            <span class="switch-ui"></span>
+          </label>
+          <label class="settings-toggle-row">
+            <span class="toggle-title">${t("settings_show_metrics")}</span>
+            <input type="checkbox" class="bms-switch" data-home-section="metrics"${(this._homeSections && this._homeSections.metrics === false) ? "" : " checked"}>
+            <span class="switch-ui"></span>
+          </label>
+          <label class="settings-toggle-row">
+            <span class="toggle-title">${t("settings_show_chips")}</span>
+            <input type="checkbox" class="bms-switch" data-home-section="chips"${(this._homeSections && this._homeSections.chips === false) ? "" : " checked"}>
+            <span class="switch-ui"></span>
+          </label>
+        </div>
         </div>
 
         <div class="nav-bar">
@@ -3061,7 +3104,7 @@ class HaBmsBleCard extends HTMLElement {
           </div>
         </div>
         <div class="top-row">
-          <div class="battery-box" style="width:140px;"${moreInfoAttr(this._e("soc"))}>
+          <div class="battery-box" style="width:140px;cursor:pointer;">
             ${jarBatterySvg(this._uid, soc, fmt(voltage, 2))}
             <div class="charge-badge" style="font-size:12px;padding:6px 10px;">${status.label}</div>
           </div>
@@ -3302,6 +3345,13 @@ class HaBmsBleCard extends HTMLElement {
           try { window.localStorage.setItem(I18N_LANG_KEY, lang); } catch (e) { /* ignore */ }
           this._render();
         }
+      });
+    });
+    this.querySelectorAll(".bms-switch[data-home-section]").forEach((el) => {
+      el.addEventListener("change", (ev) => {
+        ev.stopPropagation();
+        const sec = el.dataset.homeSection;
+        if (sec) this._setHomeSection(sec, el.checked);
       });
     });
   }
@@ -3940,6 +3990,85 @@ class HaBmsBleCard extends HTMLElement {
         .forecast-text .l2, .diag-text .l2 { font-size: 15px; font-weight: 700; margin-top: 2px; }
 
         /* ===== Redesign v2: графіт + електричний бірюзовий акцент ===== */
+        .metric-grid {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+          gap: 8px !important;
+          width: 100% !important;
+          box-sizing: border-box !important;
+        }
+        .metric-card {
+          display: flex !important;
+          align-items: center !important;
+          gap: 8px !important;
+          padding: 8px 10px !important;
+          background: var(--panel);
+          border: 1px solid var(--border);
+          border-radius: 12px !important;
+          min-width: 0 !important;
+          width: 100% !important;
+          box-sizing: border-box !important;
+          overflow: hidden !important;
+        }
+        .metric-icon {
+          width: 26px !important;
+          height: 26px !important;
+          border-radius: 7px !important;
+          display: flex; align-items: center; justify-content: center;
+          flex-shrink: 0 !important;
+        }
+        .metric-icon svg { width: 15px; height: 15px; }
+        .metric-meta { min-width: 0 !important; flex: 1 !important; overflow: hidden !important; }
+        .metric-lbl {
+          font-size: 9.5px !important;
+          color: var(--muted);
+          letter-spacing: 0.04em;
+          text-transform: uppercase;
+          font-weight: 600;
+          white-space: nowrap !important;
+          overflow: hidden !important;
+          text-overflow: ellipsis !important;
+        }
+        .metric-val {
+          font-size: clamp(12px, 3.4vw, 14.5px) !important;
+          font-weight: 750;
+          margin-top: 1px !important;
+          font-variant-numeric: tabular-nums;
+          letter-spacing: -0.01em;
+          white-space: nowrap !important;
+          overflow: hidden !important;
+          text-overflow: ellipsis !important;
+        }
+        @media (min-width: 520px) {
+          .metric-grid { grid-template-columns: repeat(4, minmax(0, 1fr)) !important; }
+        }
+
+        /* Налаштування: перемикачі блоків головної вкладки */
+        .settings-toggles { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+        .settings-toggle-row {
+          display: flex; align-items: center; justify-content: space-between;
+          padding: 12px 14px; background: var(--panel); border: 1px solid var(--border);
+          border-radius: 14px; cursor: pointer; user-select: none; transition: background 0.2s;
+        }
+        .settings-toggle-row:hover { background: var(--panel-hover); }
+        .toggle-title { font-size: 13px; font-weight: 600; color: var(--text); }
+        .bms-switch { position: absolute; opacity: 0; pointer-events: none; width: 0; height: 0; }
+        .switch-ui {
+          position: relative; width: 44px; height: 24px; background: rgba(255, 255, 255, 0.12);
+          border-radius: 999px; transition: background 0.2s, box-shadow 0.2s; flex-shrink: 0;
+        }
+        .switch-ui::after {
+          content: ""; position: absolute; top: 2px; left: 2px; width: 20px; height: 20px;
+          background: #ffffff; border-radius: 50%; transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+          box-shadow: 0 2px 4px rgba(0, 0, 0, 0.4);
+        }
+        .bms-switch:checked + .switch-ui {
+          background: var(--accent); box-shadow: 0 0 12px rgba(20, 216, 166, 0.45);
+        }
+        .bms-switch:checked + .switch-ui::after {
+          transform: translateX(20px); background: #06120e;
+        }
+
         ha-card.bms-card, .bms-card {
           --bg: #04060a;
           --card: #0a0d14;
@@ -4065,6 +4194,8 @@ class HaBmsBleCard extends HTMLElement {
     const miniEl = this.querySelector(".bms-mini");
     if (miniEl) {
       miniEl.addEventListener("click", () => this._toggleOverlay(true));
+      const miniBat = miniEl.querySelector(".battery-box");
+      if (miniBat) miniBat.addEventListener("click", () => this._toggleOverlay(true));
       miniEl.addEventListener("keydown", (e) => {
         if (e.key === "Enter" || e.key === " ") this._toggleOverlay(true);
       });

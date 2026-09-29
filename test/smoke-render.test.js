@@ -761,3 +761,35 @@ _statsWsRegressionPromise.catch((err) => {
 
   console.log("Home quick-metrics + state-chips (redesign v2) regression test passed.");
 }
+
+// --- Налаштування відображення блоків на головній та клік по віджету ---
+{
+  const card = Object.create(mod.HaBmsBleCard.prototype);
+  card._config = { entities: {} };
+  card._hass = mockHass;
+  card._resolvedEntities = mod.autoDiscoverEntities(mockHass, deviceId);
+  card._lang = "uk";
+
+  // 1. За замовчуванням всі блоки увімкнені
+  card._homeSections = { status: true, metrics: true, chips: true };
+  let html = card._renderFullView();
+  assert.match(html, /class="discharge-box"/, "статус за замовчуванням увімкнений");
+  assert.match(html, /class="metric-grid"/, "метрики за замовчуванням увімкнені");
+  assert.match(html, /class="chip-row"/, "чіпи за замовчуванням увімкнені");
+  assert.match(html, /class="bms-switch" data-home-section="status"/, "перемикач статусу присутній");
+  assert.match(html, /class="bms-switch" data-home-section="metrics"/, "перемикач метрик присутній");
+  assert.match(html, /class="bms-switch" data-home-section="chips"/, "перемикач чіпів присутній");
+
+  // 2. Вимкнення блоків ховає їх з розмітки
+  card._homeSections = { status: false, metrics: false, chips: false };
+  html = card._renderFullView();
+  assert.ok(!html.includes("class=\"discharge-box\""), "статус приховано при status=false");
+  assert.ok(!html.includes("class=\"metric-grid\""), "метрики приховано при metrics=false");
+  assert.ok(!html.includes("class=\"chip-row\""), "чіпи приховано при chips=false");
+
+  // 3. Віджет (mini view): на акумуляторі немає data-more-info, клік відкриває всю картку
+  const miniHtml = card._renderMiniView();
+  assert.ok(!miniHtml.includes('class="battery-box" style="width:140px;" data-more-info'), "на батареї у віджеті немає data-more-info історії");
+
+  console.log("Home sections toggling & mini widget battery click regression test passed.");
+}
