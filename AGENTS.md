@@ -76,6 +76,15 @@
 
 ---
 
+7. **UI Consistency for Modals, Popups & Dropdowns**:
+   - Any modal dialogs, popups, dropdown menus, bottom sheets, or picker dialogs added to the card MUST strictly inherit and adhere to the card's native visual design system.
+   - Required styling parameters: dark/glassmorphic aesthetics (`--card`, `--panel`, `--border`, `--accent`), backdrop blur (`backdrop-filter: blur(8px)` or higher), rounded borders, smooth CSS transitions (`opacity`, `transform`), and full responsive mobile scaling. Native unstyled browser dialogs or mismatched styling are strictly forbidden.
+
+8. **Multilingual Architecture & Full Key Coverage (`I18N`)**:
+   - The card supports dynamic multi-language expansion via `AVAILABLE_LANGUAGES` and `I18N`.
+   - When any new language is introduced to the card, ALL existing translation keys across the interface must be fully translated and adapted for that language without leaving untranslated fallbacks or missing keys.
+   - When adding new features, labels, or modals, the corresponding keys must be populated simultaneously across all active languages in `I18N` to maintain 100% dictionary key parity.
+
 ## 3. Pre-Flight Verification Checklist
 
 Before pushing any commit or releasing:

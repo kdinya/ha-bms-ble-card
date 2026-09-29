@@ -19,6 +19,11 @@ console.info(
  *  (`uk`), як і було раніше; `en` — англійська. Мова зберігається в
  *  localStorage і перемикається на вкладці "Налаштування" без
  *  перезавантаження сторінки (просто перерендерює картку). */
+const AVAILABLE_LANGUAGES = [
+  { code: "uk", name: "Українська", flag: "🇺🇦" },
+  { code: "en", name: "English", flag: "🇬🇧" },
+];
+
 const I18N = {
   uk: {
     nav_home: "ГОЛОВНА",
@@ -122,6 +127,7 @@ const I18N = {
     settings_show_status: "Статус (під батареєю)",
     settings_show_metrics: "Ключові показники",
     settings_show_chips: "Стан системи",
+    btn_close: "Закрити",
     lang_uk: "Українська",
     lang_en: "English",
   },
@@ -227,6 +233,7 @@ const I18N = {
     settings_show_status: "Status (below battery)",
     settings_show_metrics: "Key metrics",
     settings_show_chips: "System state",
+    btn_close: "Close",
     lang_uk: "Українська",
     lang_en: "English",
   },
@@ -2126,6 +2133,7 @@ class HaBmsBleCard extends HTMLElement {
     this._config = null;
     this._hass = null;
     this._expanded = false;
+    this._langModalOpen = false;
     this._activeTab = "home";
     this._uid = Math.random().toString(36).slice(2, 9);
     this._resolvedEntities = {};
@@ -2903,8 +2911,8 @@ class HaBmsBleCard extends HTMLElement {
     return `
       <div class="bms-full ${isStale ? "bms-stale" : ""}">
         <div class="header">
-          <div>
-            <h1>${this._batteryName()}</h1>
+          <div class="hdr-left">
+            <h1 title="${this._batteryName()}">${this._batteryName()}</h1>
             <span class="hdr-status-pill" style="background:${statusSc.bg};color:${statusSc.fg}"><span class="hdr-status-dot"></span>${statusLabelText(status)}</span>
           </div>
           <div class="hdr-right"${moreInfoAttr(this._e("link_quality") || this._e("rssi"))}>
@@ -3040,9 +3048,14 @@ class HaBmsBleCard extends HTMLElement {
         <div class="bms-tab-pane ${activeTab === "settings" ? "active" : ""}" data-pane="settings">
         <h2 class="section-title">${t("settings_language")}</h2>
         <p class="bms-muted">${t("settings_language_hint")}</p>
-        <div class="lang-switch">
-          <button type="button" class="lang-btn ${this._lang === "uk" ? "active" : ""}" data-lang="uk">${t("lang_uk")}</button>
-          <button type="button" class="lang-btn ${this._lang === "en" ? "active" : ""}" data-lang="en">${t("lang_en")}</button>
+        <div class="lang-picker-wrap">
+          <button type="button" class="lang-picker-btn" id="bms-lang-picker-btn" aria-haspopup="dialog" aria-expanded="${this._langModalOpen ? "true" : "false"}">
+            <span class="lang-picker-current">
+              <span class="lang-picker-flag">${(AVAILABLE_LANGUAGES.find(l => l.code === this._lang) || AVAILABLE_LANGUAGES[0]).flag}</span>
+              <span class="lang-picker-name">${(AVAILABLE_LANGUAGES.find(l => l.code === this._lang) || AVAILABLE_LANGUAGES[0]).name}</span>
+            </span>
+            <ha-icon icon="mdi:chevron-down" class="lang-picker-chevron"></ha-icon>
+          </button>
         </div>
 
         <h2 class="section-title" style="margin-top:24px;">${t("settings_home_sections")}</h2>
@@ -3064,6 +3077,33 @@ class HaBmsBleCard extends HTMLElement {
             <span class="switch-ui"></span>
           </label>
         </div>
+        </div>
+
+                <div class="bms-modal-overlay ${this._langModalOpen ? "open" : ""}" id="bms-lang-modal">
+          <div class="bms-modal-dialog" role="dialog" aria-modal="true" aria-label="${t("settings_language")}">
+            <div class="bms-modal-header">
+              <div class="bms-modal-title">
+                <ha-icon icon="mdi:translate" style="--mdc-icon-size:18px; color:var(--accent);"></ha-icon>
+                <span>${t("settings_language")}</span>
+              </div>
+              <button type="button" class="bms-modal-close" id="bms-lang-modal-close" aria-label="${t("btn_close")}">
+                <ha-icon icon="mdi:close" style="--mdc-icon-size:18px;"></ha-icon>
+              </button>
+            </div>
+            <div class="bms-modal-body">
+              <div class="bms-lang-list">
+                ${AVAILABLE_LANGUAGES.map(item => `
+                  <button type="button" class="lang-btn ${this._lang === item.code ? "active" : ""}" data-lang="${item.code}">
+                    <span class="lang-btn-left">
+                      <span class="lang-flag">${item.flag}</span>
+                      <span class="lang-name">${item.name}</span>
+                    </span>
+                    ${this._lang === item.code ? '<ha-icon icon="mdi:check" class="lang-check" style="--mdc-icon-size:18px; color:var(--accent);"></ha-icon>' : ''}
+                  </button>
+                `).join("")}
+              </div>
+            </div>
+          </div>
         </div>
 
         <div class="nav-bar">
@@ -3336,15 +3376,42 @@ class HaBmsBleCard extends HTMLElement {
         this._statsSections[key] = el.open;
       });
     });
+    const langPickerBtn = this.querySelector("#bms-lang-picker-btn");
+    if (langPickerBtn) {
+      langPickerBtn.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        this._langModalOpen = !this._langModalOpen;
+        this._render();
+      });
+    }
+    const langModalClose = this.querySelector("#bms-lang-modal-close");
+    if (langModalClose) {
+      langModalClose.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        this._langModalOpen = false;
+        this._render();
+      });
+    }
+    const langModal = this.querySelector("#bms-lang-modal");
+    if (langModal) {
+      langModal.addEventListener("click", (ev) => {
+        if (ev.target === langModal) {
+          ev.stopPropagation();
+          this._langModalOpen = false;
+          this._render();
+        }
+      });
+    }
     this.querySelectorAll(".lang-btn[data-lang]").forEach((el) => {
       el.addEventListener("click", (ev) => {
         ev.stopPropagation();
-        const lang = el.dataset.lang === "en" ? "en" : "uk";
+        const lang = el.dataset.lang || "uk";
+        this._langModalOpen = false;
         if (lang !== this._lang) {
           this._lang = lang;
           try { window.localStorage.setItem(I18N_LANG_KEY, lang); } catch (e) { /* ignore */ }
-          this._render();
         }
+        this._render();
       });
     });
     this.querySelectorAll(".bms-switch[data-home-section]").forEach((el) => {
@@ -3406,21 +3473,29 @@ class HaBmsBleCard extends HTMLElement {
         /* Верхній рядок: назва батареї, бейдж статусу та Bluetooth-індикатор свіжості */
         .header {
           display: flex;
-          align-items: center;
+          align-items: flex-start;
           justify-content: space-between;
           margin-bottom: 16px;
           gap: 12px;
-          flex-wrap: wrap;
+          flex-wrap: nowrap;
+          width: 100%;
+        }
+        .hdr-left {
+          min-width: 0;
+          flex: 1 1 auto;
+          overflow: hidden;
         }
         .header h1 {
-          font-size: clamp(16px, 3.5vw, 19px);
+          font-size: clamp(15px, 3.4vw, 18px);
           margin: 0;
           font-weight: 700;
           letter-spacing: -0.02em;
           color: var(--text);
-          display: flex;
-          align-items: center;
-          gap: 10px;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          display: block;
+          max-width: 100%;
         }
         .hdr-right {
           display: inline-flex;
@@ -4146,7 +4221,162 @@ class HaBmsBleCard extends HTMLElement {
         @media (min-width: 560px) {
           .metric-grid { grid-template-columns: repeat(4, 1fr); }
         }
-      </style>
+      
+        /* Modal & Dropdown Popup Design System */
+        .bms-modal-overlay {
+          position: absolute;
+          inset: 0;
+          background: rgba(7, 11, 16, 0.78);
+          backdrop-filter: blur(10px);
+          -webkit-backdrop-filter: blur(10px);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 16px;
+          z-index: 100;
+          opacity: 0;
+          pointer-events: none;
+          transition: opacity 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+          border-radius: 24px;
+        }
+        .bms-modal-overlay.open {
+          opacity: 1;
+          pointer-events: auto;
+        }
+        .bms-modal-dialog {
+          background: #0f1823;
+          border: 1px solid var(--border);
+          border-radius: 18px;
+          box-shadow: 0 16px 40px -10px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+          width: 100%;
+          max-width: 320px;
+          overflow: hidden;
+          transform: scale(0.95);
+          transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .bms-modal-overlay.open .bms-modal-dialog {
+          transform: scale(1);
+        }
+        .bms-modal-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: 14px 16px;
+          border-bottom: 1px solid var(--border);
+        }
+        .bms-modal-title {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          font-size: 14px;
+          font-weight: 700;
+          color: var(--text);
+        }
+        .bms-modal-close {
+          background: transparent;
+          border: none;
+          color: var(--muted);
+          padding: 4px;
+          border-radius: 8px;
+          cursor: pointer;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          transition: background 0.15s, color 0.15s;
+        }
+        .bms-modal-close:hover {
+          background: rgba(255, 255, 255, 0.08);
+          color: var(--text);
+        }
+        .bms-modal-body {
+          padding: 12px;
+        }
+        .bms-lang-list {
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+        }
+        .bms-lang-list .lang-btn {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          width: 100%;
+          padding: 10px 14px;
+          border-radius: 12px;
+          background: var(--panel);
+          border: 1px solid var(--border);
+          color: var(--text);
+          font-size: 13px;
+          font-weight: 600;
+          cursor: pointer;
+          transition: all 0.15s ease;
+          text-align: left;
+        }
+        .bms-lang-list .lang-btn:hover {
+          border-color: rgba(20, 216, 166, 0.3);
+          background: rgba(20, 216, 166, 0.06);
+        }
+        .bms-lang-list .lang-btn.active {
+          background: rgba(20, 216, 166, 0.15);
+          border-color: var(--accent);
+          color: var(--accent);
+        }
+        .lang-btn-left {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+        }
+        .lang-flag {
+          font-size: 18px;
+          line-height: 1;
+        }
+        .lang-name {
+          font-size: 13px;
+        }
+
+        /* Lang Picker Trigger Button */
+        .lang-picker-wrap {
+          margin-top: 10px;
+        }
+        .lang-picker-btn {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          width: 100%;
+          max-width: 260px;
+          padding: 10px 14px;
+          border-radius: 12px;
+          background: var(--panel);
+          border: 1px solid var(--border);
+          color: var(--text);
+          font-size: 13px;
+          font-weight: 600;
+          cursor: pointer;
+          transition: border-color 0.15s, background 0.15s;
+        }
+        .lang-picker-btn:hover {
+          border-color: rgba(20, 216, 166, 0.4);
+          background: rgba(255, 255, 255, 0.04);
+        }
+        .lang-picker-current {
+          display: inline-flex;
+          align-items: center;
+          gap: 10px;
+        }
+        .lang-picker-flag {
+          font-size: 17px;
+          line-height: 1;
+        }
+        .lang-picker-name {
+          font-size: 13px;
+          font-weight: 600;
+        }
+        .lang-picker-chevron {
+          color: var(--muted);
+          --mdc-icon-size: 18px;
+        }
+
+</style>
     `;
   }
 
