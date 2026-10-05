@@ -108,6 +108,7 @@ Before pushing any commit or releasing:
 - **Upstream BLE Driver Library**: [`patman15/aiobmsble`](https://github.com/patman15/aiobmsble)
 - **Guideline for AI**:
   - Whenever researching BMS behavior, entity naming conventions, translation keys, default entity states, or attributes, ALWAYS check `BMS_BLE-HA` documentation and source code first (`custom_components/bms_ble/const.py`, `sensor.py`, `binary_sensor.py`).
+  - **Proactive Upstream Tracking**: Periodically monitor releases, updates, and new features in [`patman15/BMS_BLE-HA`](https://github.com/patman15/BMS_BLE-HA) (and its core library `aiobmsble`). Whenever useful updates, new BMS attributes/sensors, or new capabilities appear upstream, proactively analyze them and propose concrete card improvements to the user.
   - Key upstream characteristics to always keep in mind:
     - **Polling interval**: Default is ~30 seconds (Bluetooth LE constraints).
     - **Disabled by default**: Several entities (`max_cell_voltage`, `min_cell_voltage`, `balancer`, `heater`, `rssi`, `link_quality`) have `entity_registry_enabled_default = False` in Home Assistant and need user activation in HA device settings.
