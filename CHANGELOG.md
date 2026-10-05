@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.2.0] - 2026-09-29
+
+### Added
+- **Modern Glassmorphic UI Redesign**: Quick metrics grid, operational state chips, and refined dark/teal accent styling.
+- **Home Screen Section Toggles**: Customizable visibility for individual home sections in the card settings.
+- **Interactive Mini Battery Widget**: Clicking the compact widget battery expands the card into full view.
+- **Themed Modal Language Picker**: Glassmorphic modal dialog for language switching, fully integrated into the design system.
+
+### Changed
+- **Header Layout Resilience**: Constrained header title to a single line with clean ellipsis overflow to prevent layout shifts with long device names.
+- **Lightweight Freshness Ticker**: Real-time Bluetooth update counter ticks every second targeting only the time node, eliminating unnecessary full card re-renders.
+
 ## [1.1.1] - 2026-09-28
 
 ### Changed
