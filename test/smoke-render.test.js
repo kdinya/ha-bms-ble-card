@@ -780,5 +780,11 @@ _statsWsRegressionPromise.catch((err) => {
   const miniHtml = card._renderMiniView();
   assert.ok(!miniHtml.includes('class="battery-box" style="width:140px;" data-more-info'), "на батареї у віджеті немає data-more-info історії");
 
+  
+  // 4. Перевірка збереження через setConfig (конфіг дашборду HA)
+  card.setConfig({ entities: {}, home_sections: { status: false, metrics: true, chips: false } });
+  assert.strictEqual(card._homeSections.status, false, 'status має бути false з setConfig');
+  assert.strictEqual(card._homeSections.metrics, true, 'metrics має бути true з setConfig');
+  assert.strictEqual(card._homeSections.chips, false, 'chips має бути false з setConfig');
   console.log("Home sections toggling & mini widget battery click regression test passed.");
 }

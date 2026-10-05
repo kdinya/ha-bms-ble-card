@@ -1976,6 +1976,27 @@ class HaBmsBleCardEditor extends HTMLElement {
         <div style="border-top:1px solid var(--divider-color,#333); padding-top:12px;">
           <div style="font-size:13px; font-weight:500; margin-bottom:8px;">Сенсори споживання / часу розряду</div>
           ${this._renderWizard()}
+        </div>
+        <div style="border-top:1px solid var(--divider-color,#333); padding-top:12px;">
+          <div style="font-size:13px; font-weight:500; margin-bottom:8px;">Відображення на головній</div>
+          <div style="display:flex; flex-direction:column; gap:8px;">
+            <label style="display:flex; align-items:center; gap:8px; font-size:13px; cursor:pointer;">
+              <input type="checkbox" class="bms-editor-home-sec" data-sec="status" ${(c.home_sections && c.home_sections.status === false) || c.show_status === false ? "" : "checked"}>
+              <span>Статус (під батареєю)</span>
+            </label>
+            <label style="display:flex; align-items:center; gap:8px; font-size:13px; cursor:pointer;">
+              <input type="checkbox" class="bms-editor-home-sec" data-sec="metrics" ${(c.home_sections && c.home_sections.metrics === false) || c.show_metrics === false ? "" : "checked"}>
+              <span>Ключові показники</span>
+            </label>
+            <label style="display:flex; align-items:center; gap:8px; font-size:13px; cursor:pointer;">
+              <input type="checkbox" class="bms-editor-home-sec" data-sec="chips" ${(c.home_sections && c.home_sections.chips === false) || c.show_chips === false ? "" : "checked"}>
+              <span>Стан системи</span>
+            </label>
+            <label style="display:flex; align-items:center; gap:8px; font-size:13px; cursor:pointer; margin-top:4px;">
+              <input type="checkbox" id="bms-editor-reduced-motion" ${c.reduced_motion ? "checked" : ""}>
+              <span>Спрощені анімації</span>
+            </label>
+          </div>
         </div>` : ""}
         ${this._tab === "entities" ? `
         <div>
@@ -2011,6 +2032,20 @@ class HaBmsBleCardEditor extends HTMLElement {
     }
     const wizardBtn = this.querySelector("#wizard-btn");
     if (wizardBtn) wizardBtn.addEventListener("click", () => this._runWizard());
+    this.querySelectorAll(".bms-editor-home-sec").forEach((el) => {
+      el.addEventListener("change", () => {
+        const sec = el.dataset.sec;
+        const cur = Object.assign({ status: true, metrics: true, chips: true }, this._config.home_sections || {});
+        cur[sec] = el.checked;
+        this._update("home_sections", cur);
+      });
+    });
+    const reducedMotionEl = this.querySelector("#bms-editor-reduced-motion");
+    if (reducedMotionEl) {
+      reducedMotionEl.addEventListener("change", (e) => {
+        this._update("reduced_motion", e.target.checked);
+      });
+    }
     this._wireEntityFields();
     this._mounted = true;
   }
@@ -2143,18 +2178,49 @@ class HaBmsBleCard extends HTMLElement {
     this._uid = Math.random().toString(36).slice(2, 9);
     this._resolvedEntities = {};
     this._visible = true;
-    let storedLang;
-    try { storedLang = window.localStorage.getItem(I18N_LANG_KEY); } catch (e) { storedLang = null; }
-    this._lang = storedLang === "en" ? "en" : "uk";
-    let storedHomeSecs;
-    try { storedHomeSecs = JSON.parse(window.localStorage.getItem(HOME_SECTIONS_STORAGE_KEY) || "null"); } catch (e) { storedHomeSecs = null; }
-    this._homeSections = Object.assign({ status: true, metrics: true, chips: true }, storedHomeSecs || {});
-    let storedReducedMotion;
-    try { storedReducedMotion = window.localStorage.getItem(REDUCED_MOTION_STORAGE_KEY); } catch (e) { storedReducedMotion = null; }
-    this._reducedMotion = storedReducedMotion === "1";
+    this._homeSections = { status: true, metrics: true, chips: true };
+    this._reducedMotion = false;
+    this._lang = "uk";
+    this._syncSettings();
     this._statsCache = new Map();
     this._lastStructSig = null;
     this._lastStaleState = undefined;
+  }
+
+  _syncSettings() {
+    const c = this._config || {};
+    const devId = (c.entities && c.entities.device_id) || "";
+
+    let storedHomeSecs = null;
+    const storageKeys = [
+      devId ? `${HOME_SECTIONS_STORAGE_KEY}-${devId}` : null,
+      HOME_SECTIONS_STORAGE_KEY
+    ].filter(Boolean);
+    for (const k of storageKeys) {
+      try {
+        const raw = window.localStorage.getItem(k);
+        if (raw) {
+          storedHomeSecs = JSON.parse(raw);
+          break;
+        }
+      } catch (e) {}
+    }
+
+    const cfgSecs = c.home_sections || {};
+    this._homeSections = {
+      status: cfgSecs.status !== undefined ? !!cfgSecs.status : (c.show_status !== undefined ? !!c.show_status : (storedHomeSecs?.status !== undefined ? !!storedHomeSecs.status : true)),
+      metrics: cfgSecs.metrics !== undefined ? !!cfgSecs.metrics : (c.show_metrics !== undefined ? !!c.show_metrics : (storedHomeSecs?.metrics !== undefined ? !!storedHomeSecs.metrics : true)),
+      chips: cfgSecs.chips !== undefined ? !!cfgSecs.chips : (c.show_chips !== undefined ? !!c.show_chips : (storedHomeSecs?.chips !== undefined ? !!storedHomeSecs.chips : true)),
+    };
+
+    let storedReduced;
+    try { storedReduced = window.localStorage.getItem(REDUCED_MOTION_STORAGE_KEY); } catch (e) { storedReduced = null; }
+    this._reducedMotion = c.reduced_motion !== undefined ? !!c.reduced_motion : (storedReduced === "1");
+
+    let storedLang;
+    try { storedLang = window.localStorage.getItem(I18N_LANG_KEY); } catch (e) { storedLang = null; }
+    const langCandidate = c.lang || c.language || storedLang;
+    this._lang = langCandidate === "en" ? "en" : "uk";
   }
 
   /** Переклад одного рядка інтерфейсу за ключем словника I18N, з
@@ -2174,6 +2240,7 @@ class HaBmsBleCard extends HTMLElement {
 
   setConfig(config) {
     this._config = { display_mode: "widget", ...config };
+    this._syncSettings();
     this._render();
   }
 
@@ -2469,7 +2536,20 @@ class HaBmsBleCard extends HTMLElement {
 
   _setHomeSection(key, val) {
     this._homeSections = Object.assign({}, this._homeSections, { [key]: !!val });
-    try { window.localStorage.setItem(HOME_SECTIONS_STORAGE_KEY, JSON.stringify(this._homeSections)); } catch (e) { /* ignore */ }
+    const devId = (this._config && this._config.entities && this._config.entities.device_id) || "";
+    try {
+      const json = JSON.stringify(this._homeSections);
+      window.localStorage.setItem(HOME_SECTIONS_STORAGE_KEY, json);
+      if (devId) window.localStorage.setItem(`${HOME_SECTIONS_STORAGE_KEY}-${devId}`, json);
+    } catch (e) { /* ignore */ }
+
+    if (this._config) {
+      this._config = {
+        ...this._config,
+        home_sections: { ...(this._config.home_sections || {}), ...this._homeSections }
+      };
+      this.dispatchEvent(new CustomEvent("config-changed", { detail: { config: this._config }, bubbles: true, composed: true }));
+    }
     this._render();
   }
 
@@ -3478,6 +3558,10 @@ class HaBmsBleCard extends HTMLElement {
         ev.stopPropagation();
         this._reducedMotion = !!el.checked;
         try { window.localStorage.setItem(REDUCED_MOTION_STORAGE_KEY, this._reducedMotion ? "1" : "0"); } catch (e) {}
+        if (this._config) {
+          this._config = { ...this._config, reduced_motion: this._reducedMotion };
+          this.dispatchEvent(new CustomEvent("config-changed", { detail: { config: this._config }, bubbles: true, composed: true }));
+        }
         this.querySelectorAll(".bms-full, .bms-card").forEach(c => c.classList.toggle("bms-reduced-motion", this._reducedMotion));
       });
     });
