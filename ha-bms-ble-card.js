@@ -2247,8 +2247,12 @@ class HaBmsBleCard extends HTMLElement {
   _startClockTicker() {
     this._stopClockTicker();
     if (typeof window === "undefined") return;
+    if (!this._isCardVisible()) return;
     this._clockInterval = setInterval(() => {
-      if (!this._isCardVisible()) return;
+      if (!this._isCardVisible()) {
+        this._stopClockTicker();
+        return;
+      }
       this._updateClockFreshness();
     }, 1000);
   }
@@ -2303,9 +2307,16 @@ class HaBmsBleCard extends HTMLElement {
       if (this._expanded) this._render();
     });
     this._onVisibilityChange = () => {
-      if (typeof document !== "undefined" && !document.hidden) {
-        if (this._visible) {
-          if (this._needsRender) {
+      if (typeof document !== "undefined") {
+        if (document.hidden) {
+          this._visible = false;
+          if (this.classList) this.classList.toggle("bms-idle", true);
+          this._stopClockTicker();
+        } else {
+          this._visible = true;
+          if (this.classList) this.classList.toggle("bms-idle", false);
+          this._startClockTicker();
+          if (this._needsRender || !this._mounted) {
             this._needsRender = false;
             this._maybeFetchStatsPeriod();
             this._render();
@@ -2319,19 +2330,18 @@ class HaBmsBleCard extends HTMLElement {
       document.addEventListener("visibilitychange", this._onVisibilityChange);
     }
     // Коли картка закрита/поза екраном (проскрольована, згорнута
-    // вкладка тощо) — зупиняємо анімації й перестаємо перерендерювати
-    // на кожне оновлення hass, щоб не навантажувати ПК даремно.
-    // Працює лише коли картка видима більш ніж на 39% (або відкритий
-    // fullscreen-попап, який завжди вважаємо активним видом).
+    // вкладка тощо або видно <20%) — зупиняємо анімації, таймери й
+    // перестаємо перерендерювати на кожне оновлення hass.
     if (typeof IntersectionObserver !== "undefined") {
       this._io = new IntersectionObserver((entries) => {
         const entry = entries[entries.length - 1];
         const ratio = entry.intersectionRatio;
-        const nowVisible = (entry.isIntersecting || ratio > 0) || this._expanded;
+        const nowVisible = Boolean(this._expanded || (entry.isIntersecting && ratio >= 0.20));
         if (nowVisible === this._visible) return;
         this._visible = nowVisible;
         if (this.classList) this.classList.toggle("bms-idle", !this._visible);
         if (this._visible) {
+          this._startClockTicker();
           if (this._needsRender || !this._mounted) {
             this._needsRender = false;
             this._maybeFetchStatsPeriod();
@@ -2339,13 +2349,16 @@ class HaBmsBleCard extends HTMLElement {
           } else {
             this._updateClockFreshness();
           }
+        } else {
+          this._stopClockTicker();
         }
-      }, { threshold: [0, 0.05, 0.5, 1] });
+      }, { threshold: [0, 0.20, 0.50, 1] });
       this._io.observe(this);
     }
   }
 
   disconnectedCallback() {
+    this._mounted = false;
     this._stopClockTicker();
     if (this._renderRaf && typeof cancelAnimationFrame === "function") {
       cancelAnimationFrame(this._renderRaf);
@@ -3559,7 +3572,7 @@ class HaBmsBleCard extends HTMLElement {
         :host { display:block; max-width:100%; }
         * { box-sizing: border-box; }
         /* Картка невидима (<39%) або закрита — глушимо все навантаження */
-        .bms-idle, .bms-idle * { animation: none !important; }
+        .bms-idle, .bms-idle * { animation: none !important; transition: none !important; }
 
         /* Спрощені анімації для слабких планшетів (заряд/розряд лишаються повними) */
         .bms-reduced-motion .stat-box,
@@ -4672,6 +4685,7 @@ class HaBmsBleCard extends HTMLElement {
     this._wireBatteryLongPress();
     this._wireMoreInfo();
     this._wireTabs();
+    this._mounted = true;
   }
 }
 
