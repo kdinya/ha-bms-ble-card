@@ -2187,7 +2187,19 @@ class HaBmsBleCard extends HTMLElement {
     }
     this._needsRender = false;
     this._maybeFetchStatsPeriod();
-    this._render();
+    this._scheduleRender();
+  }
+
+  _scheduleRender() {
+    if (this._renderRaf) return;
+    if (typeof requestAnimationFrame === "function") {
+      this._renderRaf = requestAnimationFrame(() => {
+        this._renderRaf = null;
+        this._render();
+      });
+    } else {
+      this._render();
+    }
   }
 
   _hasRelevantStateChanged(oldHass, newHass) {
@@ -2331,6 +2343,10 @@ class HaBmsBleCard extends HTMLElement {
 
   disconnectedCallback() {
     this._stopClockTicker();
+    if (this._renderRaf && typeof cancelAnimationFrame === "function") {
+      cancelAnimationFrame(this._renderRaf);
+      this._renderRaf = null;
+    }
     if (this._onOrient) window.removeEventListener("orientationchange", this._onOrient);
     if (this._onVisibilityChange && typeof document !== "undefined") {
       document.removeEventListener("visibilitychange", this._onVisibilityChange);
@@ -3641,8 +3657,7 @@ class HaBmsBleCard extends HTMLElement {
 
         /* Вкладки та сторінки */
         .bms-tab-pane { display: none; }
-        .bms-tab-pane.active { display: block; animation: bms-fade-in 0.25s ease; }
-        @keyframes bms-fade-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+        .bms-tab-pane.active { display: block; }
 
         /* Сучасна плаваюча панель навігації (Segmented Dock) */
         .nav-bar {
