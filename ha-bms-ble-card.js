@@ -7,7 +7,7 @@
  * https://github.com/kdinya/ha-bms-ble-card
  */
 
-const CARD_VERSION = "1.2.5";
+const CARD_VERSION = "1.2.6";
 
 console.info(
   `%c HA-BMS-BLE-CARD %c v${CARD_VERSION} `,
@@ -2860,8 +2860,10 @@ class HaBmsBleCard extends HTMLElement {
             ${rows}
           </div>
           <div class="badges-row">
-            <div class="badge green"${moreInfoAttr(cellEntityIds && cellEntityIds[st.maxIdx])}><span>${t("cell_max")} ${st.max.toFixed(3)} V</span><b>C${st.maxIdx + 1}</b></div>
-            <div class="badge blue"${moreInfoAttr(cellEntityIds && cellEntityIds[st.minIdx])}><span>${t("cell_min")} ${st.min.toFixed(3)} V</span><b>C${st.minIdx + 1}</b></div>
+            <div class="badges-top-row">
+              <div class="badge green"${moreInfoAttr(cellEntityIds && cellEntityIds[st.maxIdx])}><span>${t("cell_max")} ${st.max.toFixed(3)} V</span><b>C${st.maxIdx + 1}</b></div>
+              <div class="badge blue"${moreInfoAttr(cellEntityIds && cellEntityIds[st.minIdx])}><span>${t("cell_min")} ${st.min.toFixed(3)} V</span><b>C${st.minIdx + 1}</b></div>
+            </div>
             <div class="badge ${balancingOn ? "amber" : "green"}"><span>Δ ${st.delta.toFixed(3)} V</span><b>${t("cell_diff")}</b></div>
           </div>
         </div>`;
@@ -3765,12 +3767,15 @@ class HaBmsBleCard extends HTMLElement {
         .cells-box { display: flex; flex-direction: column; gap: 10px; }
         .cells-grid {
           display: grid;
-          grid-template-columns: repeat(2, minmax(0, 1fr));
+          grid-template-columns: 1fr;
           gap: 6px;
           width: 100%;
           box-sizing: border-box;
         }
-        @media (min-width: 640px) {
+        @media (min-width: 420px) {
+          .cells-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
+        }
+        @media (min-width: 700px) {
           .cells-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
         }
         .cells-title {
@@ -3884,25 +3889,37 @@ class HaBmsBleCard extends HTMLElement {
         .badges-row {
           display: flex;
           flex-direction: column;
-          gap: 8px;
-          margin-top: 12px;
+          gap: 6px;
+          margin-top: 10px;
+          width: 100%;
         }
-        @media (min-width: 420px) { .badges-row { flex-direction: row; } }
-        .badge {
+        .badges-top-row {
+          display: flex;
+          flex-direction: row;
+          gap: 6px;
+          width: 100%;
+        }
+        .badges-top-row .badge {
           flex: 1 1 0;
           min-width: 0;
+        }
+        .badges-row > .badge {
+          width: 100%;
+        }
+        .badge {
           display: flex;
           align-items: center;
           justify-content: space-between;
           gap: 8px;
-          padding: 8px 12px;
+          padding: 7px 11px;
           border-radius: 12px;
-          font-size: 12.5px;
+          font-size: 12px;
           font-weight: 600;
           background: var(--panel);
           border: 1px solid var(--border);
           box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
           transition: transform 0.15s ease;
+          box-sizing: border-box;
         }
         .badge:hover { transform: translateY(-1px); }
         .badge span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
