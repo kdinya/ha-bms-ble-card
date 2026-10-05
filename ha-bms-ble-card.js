@@ -126,6 +126,8 @@ const I18N = {
     settings_show_status: "Статус (під батареєю)",
     settings_show_metrics: "Ключові показники",
     settings_show_chips: "Стан системи",
+    settings_reduced_motion: "Спрощені анімації",
+    settings_reduced_motion_hint: "Прибирає зайві декоративні ефекти — легше для слабких пристроїв. Анімації заряду/розряду лишаються повними",
     btn_close: "Закрити",
     lang_uk: "Українська",
     lang_en: "English",
@@ -231,6 +233,8 @@ const I18N = {
     settings_show_status: "Status (below battery)",
     settings_show_metrics: "Key metrics",
     settings_show_chips: "System state",
+    settings_reduced_motion: "Simplified animations",
+    settings_reduced_motion_hint: "Turns off extra decorative effects for weaker devices. Charge/discharge animations stay full",
     btn_close: "Close",
     lang_uk: "Українська",
     lang_en: "English",
@@ -238,6 +242,7 @@ const I18N = {
 };
 const I18N_LANG_KEY = "ha-bms-ble-card-lang";
 const HOME_SECTIONS_STORAGE_KEY = "ha-bms-ble-card-home-sections";
+const REDUCED_MOTION_STORAGE_KEY = "ha-bms-ble-card-reduced-motion";
 
 const DEFAULT_THRESHOLDS = {
   cell_delta_warning: 0.02,
@@ -2144,6 +2149,12 @@ class HaBmsBleCard extends HTMLElement {
     let storedHomeSecs;
     try { storedHomeSecs = JSON.parse(window.localStorage.getItem(HOME_SECTIONS_STORAGE_KEY) || "null"); } catch (e) { storedHomeSecs = null; }
     this._homeSections = Object.assign({ status: true, metrics: true, chips: true }, storedHomeSecs || {});
+    let storedReducedMotion;
+    try { storedReducedMotion = window.localStorage.getItem(REDUCED_MOTION_STORAGE_KEY); } catch (e) { storedReducedMotion = null; }
+    this._reducedMotion = storedReducedMotion === "1";
+    this._statsCache = new Map();
+    this._lastStructSig = null;
+    this._lastStaleState = undefined;
   }
 
   /** Переклад одного рядка інтерфейсу за ключем словника I18N, з
@@ -2169,11 +2180,7 @@ class HaBmsBleCard extends HTMLElement {
   set hass(hass) {
     const oldHass = this._hass;
     this._hass = hass;
-    if (typeof document !== "undefined" && document.hidden) {
-      this._needsRender = true;
-      return;
-    }
-    if (this._visible === false) {
+    if (!this._isCardVisible()) {
       this._needsRender = true;
       return;
     }
@@ -2254,15 +2261,11 @@ class HaBmsBleCard extends HTMLElement {
 
   _updateClockFreshness() {
     if (!this._hass) return;
+    if (!this._isCardVisible()) return;
     const clockEl = this.querySelector ? this.querySelector(".hdr-clock") : null;
     if (!clockEl) return;
     const secAgo = getBmsLastUpdatedSecondsAgo(this._hass, this._effectiveEntities());
     const isStale = secAgo !== null && secAgo >= 180;
-    if (this._lastStaleState !== undefined && this._lastStaleState !== isStale) {
-      this._lastStaleState = isStale;
-      this._render();
-      return;
-    }
     this._lastStaleState = isStale;
     const t = (k) => this._t(k);
     const nowStr = new Date().toLocaleTimeString(this._lang === "en" ? "en-US" : "uk-UA", { hour: "2-digit", minute: "2-digit" });
@@ -2691,6 +2694,8 @@ class HaBmsBleCard extends HTMLElement {
    * (fetchLoadChargeSeconds) — той самий період, простій не враховується.
    */
   async _maybeFetchStatsPeriod() {
+    if (typeof document !== "undefined" && document.hidden) return;
+    if (this.isConnected === false) return;
     if (!this._hass || typeof this._hass.callWS !== "function") return;
     const period = this._statsPeriod || "today";
     const { start, end, groupBy } = statsPeriodRange(period, this._statsCustomFrom, this._statsCustomTo);
@@ -2700,6 +2705,16 @@ class HaBmsBleCard extends HTMLElement {
     const ids = [dischargeId, chargeId, voltageId].filter(Boolean);
     if (!ids.length) return;
     const cacheKey = `${period}:${this._statsCustomFrom || ""}:${this._statsCustomTo || ""}:${groupBy}`;
+
+    if (!this._statsCache) this._statsCache = new Map();
+    const cached = this._statsCache.get(cacheKey);
+    const now = Date.now();
+    const ttl = period === "today" ? 60 * 1000 : 10 * 60 * 1000;
+    if (cached && (now - cached.time < ttl) && cached.data && !cached.data.error) {
+      this._statsData = cached.data;
+      this._statsFetchKey = cacheKey;
+      return;
+    }
     if (this._statsFetchKey === cacheKey && this._statsData && !this._statsData.error) return;
     if (this._statsFetchInFlight) return;
     this._statsFetchInFlight = true;
@@ -2763,13 +2778,21 @@ class HaBmsBleCard extends HTMLElement {
         whDischarge: Number.isFinite(avgVoltage) ? discharge.sum * avgVoltage : undefined,
         whCharge: Number.isFinite(avgVoltage) ? charge.sum * avgVoltage : undefined,
       };
+      if (!this._statsCache) this._statsCache = new Map();
+      this._statsCache.set(cacheKey, { time: Date.now(), data: this._statsData });
       this._maybeFetchStatsAllTimeDuration();
     } catch (e) {
       // recorder/statistics_during_period недоступний (немає long-term statistics) — чесна підказка, а не поламана картка
       this._statsData = { loading: false, error: true, period, groupBy };
     } finally {
       this._statsFetchInFlight = false;
-      this._render();
+      const statsPane = this.querySelector ? this.querySelector('.bms-tab-pane[data-pane="stats"]') : null;
+      if (statsPane) {
+        statsPane.innerHTML = this._renderStatsPane();
+        this._wireStatsPaneEvents();
+      } else {
+        this._render();
+      }
     }
   }
 
@@ -2933,7 +2956,7 @@ class HaBmsBleCard extends HTMLElement {
       : (timeAgoText || nowStr);
 
     return `
-      <div class="bms-full ${isStale ? "bms-stale" : ""}">
+      <div class="bms-full ${isStale ? "bms-stale" : ""} ${this._reducedMotion ? "bms-reduced-motion" : ""}">
         <div class="header">
           <div class="hdr-left">
             <h1 title="${this._batteryName()}">${this._batteryName()}</h1>
@@ -3085,6 +3108,16 @@ class HaBmsBleCard extends HTMLElement {
             </span>
             <ha-icon icon="mdi:chevron-down" class="lang-picker-chevron"></ha-icon>
           </button>
+        </div>
+
+        <h2 class="section-title" style="margin-top:24px;">${t("settings_reduced_motion")}</h2>
+        <p class="bms-muted">${t("settings_reduced_motion_hint")}</p>
+        <div class="settings-toggles">
+          <label class="settings-toggle-row">
+            <span class="toggle-title">${t("settings_reduced_motion")}</span>
+            <input type="checkbox" class="bms-switch" data-setting="reduced-motion"${this._reducedMotion ? " checked" : ""}>
+            <span class="switch-ui"></span>
+          </label>
         </div>
 
         <h2 class="section-title" style="margin-top:24px;">${t("settings_home_sections")}</h2>
@@ -3358,6 +3391,61 @@ class HaBmsBleCard extends HTMLElement {
     });
   }
 
+  _wireStatsPaneEvents() {
+    this.querySelectorAll(".stats-period-btn[data-period]").forEach((el) => {
+      el.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        const period = el.dataset.period;
+        if (!period || period === this._statsPeriod) return;
+        this._statsPeriod = period;
+        const { groupBy } = statsPeriodRange(period, this._statsCustomFrom, this._statsCustomTo);
+        const cacheKey = `${period}:${this._statsCustomFrom || ""}:${this._statsCustomTo || ""}:${groupBy}`;
+        const cached = this._statsCache && this._statsCache.get(cacheKey);
+        if (cached && cached.data && !cached.data.error) {
+          this._statsData = cached.data;
+        } else {
+          this._statsData = null;
+        }
+        const statsPane = this.querySelector('.bms-tab-pane[data-pane="stats"]');
+        if (statsPane) {
+          statsPane.innerHTML = this._renderStatsPane();
+          this._wireStatsPaneEvents();
+        } else {
+          this._render();
+        }
+        this._maybeFetchStatsPeriod();
+      });
+    });
+    this.querySelectorAll(".stats-date-input[data-role]").forEach((el) => {
+      el.addEventListener("change", (ev) => {
+        ev.stopPropagation();
+        const role = el.dataset.role;
+        const val = el.value || "";
+        if (role === "from") this._statsCustomFrom = val;
+        else if (role === "to") this._statsCustomTo = val;
+        this._statsData = null;
+        setTimeout(() => {
+          const statsPane = this.querySelector('.bms-tab-pane[data-pane="stats"]');
+          if (statsPane) {
+            statsPane.innerHTML = this._renderStatsPane();
+            this._wireStatsPaneEvents();
+          } else {
+            this._render();
+          }
+          this._maybeFetchStatsPeriod();
+        }, 0);
+      });
+    });
+    this.querySelectorAll("details.info-accordion-section[data-stats-section]").forEach((el) => {
+      el.addEventListener("toggle", () => {
+        const key = el.dataset.statsSection;
+        if (!key) return;
+        if (!this._statsSections) this._statsSections = { discharge: true, charge: false };
+        this._statsSections[key] = el.open;
+      });
+    });
+  }
+
   _wireTabs() {
     this.querySelectorAll(".nav-item[data-tab]").forEach((el) => {
       el.addEventListener("click", (ev) => {
@@ -3370,15 +3458,13 @@ class HaBmsBleCard extends HTMLElement {
         }
       });
     });
-    this.querySelectorAll(".stats-period-btn[data-period]").forEach((el) => {
-      el.addEventListener("click", (ev) => {
+    this._wireStatsPaneEvents();
+    this.querySelectorAll('.bms-switch[data-setting="reduced-motion"]').forEach((el) => {
+      el.addEventListener("change", (ev) => {
         ev.stopPropagation();
-        const period = el.dataset.period;
-        if (!period || period === this._statsPeriod) return;
-        this._statsPeriod = period;
-        this._statsData = null;
-        this._render();
-        this._maybeFetchStatsPeriod();
+        this._reducedMotion = !!el.checked;
+        try { window.localStorage.setItem(REDUCED_MOTION_STORAGE_KEY, this._reducedMotion ? "1" : "0"); } catch (e) {}
+        this.querySelectorAll(".bms-full, .bms-card").forEach(c => c.classList.toggle("bms-reduced-motion", this._reducedMotion));
       });
     });
     this.querySelectorAll(".stats-date-input[data-role]").forEach((el) => {
@@ -3471,8 +3557,18 @@ class HaBmsBleCard extends HTMLElement {
       <style>
         :host { display:block; max-width:100%; }
         * { box-sizing: border-box; }
-        /* Картка невидима (<39%) — глушимо анімації, щоб не вантажити систему */
+        /* Картка невидима (<39%) або закрита — глушимо все навантаження */
         .bms-idle, .bms-idle * { animation: none !important; }
+
+        /* Спрощені анімації для слабких планшетів (заряд/розряд лишаються повними) */
+        .bms-reduced-motion .stat-box,
+        .bms-reduced-motion .metric-card,
+        .bms-reduced-motion .cell-row,
+        .bms-reduced-motion .state-chip,
+        .bms-reduced-motion .nav-item {
+          transition: none !important;
+          animation: none !important;
+        }
 
         /* Головний контейнер картки у преміальному сучасному стилі */
         ha-card.bms-card, .bms-card {
@@ -3739,7 +3835,6 @@ class HaBmsBleCard extends HTMLElement {
           margin-bottom: 12px;
           overflow: hidden;
           background: var(--panel);
-          transition: border-color 0.2s ease;
         }
         .info-accordion-section[open] {
           border-color: rgba(255, 255, 255, 0.14);
@@ -3757,7 +3852,6 @@ class HaBmsBleCard extends HTMLElement {
           justify-content: space-between;
           user-select: none;
           background: transparent;
-          transition: background 0.15s ease;
         }
         .info-accordion-title:hover { background: rgba(255, 255, 255, 0.03); }
         .info-accordion-title::-webkit-details-marker { display: none; }
@@ -3768,7 +3862,6 @@ class HaBmsBleCard extends HTMLElement {
           border-right: 2px solid var(--muted);
           border-bottom: 2px solid var(--muted);
           transform: rotate(-45deg);
-          transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
           flex-shrink: 0;
         }
         .info-accordion-section[open] > .info-accordion-title::after { transform: rotate(45deg); border-color: #60a5fa; }
