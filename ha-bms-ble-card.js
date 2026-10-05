@@ -2180,7 +2180,11 @@ class HaBmsBleCard extends HTMLElement {
   set hass(hass) {
     const oldHass = this._hass;
     this._hass = hass;
-    if (!this._isCardVisible()) {
+    if (typeof document !== "undefined" && document.hidden) {
+      this._needsRender = true;
+      return;
+    }
+    if (this._visible === false) {
       this._needsRender = true;
       return;
     }
@@ -2237,9 +2241,6 @@ class HaBmsBleCard extends HTMLElement {
     if (typeof document !== "undefined" && document.hidden) return false;
     if (this.isConnected === false) return false;
     if (this._visible === false) return false;
-    if (!this._expanded && typeof this.offsetWidth === "number" && typeof this.offsetHeight === "number") {
-      if (this.offsetWidth === 0 && this.offsetHeight === 0) return false;
-    }
     return true;
   }
 
