@@ -7,7 +7,7 @@
  * https://github.com/kdinya/ha-bms-ble-card
  */
 
-const CARD_VERSION = "1.2.2";
+const CARD_VERSION = "1.2.3";
 
 console.info(
   `%c HA-BMS-BLE-CARD %c v${CARD_VERSION} `,
@@ -2856,7 +2856,9 @@ class HaBmsBleCard extends HTMLElement {
       cellsHtml = `
         <div class="cells-box">
           <div class="cells-title">${t("cells_title")} (Δ ${st.delta.toFixed(3)}V)${balancingOn ? `<span class="balance-badge">${haIcon("ti-topology-star-3", 12)} ${t("balancing")}</span>` : ""}</div>
-          ${rows}
+          <div class="cells-grid">
+            ${rows}
+          </div>
           <div class="badges-row">
             <div class="badge green"${moreInfoAttr(cellEntityIds && cellEntityIds[st.maxIdx])}><span>${t("cell_max")} ${st.max.toFixed(3)} V</span><b>C${st.maxIdx + 1}</b></div>
             <div class="badge blue"${moreInfoAttr(cellEntityIds && cellEntityIds[st.minIdx])}><span>${t("cell_min")} ${st.min.toFixed(3)} V</span><b>C${st.minIdx + 1}</b></div>
@@ -3634,17 +3636,21 @@ class HaBmsBleCard extends HTMLElement {
 
         /* Преміальний блок статусу / режиму під батареєю */
         .discharge-box {
-          background: var(--panel);
-          border: 1px solid var(--border);
+          background: linear-gradient(135deg, rgba(255, 255, 255, 0.045) 0%, rgba(255, 255, 255, 0.015) 100%);
+          border: 1px solid rgba(255, 255, 255, 0.1);
           border-radius: 18px;
           padding: 14px 18px;
           display: flex;
           flex-direction: column;
           gap: 10px;
-          box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
-          backdrop-filter: blur(10px);
-          -webkit-backdrop-filter: blur(10px);
-          transition: background 0.2s ease, border-color 0.2s ease;
+          box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 8px 24px rgba(0, 0, 0, 0.35);
+          backdrop-filter: blur(12px);
+          -webkit-backdrop-filter: blur(12px);
+          transition: border-color 0.2s ease, box-shadow 0.2s ease;
+        }
+        .discharge-box:hover {
+          border-color: rgba(255, 255, 255, 0.18);
+          box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 10px 28px rgba(0, 0, 0, 0.45);
         }
         .discharge-box:hover {
           border-color: rgba(255, 255, 255, 0.14);
@@ -3756,15 +3762,24 @@ class HaBmsBleCard extends HTMLElement {
         .info-accordion-body { padding: 8px 16px 16px; }
 
         /* Комірки (Cells View) - преміальний вигляд */
-        .cells-box { display: flex; flex-direction: column; gap: 8px; }
+        .cells-box { display: flex; flex-direction: column; gap: 10px; }
+        .cells-grid {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 7px;
+        }
+        @media (min-width: 520px) {
+          .cells-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+        }
         .cells-title {
-          font-size: 13.5px;
+          font-size: 13px;
           font-weight: 700;
           color: var(--text);
-          margin-bottom: 6px;
+          margin-bottom: 4px;
           display: flex;
           align-items: center;
           justify-content: space-between;
+          letter-spacing: 0.02em;
         }
         .balance-badge {
           display: inline-flex;
@@ -3782,13 +3797,25 @@ class HaBmsBleCard extends HTMLElement {
         .cell-row {
           display: flex;
           align-items: center;
-          gap: 10px;
-          padding: 6px 10px;
-          border-radius: 10px;
-          background: rgba(255, 255, 255, 0.02);
-          border: 1px solid var(--border-subtle);
+          gap: 8px;
+          padding: 7px 10px;
+          border-radius: 12px;
+          background: linear-gradient(135deg, rgba(255, 255, 255, 0.04) 0%, rgba(255, 255, 255, 0.01) 100%);
+          border: 1px solid var(--border);
+          box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 2px 8px rgba(0, 0, 0, 0.2);
           cursor: pointer;
-          transition: background 0.15s ease, border-color 0.15s ease;
+          transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .cell-row:hover {
+          background: linear-gradient(135deg, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0.03) 100%);
+          border-color: rgba(255, 255, 255, 0.18);
+          transform: translateY(-1px);
+          box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 4px 12px rgba(0, 0, 0, 0.35);
+        }
+        .cell-row.balancing {
+          border-color: rgba(245, 158, 11, 0.5) !important;
+          background: linear-gradient(135deg, rgba(245, 158, 11, 0.14) 0%, rgba(245, 158, 11, 0.04) 100%) !important;
+          box-shadow: 0 0 12px rgba(245, 158, 11, 0.25), inset 0 1px 0 rgba(245, 158, 11, 0.3) !important;
         }
         .cell-row:hover {
           background: rgba(255, 255, 255, 0.05);
@@ -4099,41 +4126,52 @@ class HaBmsBleCard extends HTMLElement {
         .metric-card {
           display: flex !important;
           align-items: center !important;
-          gap: 8px !important;
-          padding: 8px 10px !important;
-          background: var(--panel);
-          border: 1px solid var(--border);
-          border-radius: 12px !important;
+          gap: 9px !important;
+          padding: 8px 11px !important;
+          background: linear-gradient(135deg, rgba(255, 255, 255, 0.045) 0%, rgba(255, 255, 255, 0.012) 100%) !important;
+          border: 1px solid var(--border) !important;
+          border-radius: 14px !important;
           min-width: 0 !important;
           width: 100% !important;
           box-sizing: border-box !important;
           overflow: hidden !important;
+          box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 4px 12px rgba(0, 0, 0, 0.25) !important;
+          backdrop-filter: blur(8px) !important;
+          -webkit-backdrop-filter: blur(8px) !important;
+          transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+        }
+        .metric-card:hover {
+          background: linear-gradient(135deg, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0.03) 100%) !important;
+          border-color: rgba(255, 255, 255, 0.16) !important;
+          transform: translateY(-1px) !important;
+          box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 6px 18px rgba(0, 0, 0, 0.35) !important;
         }
         .metric-icon {
-          width: 26px !important;
-          height: 26px !important;
-          border-radius: 7px !important;
+          width: 28px !important;
+          height: 28px !important;
+          border-radius: 8px !important;
           display: flex; align-items: center; justify-content: center;
           flex-shrink: 0 !important;
+          box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12) !important;
         }
-        .metric-icon svg { width: 15px; height: 15px; }
+        .metric-icon svg { width: 16px; height: 16px; }
         .metric-meta { min-width: 0 !important; flex: 1 !important; overflow: hidden !important; }
         .metric-lbl {
           font-size: 9.5px !important;
           color: var(--muted);
-          letter-spacing: 0.04em;
+          letter-spacing: 0.05em;
           text-transform: uppercase;
-          font-weight: 600;
+          font-weight: 650;
           white-space: nowrap !important;
           overflow: hidden !important;
           text-overflow: ellipsis !important;
         }
         .metric-val {
           font-size: clamp(12px, 3.4vw, 14.5px) !important;
-          font-weight: 750;
+          font-weight: 800;
           margin-top: 1px !important;
           font-variant-numeric: tabular-nums;
-          letter-spacing: -0.01em;
+          letter-spacing: -0.015em;
           white-space: nowrap !important;
           overflow: hidden !important;
           text-overflow: ellipsis !important;
@@ -4225,10 +4263,10 @@ class HaBmsBleCard extends HTMLElement {
         .info-tile-val { font-size: 14.5px; font-weight: 700; margin-top: 3px; font-variant-numeric: tabular-nums; }
         .nav-bar {
           position: sticky; bottom: 8px; margin-top: 16px;
-          display: flex; gap: 4px; padding: 6px;
-          background: rgba(13, 18, 28, 0.88); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
-          border: 1px solid var(--border); border-radius: 18px;
-          box-shadow: 0 12px 32px -12px rgba(0, 0, 0, 0.7);
+          display: flex; gap: 5px; padding: 5px 6px;
+          background: rgba(11, 18, 28, 0.85); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+          border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 999px;
+          box-shadow: 0 10px 30px -8px rgba(0, 0, 0, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.08);
         }
         .nav-item {
           flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px;

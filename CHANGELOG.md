@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.2.3] - 2026-10-05
+
+### Added & Improved
+- **Premium Frosted & Glassmorphic UI**: Refined metric cards with subtle depth, soft top highlights, and glowing icons.
+- **Cell Matrix Grid**: Reorganized cell rows into an adaptive 2-to-4 column battery module matrix with high-contrast cell badges and balancing glow.
+- **Floating Pill Navigation Dock**: Upgraded the tab bar to a sleek segmented capsule dock with backdrop blur and active glow.
+- **Enhanced Status Bar**: Upgraded status/discharge container with soft luxury glass styling and responsive typography.
+
 ## [1.2.2] - 2026-10-05
 
 ### Fixed
