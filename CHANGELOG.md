@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.2.4] - 2026-10-05
+
+### Improved
+- **Volumetric obsidian-glass card background**: multi-layer gradient with soft top light, subtle green/blue ambient glows, rim highlight and deep shadow — the card reads as thick black glass instead of a flat dark surface.
+- **Unified corner rounding**: navigation dock now matches the other blocks (16px), active tab highlight nests concentrically inside it (12px); metric cards and the status block aligned to the same system.
+
 ## [1.2.3] - 2026-10-05
 
 ### Added & Improved

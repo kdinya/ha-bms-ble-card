@@ -7,7 +7,7 @@
  * https://github.com/kdinya/ha-bms-ble-card
  */
 
-const CARD_VERSION = "1.2.3";
+const CARD_VERSION = "1.2.4";
 
 console.info(
   `%c HA-BMS-BLE-CARD %c v${CARD_VERSION} `,
@@ -3638,7 +3638,7 @@ class HaBmsBleCard extends HTMLElement {
         .discharge-box {
           background: linear-gradient(135deg, rgba(255, 255, 255, 0.045) 0%, rgba(255, 255, 255, 0.015) 100%);
           border: 1px solid rgba(255, 255, 255, 0.1);
-          border-radius: 18px;
+          border-radius: 16px;
           padding: 14px 18px;
           display: flex;
           flex-direction: column;
@@ -4207,16 +4207,28 @@ class HaBmsBleCard extends HTMLElement {
         }
 
         ha-card.bms-card, .bms-card {
-          --bg: #04060a;
-          --card: #0a0d14;
-          --panel: rgba(255, 255, 255, 0.035);
-          --panel-hover: rgba(255, 255, 255, 0.07);
-          --border: rgba(255, 255, 255, 0.07);
+          --bg: #030508;
+          --card: #090d16;
+          --panel: rgba(255, 255, 255, 0.038);
+          --panel-hover: rgba(255, 255, 255, 0.075);
+          --border: rgba(255, 255, 255, 0.08);
           --accent: #14d8a6;
           --accent-dim: rgba(20, 216, 166, 0.12);
-          background: linear-gradient(180deg, #0c111c 0%, #070a10 40%, #04060a 100%) !important;
-          border-radius: 20px !important;
-          box-shadow: 0 24px 60px -24px rgba(0, 0, 0, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.06) !important;
+          background:
+            radial-gradient(130% 90% at 50% -12%, rgba(36, 52, 78, 0.5) 0%, rgba(14, 21, 33, 0.28) 45%, transparent 80%),
+            radial-gradient(90% 70% at 0% 0%, rgba(20, 216, 166, 0.08) 0%, transparent 60%),
+            radial-gradient(85% 65% at 100% 100%, rgba(59, 130, 246, 0.07) 0%, transparent 60%),
+            linear-gradient(172deg, #111827 0%, #0a0f19 35%, #05080e 75%, #020408 100%) !important;
+          border-radius: 22px !important;
+          border: 1px solid rgba(255, 255, 255, 0.12) !important;
+          box-shadow:
+            0 32px 64px -16px rgba(0, 0, 0, 0.88),
+            0 12px 28px -6px rgba(0, 0, 0, 0.65),
+            inset 0 1.5px 0.5px rgba(255, 255, 255, 0.22),
+            inset 0 0 24px rgba(255, 255, 255, 0.02),
+            inset 0 -2px 6px rgba(0, 0, 0, 0.7) !important;
+          backdrop-filter: blur(20px) saturate(130%);
+          -webkit-backdrop-filter: blur(20px) saturate(130%);
         }
         .header h1 { letter-spacing: -0.03em; font-size: clamp(15px, 3.4vw, 18px); }
         .hdr-status-pill {
@@ -4235,7 +4247,7 @@ class HaBmsBleCard extends HTMLElement {
         .metric-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
         .metric-card {
           display: flex; align-items: center; gap: 10px; padding: 12px 14px;
-          background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
+          background: var(--panel); border: 1px solid var(--border); border-radius: 16px;
           transition: background 0.2s, border-color 0.2s, transform 0.15s;
         }
         [data-more-info].metric-card { cursor: pointer; }
@@ -4263,18 +4275,23 @@ class HaBmsBleCard extends HTMLElement {
         .info-tile-val { font-size: 14.5px; font-weight: 700; margin-top: 3px; font-variant-numeric: tabular-nums; }
         .nav-bar {
           position: sticky; bottom: 8px; margin-top: 16px;
-          display: flex; gap: 5px; padding: 5px 6px;
-          background: rgba(11, 18, 28, 0.85); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
-          border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 999px;
-          box-shadow: 0 10px 30px -8px rgba(0, 0, 0, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+          display: flex; gap: 4px; padding: 4px;
+          background: rgba(10, 16, 26, 0.84); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+          border: 1px solid rgba(255, 255, 255, 0.09); border-radius: 16px;
+          box-shadow: 0 12px 28px -8px rgba(0, 0, 0, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.09);
         }
         .nav-item {
           flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px;
-          padding: 8px 4px; border-radius: 13px; color: var(--muted); font-size: 9.5px;
+          padding: 8px 4px; border-radius: 12px; color: var(--muted); font-size: 9.5px;
           font-weight: 700; letter-spacing: 0.06em; transition: color 0.2s, background 0.2s;
         }
         .nav-item svg { width: 19px; height: 19px; }
-        .nav-item.active { color: #06120e; background: linear-gradient(135deg, #2ee6b7 0%, #14d8a6 60%, #0fb891 100%); box-shadow: 0 6px 18px -6px rgba(20, 216, 166, 0.55); }
+        .nav-item.active {
+          color: #06120e;
+          background: linear-gradient(135deg, #2ee6b7 0%, #14d8a6 60%, #0fb891 100%);
+          border-radius: 12px;
+          box-shadow: 0 4px 14px -3px rgba(20, 216, 166, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+        }
         .lang-switch { display: inline-flex; gap: 6px; background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 5px; }
         .lang-btn { border-radius: 10px; padding: 8px 18px; font-weight: 700; color: var(--muted); background: transparent; border: none; }
         .lang-btn.active { background: var(--accent); color: #06120e; box-shadow: 0 4px 14px -4px rgba(20, 216, 166, 0.5); }
