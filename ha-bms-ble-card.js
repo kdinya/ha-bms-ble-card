@@ -7,7 +7,7 @@
  * https://github.com/kdinya/ha-bms-ble-card
  */
 
-const CARD_VERSION = "1.2.4";
+const CARD_VERSION = "1.2.5";
 
 console.info(
   `%c HA-BMS-BLE-CARD %c v${CARD_VERSION} `,
@@ -3243,10 +3243,13 @@ class HaBmsBleCard extends HTMLElement {
     };
     const onUp = () => clearTimer();
     el.addEventListener("pointerdown", onDown);
-    el.addEventListener("pointermove", onMove);
-    el.addEventListener("pointerup", onUp);
-    el.addEventListener("pointercancel", onUp);
-    el.addEventListener("pointerleave", onUp);
+    // passive: true — обробник лише читає координати, жодних
+    // preventDefault/stopPropagation, тож браузер може не чекати
+    // на нього і прокручувати нативний скрол без затримки.
+    el.addEventListener("pointermove", onMove, { passive: true });
+    el.addEventListener("pointerup", onUp, { passive: true });
+    el.addEventListener("pointercancel", onUp, { passive: true });
+    el.addEventListener("pointerleave", onUp, { passive: true });
     // Реєструється до _wireMoreInfo(), тому виконується першим: якщо щойно
     // спрацювало довге утримання — гасимо клік, щоб не відкрився more-info.
     el.addEventListener("click", (ev) => {
@@ -3345,6 +3348,16 @@ class HaBmsBleCard extends HTMLElement {
 
   /** Клік по пунктах нижньої навігації (Головна/Параметри/Історія/
    *  Налаштування) перемикає активну вкладку картки і перерендерює її. */
+  _switchTabPane(tab) {
+    if (!tab) return;
+    this.querySelectorAll(".bms-tab-pane[data-pane]").forEach(p => {
+      p.classList.toggle("active", p.dataset.pane === tab);
+    });
+    this.querySelectorAll(".nav-item[data-tab]").forEach(n => {
+      n.classList.toggle("active", n.dataset.tab === tab);
+    });
+  }
+
   _wireTabs() {
     this.querySelectorAll(".nav-item[data-tab]").forEach((el) => {
       el.addEventListener("click", (ev) => {
@@ -3352,7 +3365,7 @@ class HaBmsBleCard extends HTMLElement {
         const tab = el.dataset.tab;
         if (tab && tab !== this._activeTab) {
           this._activeTab = tab;
-          this._render();
+          this._switchTabPane(tab);
           if (tab === "stats") this._maybeFetchStatsPeriod();
         }
       });
@@ -3493,6 +3506,8 @@ class HaBmsBleCard extends HTMLElement {
           font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
           max-width: 100%;
           overflow: hidden;
+          contain: paint;
+          transform: translateZ(0);
           backdrop-filter: blur(12px);
           -webkit-backdrop-filter: blur(12px);
         }
@@ -3646,8 +3661,6 @@ class HaBmsBleCard extends HTMLElement {
           flex-direction: column;
           gap: 10px;
           box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 8px 24px rgba(0, 0, 0, 0.35);
-          backdrop-filter: blur(12px);
-          -webkit-backdrop-filter: blur(12px);
           transition: border-color 0.2s ease, box-shadow 0.2s ease;
         }
         .discharge-box:hover {
@@ -3688,8 +3701,6 @@ class HaBmsBleCard extends HTMLElement {
           align-items: stretch;
           gap: 6px;
           box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
-          backdrop-filter: blur(12px);
-          -webkit-backdrop-filter: blur(12px);
         }
         .nav-item {
           display: flex;
@@ -4160,8 +4171,6 @@ class HaBmsBleCard extends HTMLElement {
           box-sizing: border-box !important;
           overflow: hidden !important;
           box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 4px 12px rgba(0, 0, 0, 0.25) !important;
-          backdrop-filter: blur(8px) !important;
-          -webkit-backdrop-filter: blur(8px) !important;
           transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
         }
         .metric-card:hover {
@@ -4269,6 +4278,8 @@ class HaBmsBleCard extends HTMLElement {
             inset 2px 0 6px rgba(0, 0, 0, 0.4),
             inset -2px 0 6px rgba(0, 0, 0, 0.4),
             inset 0 0 40px rgba(255, 255, 255, 0.025) !important;
+          contain: paint;
+          transform: translateZ(0);
           backdrop-filter: blur(20px) saturate(140%);
           -webkit-backdrop-filter: blur(20px) saturate(140%);
         }
@@ -4323,7 +4334,7 @@ class HaBmsBleCard extends HTMLElement {
         .nav-bar {
           position: sticky; bottom: 8px; margin-top: 16px;
           display: flex; gap: 4px; padding: 4px;
-          background: rgba(10, 16, 26, 0.84); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+          background: rgba(10, 16, 26, 0.94);
           border: 1px solid rgba(255, 255, 255, 0.09); border-radius: 16px;
           box-shadow: 0 12px 28px -8px rgba(0, 0, 0, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.09);
         }
