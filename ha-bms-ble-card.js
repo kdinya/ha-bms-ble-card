@@ -7,7 +7,7 @@
  * https://github.com/kdinya/ha-bms-ble-card
  */
 
-const CARD_VERSION = "1.2.4";
+const CARD_VERSION = "1.2.5";
 
 console.info(
   `%c HA-BMS-BLE-CARD %c v${CARD_VERSION} `,
@@ -3766,10 +3766,12 @@ class HaBmsBleCard extends HTMLElement {
         .cells-grid {
           display: grid;
           grid-template-columns: repeat(2, minmax(0, 1fr));
-          gap: 7px;
+          gap: 6px;
+          width: 100%;
+          box-sizing: border-box;
         }
-        @media (min-width: 520px) {
-          .cells-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+        @media (min-width: 640px) {
+          .cells-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
         }
         .cells-title {
           font-size: 13px;
@@ -3797,13 +3799,16 @@ class HaBmsBleCard extends HTMLElement {
         .cell-row {
           display: flex;
           align-items: center;
-          gap: 8px;
-          padding: 7px 10px;
+          gap: 6px;
+          padding: 6px 8px;
           border-radius: 12px;
           background: linear-gradient(135deg, rgba(255, 255, 255, 0.04) 0%, rgba(255, 255, 255, 0.01) 100%);
           border: 1px solid var(--border);
           box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 2px 8px rgba(0, 0, 0, 0.2);
           cursor: pointer;
+          min-width: 0;
+          box-sizing: border-box;
+          overflow: hidden;
           transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
         }
         .cell-row:hover {
@@ -3863,14 +3868,16 @@ class HaBmsBleCard extends HTMLElement {
         }
         .cell-val {
           flex-shrink: 0;
-          font-size: 13px;
+          font-size: clamp(11px, 3.2vw, 12.5px);
           font-weight: 700;
           color: var(--text);
           font-variant-numeric: tabular-nums;
           font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
           display: flex;
           align-items: center;
-          gap: 6px;
+          gap: 4px;
+          white-space: nowrap;
+          letter-spacing: -0.02em;
         }
 
         /* Бейджі Макс / Мін / Різниця */
@@ -4147,14 +4154,27 @@ class HaBmsBleCard extends HTMLElement {
           box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 6px 18px rgba(0, 0, 0, 0.35) !important;
         }
         .metric-icon {
-          width: 28px !important;
-          height: 28px !important;
-          border-radius: 8px !important;
-          display: flex; align-items: center; justify-content: center;
+          width: 30px !important;
+          height: 30px !important;
+          border-radius: 9px !important;
+          display: flex !important;
+          align-items: center !important;
+          justify-content: center !important;
           flex-shrink: 0 !important;
+          line-height: 0 !important;
           box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12) !important;
         }
-        .metric-icon svg { width: 16px; height: 16px; }
+        .metric-icon ha-icon,
+        .metric-icon svg {
+          display: flex !important;
+          align-items: center !important;
+          justify-content: center !important;
+          margin: 0 !important;
+          line-height: 0 !important;
+          --mdc-icon-size: 16px !important;
+        }
+        .metric-icon svg { width: 16px !important; height: 16px !important; }
+        .metric-icon ha-icon { width: 16px !important; height: 16px !important; }
         .metric-meta { min-width: 0 !important; flex: 1 !important; overflow: hidden !important; }
         .metric-lbl {
           font-size: 9.5px !important;
@@ -4215,20 +4235,25 @@ class HaBmsBleCard extends HTMLElement {
           --accent: #14d8a6;
           --accent-dim: rgba(20, 216, 166, 0.12);
           background:
-            radial-gradient(130% 90% at 50% -12%, rgba(36, 52, 78, 0.5) 0%, rgba(14, 21, 33, 0.28) 45%, transparent 80%),
-            radial-gradient(90% 70% at 0% 0%, rgba(20, 216, 166, 0.08) 0%, transparent 60%),
-            radial-gradient(85% 65% at 100% 100%, rgba(59, 130, 246, 0.07) 0%, transparent 60%),
-            linear-gradient(172deg, #111827 0%, #0a0f19 35%, #05080e 75%, #020408 100%) !important;
+            radial-gradient(120% 70% at 50% -15%, rgba(44, 62, 92, 0.55) 0%, rgba(16, 24, 38, 0.3) 40%, transparent 75%),
+            radial-gradient(70% 55% at 0% 0%, rgba(20, 216, 166, 0.1) 0%, transparent 55%),
+            radial-gradient(70% 55% at 100% 0%, rgba(59, 130, 246, 0.09) 0%, transparent 55%),
+            radial-gradient(90% 70% at 100% 100%, rgba(59, 130, 246, 0.08) 0%, transparent 60%),
+            radial-gradient(90% 70% at 0% 100%, rgba(20, 216, 166, 0.06) 0%, transparent 60%),
+            radial-gradient(140% 110% at 50% 50%, transparent 55%, rgba(0, 0, 0, 0.5) 100%),
+            linear-gradient(172deg, #131a29 0%, #0b111c 35%, #05080e 75%, #020408 100%) !important;
           border-radius: 22px !important;
-          border: 1px solid rgba(255, 255, 255, 0.12) !important;
+          border: 1px solid rgba(255, 255, 255, 0.13) !important;
           box-shadow:
-            0 32px 64px -16px rgba(0, 0, 0, 0.88),
-            0 12px 28px -6px rgba(0, 0, 0, 0.65),
-            inset 0 1.5px 0.5px rgba(255, 255, 255, 0.22),
-            inset 0 0 24px rgba(255, 255, 255, 0.02),
-            inset 0 -2px 6px rgba(0, 0, 0, 0.7) !important;
-          backdrop-filter: blur(20px) saturate(130%);
-          -webkit-backdrop-filter: blur(20px) saturate(130%);
+            0 40px 80px -20px rgba(0, 0, 0, 0.92),
+            0 16px 36px -8px rgba(0, 0, 0, 0.7),
+            inset 0 2px 1px rgba(255, 255, 255, 0.25),
+            inset 0 -3px 8px rgba(0, 0, 0, 0.75),
+            inset 2px 0 6px rgba(0, 0, 0, 0.4),
+            inset -2px 0 6px rgba(0, 0, 0, 0.4),
+            inset 0 0 40px rgba(255, 255, 255, 0.025) !important;
+          backdrop-filter: blur(20px) saturate(140%);
+          -webkit-backdrop-filter: blur(20px) saturate(140%);
         }
         .header h1 { letter-spacing: -0.03em; font-size: clamp(15px, 3.4vw, 18px); }
         .hdr-status-pill {
@@ -4258,9 +4283,14 @@ class HaBmsBleCard extends HTMLElement {
         .metric-val { font-size: 16px; font-weight: 750; margin-top: 2px; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
         .chip-row { display: flex; flex-wrap: wrap; gap: 8px; }
         .state-chip {
-          display: inline-flex; align-items: center; gap: 7px; padding: 7px 12px;
+          display: inline-flex; align-items: center; justify-content: flex-start; gap: 7px; padding: 7px 12px;
           background: var(--panel); border: 1px solid var(--border); border-radius: 999px;
           font-size: 12px; color: var(--muted); transition: background 0.2s;
+          line-height: 1 !important;
+        }
+        .state-chip ha-icon {
+          display: flex !important; align-items: center !important; justify-content: center !important;
+          flex-shrink: 0 !important; margin: 0 !important; line-height: 0 !important;
         }
         .state-chip b { font-weight: 700; }
         [data-more-info].state-chip { cursor: pointer; }
