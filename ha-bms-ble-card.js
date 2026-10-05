@@ -7,7 +7,7 @@
  * https://github.com/kdinya/ha-bms-ble-card
  */
 
-const CARD_VERSION = "1.2.0";
+const CARD_VERSION = "1.2.1";
 
 console.info(
   `%c HA-BMS-BLE-CARD %c v${CARD_VERSION} `,
@@ -43,8 +43,6 @@ const I18N = {
     eta_to_discharge: "До розряду",
     eta_to_full_charge: "До повного заряду",
     func_balancer: "Балансир",
-    func_charge_mosfet: "MOSFET заряд",
-    func_discharge_mosfet: "MOSFET розряд",
     func_heater: "Нагрівач",
     func_problem: "Проблеми",
     func_mode: "Режим",
@@ -149,8 +147,6 @@ const I18N = {
     eta_to_discharge: "Until discharged",
     eta_to_full_charge: "Until fully charged",
     func_balancer: "Balancer",
-    func_charge_mosfet: "Charge MOSFET",
-    func_discharge_mosfet: "Discharge MOSFET",
     func_heater: "Heater",
     func_problem: "Problems",
     func_mode: "Mode",
@@ -870,7 +866,7 @@ function findBmsBleDeviceIds(hass) {
  *  `unique_id` взагалі; (2) сутності, вимкнені за замовчуванням
  *  (`disabled_by` не null), НЕ включаються в цей список — бекенд явно
  *  фільтрує їх (`entry.disabled_by is None`). Це стосується, зокрема,
- *  Max/Min cell voltage, MOSFET заряду/розряду, Balancer, Heater, RSSI,
+ *  Max/Min cell voltage, Balancer, Heater, RSSI,
  *  Link quality — всі вони в BMS_BLE-HA вимкнені за замовчуванням.
  *  Тому автопошук нижче для них нічого не знайде через `hass.entities`,
  *  доки користувач вручну не увімкне сутність у HA — і жодна евристика
@@ -935,8 +931,6 @@ const BMS_BLE_KEY_MAP = {
   runtime: "runtime",
   current: "current",
   balancer: "balancer",
-  chrg_mosfet: "chrg_mosfet",
-  dischrg_mosfet: "dischrg_mosfet",
   heater: "heater",
   // Ці ключі НЕ мають translation_key в самій інтеграції (тому через
   // полегшений hass.entities не підберуться), але мають unique_id —
@@ -984,42 +978,9 @@ const KEYWORD_RULES = [
   { key: "cycle_capacity", domain: "sensor", test: (o) => o.includes("cycle") && o.includes("cap") },
   { key: "soh", domain: "sensor", test: (o) => hasWord(o, "soh") || o.includes("battery_health") || (o.includes("health") && !o.includes("unhealthy")) },
   { key: "balancer", domain: "binary_sensor", test: (o) => o.includes("balanc") },
-  { key: "chrg_mosfet", domain: "binary_sensor", test: (o) =>
-      (o.includes("mosfet") || o.includes("mos_fet") || o.includes("mos")) &&
-      (o.includes("chrg") || o.includes("charge") || o.includes("chg")) &&
-      !o.includes("dis")
-  },
-  { key: "dischrg_mosfet", domain: "binary_sensor", test: (o) =>
-      (o.includes("mosfet") || o.includes("mos_fet") || o.includes("mos")) &&
-      (o.includes("dischrg") || o.includes("discharge") || o.includes("dsg") || o.includes("dis"))
-  },
   { key: "heater", domain: "binary_sensor", test: (o) => o.includes("heater") || o.includes("heating") },
 ];
 
-// Fallback MOSFET if only generic names exist
-function refineMosfetDiscovery(list, result, used) {
-  if (!result.chrg_mosfet) {
-    const m = list.find((e) => !used.has(e.entityId) && e.domain === "binary_sensor" &&
-      (e.objectId.includes("chrg_mosfet") || e.objectId.endsWith("_chrg_mosfet") || e.objectId.includes("charging_mosfet")));
-    if (m) { result.chrg_mosfet = m.entityId; used.add(m.entityId); }
-  }
-  if (!result.dischrg_mosfet) {
-    const m = list.find((e) => !used.has(e.entityId) && e.domain === "binary_sensor" &&
-      (e.objectId.includes("dischrg_mosfet") || e.objectId.includes("discharge_mosfet")));
-    if (m) { result.dischrg_mosfet = m.entityId; used.add(m.entityId); }
-  }
-  // last resort: any mosfet without dis = charge, with dis = discharge
-  if (!result.chrg_mosfet || !result.dischrg_mosfet) {
-    const mos = list.filter((e) => !used.has(e.entityId) && e.domain === "binary_sensor" && e.objectId.includes("mosfet"));
-    for (const e of mos) {
-      if (!result.dischrg_mosfet && e.objectId.includes("dis")) {
-        result.dischrg_mosfet = e.entityId; used.add(e.entityId);
-      } else if (!result.chrg_mosfet && !e.objectId.includes("dis")) {
-        result.chrg_mosfet = e.entityId; used.add(e.entityId);
-      }
-    }
-  }
-}
 
 // Загальні правила за device_class — застосовуються ДРУГИМ проходом,
 // лише до сутностей, які ще нічим не зайняті.
@@ -1056,7 +1017,7 @@ function autoDiscoverEntities(hass, deviceId) {
   //    сенсорів, які мають translation_key в самій інтеграції (більшість,
   //    окрім voltage/battery_level/power/battery_charging/problem/
   //    cycle_capacity — для них є проходи 2-3 нижче). ВАЖЛИВО: сутності,
-  //    вимкнені за замовчуванням (max/min cell voltage, MOSFET заряду/
+  //    вимкнені за замовчуванням (max/min cell voltage, balancer, heater тощо)
   //    розряду, balancer, heater, rssi, link_quality), у hass.entities
   //    взагалі відсутні (бекенд HA відфільтровує їх з полегшеного
   //    реєстру) — цей прохід їх знайде, лише якщо користувач уже увімкнув
@@ -1102,7 +1063,6 @@ function autoDiscoverEntities(hass, deviceId) {
     }
   }
 
-  refineMosfetDiscovery(list, result, used);
 
   // max/min cell from friendly name if object_id didn't match
   if (!result.max_cell_voltage) {
@@ -1496,8 +1456,6 @@ const ENTITY_FIELD_GROUPS = [
     fields: [
       ["charging", "Заряджається (binary_sensor)", "binary_sensor"],
       ["balancer", "Балансир", "binary_sensor"],
-      ["chrg_mosfet", "MOSFET заряду", "binary_sensor"],
-      ["dischrg_mosfet", "MOSFET розряду", "binary_sensor"],
       ["heater", "Нагрівач", "binary_sensor"],
       ["problem", "Проблема", "binary_sensor"],
       ["link_quality", "Link quality", "sensor"],
@@ -1553,12 +1511,12 @@ const ENTITY_FIELD_GROUPS = [
  * (як max/min cell voltage) — сутності може не бути ВЗАГАЛІ, назавжди,
  * якщо ваш конкретний драйвер aiobmsble для вашої моделі батареї просто
  * не вміє читати цей параметр. Підтверджено, зокрема, офіційним issue
- * (patman15/aiobmsble#7): для JK BMS статус MOSFET заряду/розряду
+ * (patman15/aiobmsble#7): для JK BMS статус balancer, heater тощо)
  * недоступний. Коли поле з цього списку не знайдено НІДЕ (ні в
  * hass.entities, ні в повному реєстрі), показуємо саме це пояснення —
  * а не загальне "не знайдено автоматично", яке виглядає як баг картки.
  */
-const HARDWARE_DEPENDENT_FIELDS = new Set(["balancer", "chrg_mosfet", "dischrg_mosfet", "heater", "soh", "design_capacity"]);
+const HARDWARE_DEPENDENT_FIELDS = new Set(["balancer", "heater", "soh", "design_capacity"]);
 
 /**
  * Наскільки барвиста анімація "потоку" всередині батареї відповідає
@@ -1636,7 +1594,7 @@ class HaBmsBleCardEditor extends HTMLElement {
    * (`config/entity_registry/list_for_display`), який HA явно фільтрує:
    * сутності з `disabled_by !== null` у нього не потрапляють (і в нього
    * немає навіть unique_id). У BMS_BLE-HA вимкнені за замовчуванням саме
-   * Max/Min cell voltage, MOSFET заряду/розряду, Balancer, Heater, RSSI,
+   * Max/Min cell voltage, Balancer, Heater, RSSI,
    * Link quality — тому звичайний автопошук (`autoDiscoverEntities`) їх
    * ніколи не знайде, скільки евристик не додавай.
    *
@@ -2862,16 +2820,12 @@ class HaBmsBleCard extends HTMLElement {
         <div class="func-text"><div class="l1">${label}</div><div class="l2" style="color:${tone}">${value}</div></div>
       </div>`;
 
-    const chrgM = stateOf(this._hass, this._e("chrg_mosfet"));
-    const disM = stateOf(this._hass, this._e("dischrg_mosfet"));
     const heat = stateOf(this._hass, this._e("heater"));
     const prob = stateOf(this._hass, this._e("problem"));
     const G = "#1D9E75", M = "#8b96a3", A = "#EF9F27", R = "#E24B4A";
 
     let funcGrid = "";
     if (bal !== undefined) funcGrid += func("ti-topology-star-3", t("func_balancer"), on(bal) ? t("state_active") : t("state_disabled"), on(bal) ? G : M, this._e("balancer"));
-    if (chrgM !== undefined) funcGrid += func("ti-plug-connected", t("func_charge_mosfet"), on(chrgM) ? t("state_enabled") : t("state_disabled"), on(chrgM) ? G : M, this._e("chrg_mosfet"));
-    if (disM !== undefined) funcGrid += func("ti-plug-connected", t("func_discharge_mosfet"), on(disM) ? t("state_enabled") : t("state_disabled"), on(disM) ? G : M, this._e("dischrg_mosfet"));
     if (heat !== undefined) funcGrid += func("ti-flame", t("func_heater"), on(heat) ? t("state_enabled") : t("state_disabled"), on(heat) ? A : M, this._e("heater"));
     if (prob !== undefined) {
       const pCode = attrOf(this._hass, this._e("problem"), "problem_code");
@@ -2887,8 +2841,6 @@ class HaBmsBleCard extends HTMLElement {
     const chip = (icon, label, val, tone, entityId) => `<div class="state-chip"${moreInfoAttr(entityId)}>${haIcon(icon, 13, tone)}<span>${label}</span><b style="color:${tone}">${val}</b></div>`;
     let chipsHtml = "";
     if (bal !== undefined) chipsHtml += chip("ti-topology-star-3", t("func_balancer"), on(bal) ? t("state_active") : t("state_disabled"), on(bal) ? G : M, this._e("balancer"));
-    if (chrgM !== undefined) chipsHtml += chip("ti-plug-connected", t("func_charge_mosfet"), on(chrgM) ? t("state_enabled") : t("state_disabled"), on(chrgM) ? G : M, this._e("chrg_mosfet"));
-    if (disM !== undefined) chipsHtml += chip("ti-plug-connected", t("func_discharge_mosfet"), on(disM) ? t("state_enabled") : t("state_disabled"), on(disM) ? G : M, this._e("dischrg_mosfet"));
     if (heat !== undefined) chipsHtml += chip("ti-flame", t("func_heater"), on(heat) ? t("state_enabled") : t("state_disabled"), on(heat) ? A : M, this._e("heater"));
     if (prob !== undefined) chipsHtml += chip("ti-alert-triangle", t("func_problem"), on(prob) ? t("state_yes") : t("state_no"), on(prob) ? R : G, this._e("problem"));
 

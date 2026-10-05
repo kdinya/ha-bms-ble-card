@@ -104,8 +104,6 @@ const mockHass = {
     "sensor.bat_min_cell_voltage": { platform: "bms_ble", device_id: deviceId },
     "sensor.bat_runtime": { platform: "bms_ble", device_id: deviceId },
     "binary_sensor.bat_charging": { platform: "bms_ble", device_id: deviceId, device_class: "battery_charging" },
-    "binary_sensor.bat_chrg_mosfet": { platform: "bms_ble", device_id: deviceId },
-    "binary_sensor.bat_dischrg_mosfet": { platform: "bms_ble", device_id: deviceId },
     "binary_sensor.bat_balancer": { platform: "bms_ble", device_id: deviceId },
     "binary_sensor.bat_problem": { platform: "bms_ble", device_id: deviceId, device_class: "problem" },
   },
@@ -120,8 +118,6 @@ const mockHass = {
     "sensor.bat_min_cell_voltage": { state: "3.305", attributes: {} },
     "sensor.bat_runtime": { state: "45000", attributes: {} },
     "binary_sensor.bat_charging": { state: "on", attributes: { device_class: "battery_charging" } },
-    "binary_sensor.bat_chrg_mosfet": { state: "on", attributes: {} },
-    "binary_sensor.bat_dischrg_mosfet": { state: "on", attributes: {} },
     "binary_sensor.bat_balancer": { state: "on", attributes: {} },
     "binary_sensor.bat_problem": { state: "off", attributes: { device_class: "problem" } },
   },
@@ -136,8 +132,6 @@ assert.ok(discovered.soc, "soc discovered");
 assert.ok(discovered.voltage, "voltage discovered");
 assert.ok(discovered.max_cell_voltage, "max cell discovered: " + JSON.stringify(discovered));
 assert.ok(discovered.min_cell_voltage, "min cell discovered");
-assert.ok(discovered.chrg_mosfet, "chrg mosfet: " + JSON.stringify(discovered));
-assert.ok(discovered.dischrg_mosfet, "dischrg mosfet");
 
 const src = fs.readFileSync(file, "utf8");
 assert.ok(!/const cells[\s\S]{0,800}cells \+=/.test(src), "no const cells then cells +=");
@@ -193,7 +187,7 @@ console.log("Discovered:", Object.keys(discovered).sort().join(", "));
 }
 
 // --- Editor: автопошук вимкнених за замовчуванням сутностей (Max/Min cell
-// voltage, MOSFET заряду/розряду тощо) через повний реєстр
+// voltage, Balancer тощо) через повний реєстр
 // (config/entity_registry/list), якого немає в полегшеному hass.entities. ---
 (async () => {
   const editor = Object.create(mod.HaBmsBleCardEditor.prototype);
@@ -287,7 +281,7 @@ console.log("Discovered:", Object.keys(discovered).sort().join(", "));
 
 // --- Editor: коли поле дійсно ВІДСУТНЄ (перевірили і hass.entities, і
 // повний реєстр — статус "done", нічого не знайдено), для апаратно-
-// залежних полів (MOSFET, Balancer, Heater, SOH, Design capacity)
+// залежних полів (Balancer, Heater, SOH, Design capacity)
 // показуємо пояснення про можливу відсутність підтримки в конкретній
 // BMS-платі, а не загальне "не знайдено автоматично". ---
 {
@@ -296,15 +290,11 @@ console.log("Discovered:", Object.keys(discovered).sort().join(", "));
   editor._mounted = false;
   editor._hass = { entities: {}, states: {} };
   // Симулюємо ВЖЕ завершений запит повного реєстру, який нічого не знайшов
-  // (типова ситуація для батареї, чий драйвер не звітує MOSFET-статус).
   editor._fullRegistry = { deviceId: "dev1", status: "done", map: {} };
 
-  const chrgHint = editor._renderEntityField("chrg_mosfet", "MOSFET заряду", "binary_sensor");
-  assert.match(chrgHint, /не передає ці дані по BLE/, "апаратно-залежне поле пояснює можливу відсутність підтримки");
-  assert.match(chrgHint, /JK BMS/, "згадка конкретного відомого прикладу (JK BMS) для довіри до пояснення");
-
-  const dischrgHint = editor._renderEntityField("dischrg_mosfet", "MOSFET розряду", "binary_sensor");
-  assert.match(dischrgHint, /не передає ці дані по BLE/);
+  const balHint = editor._renderEntityField("balancer", "Балансир", "binary_sensor");
+  assert.match(balHint, /не передає ці дані по BLE/, "апаратно-залежне поле пояснює можливу відсутність підтримки");
+  assert.match(balHint, /JK BMS/, "згадка конкретного відомого прикладу (JK BMS) для довіри до пояснення");
 
   // Звичайне (не апаратно-залежне) поле в тій самій ситуації — просто
   // "не знайдено автоматично", без спекуляцій про причину.
@@ -755,7 +745,6 @@ _statsWsRegressionPromise.catch((err) => {
   assert.match(html, /class="metric-grid"/, "сітка metric-grid присутня");
   assert.match(html, /class="metric-card"[^>]*data-more-info="sensor\.bat_voltage"/, "картка напруги клікабельна (data-more-info)");
   assert.match(html, /class="chip-row"/, "рядок чіпів стану системи присутній");
-  assert.match(html, /data-more-info="binary_sensor\.bat_chrg_mosfet"/, "чіп MOSFET заряду клікабельний");
   // Старі класи не повертаються
   assert.ok(!html.includes("usage-grid"), "немає usage-grid на головній");
 

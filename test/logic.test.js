@@ -192,7 +192,7 @@ test("autoDiscoverEntities: підбір за translation_key з полегше�
   assert.equal(result.soh, "sensor.weird_name");
 });
 
-test("discoverFromFullRegistry: знаходить сутності, вимкнені за замовчуванням (Max/Min cell voltage, MOSFET заряду/розряду), яких немає в hass.entities", () => {
+test("discoverFromFullRegistry: знаходить сутності, вимкнені за замовчуванням (Max/Min cell voltage, Balancer), яких немає в hass.entities", () => {
   // config/entity_registry/list (на відміну від list_for_display, який
   // стоїть за hass.entities) НЕ фільтрує за disabled_by і містить
   // unique_id — тому лише через нього можна знайти вимкнені за
@@ -213,18 +213,11 @@ test("discoverFromFullRegistry: знаходить сутності, вимкн�
       unique_id: "bms_ble-aa:bb:cc:dd:ee:ff-min_cell_voltage",
     },
     {
-      entity_id: "binary_sensor.redodo_chrg_mosfet",
+      entity_id: "binary_sensor.redodo_heater",
       device_id: "dev1",
       platform: "bms_ble",
       disabled_by: "integration",
-      unique_id: "bms_ble-aa:bb:cc:dd:ee:ff-chrg_mosfet",
-    },
-    {
-      entity_id: "binary_sensor.redodo_dischrg_mosfet",
-      device_id: "dev1",
-      platform: "bms_ble",
-      disabled_by: "integration",
-      unique_id: "bms_ble-aa:bb:cc:dd:ee:ff-dischrg_mosfet",
+      unique_id: "bms_ble-aa:bb:cc:dd:ee:ff-heater",
     },
     // Сутність іншого пристрою — не повинна потрапити в результат.
     {
@@ -239,9 +232,8 @@ test("discoverFromFullRegistry: знаходить сутності, вимкн�
   assert.equal(result.max_cell_voltage.entityId, "sensor.redodo_max_cell_voltage");
   assert.equal(result.max_cell_voltage.disabledBy, "integration");
   assert.equal(result.min_cell_voltage.entityId, "sensor.redodo_min_cell_voltage");
-  assert.equal(result.chrg_mosfet.entityId, "binary_sensor.redodo_chrg_mosfet");
-  assert.equal(result.dischrg_mosfet.entityId, "binary_sensor.redodo_dischrg_mosfet");
-  assert.equal(Object.keys(result).length, 4, "сутність іншого пристрою не має потрапити в результат");
+  assert.equal(result.heater.entityId, "binary_sensor.redodo_heater");
+  assert.equal(Object.keys(result).length, 3, "сутність іншого пристрою не має потрапити в результат");
 });
 
 test("discoverFromFullRegistry: без device_id або з порожнім списком повертає {}", () => {
