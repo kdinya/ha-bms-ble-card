@@ -505,3 +505,48 @@ test("formatTimeAgo formats seconds ago dynamically and localizes correctly", ()
   assert.equal(formatTimeAgo(75, "en", tEn), "1m 15s ago");
   assert.equal(formatTimeAgo(null, "uk", tUk), "");
 });
+
+test("formatTempSensor parses numbers, strings, and aiobmsble TempSensor objects without [object Object]", () => {
+  // Test extracting functions from card
+  const fs = require('fs');
+  const cardSrc = fs.readFileSync('ha-bms-ble-card.js', 'utf8');
+  const fnMatch = cardSrc.match(/function parseTempSensorValue[\s\S]*?return `\${label}: \${fmt\(val, 1\)}°C`;\n\}/);
+  if (!fnMatch) throw new Error("Could not extract parseTempSensorValue / formatTempSensor");
+  
+  const ctx = {};
+  const evalCode = `
+    ${cardSrc.slice(cardSrc.indexOf('function fmt('), cardSrc.indexOf('/** Потужність'))}
+    ${fnMatch[0]}
+    ctx.parseTempSensorValue = parseTempSensorValue;
+    ctx.formatTempSensor = formatTempSensor;
+  `;
+  eval(evalCode);
+
+  // 1. Primitive numbers
+  assert.strictEqual(ctx.formatTempSensor(22.5, 0), "T1: 22.5°C");
+  // 2. String numbers
+  assert.strictEqual(ctx.formatTempSensor("24.1", 1), "T2: 24.1°C");
+  // 3. Object with value (aiobmsble dataclass converted to dict)
+  assert.strictEqual(ctx.formatTempSensor({ value: 25.4, type: 1 }, 0), "Cell 1: 25.4°C");
+  assert.strictEqual(ctx.formatTempSensor({ value: 31.0, type: 4 }, 1), "MOSFET: 31.0°C");
+  // 4. Invalid objects return null
+  assert.strictEqual(ctx.formatTempSensor({}, 0), null);
+  assert.strictEqual(ctx.formatTempSensor({ invalid: "foo" }, 0), null);
+  assert.strictEqual(ctx.formatTempSensor(null, 0), null);
+});
+
+test("chargeFlowState supports charging mode prefixes like Bulk/Absorption/Float", () => {
+  const fs = require('fs');
+  const cardSrc = fs.readFileSync('ha-bms-ble-card.js', 'utf8');
+  const fnMatch = cardSrc.match(/function chargeFlowState[\s\S]*?\n\}/);
+  const evalCode = `${fnMatch[0]}; ctx = { chargeFlowState };`;
+  let ctx = {};
+  eval(evalCode);
+  
+  assert.strictEqual(ctx.chargeFlowState("Заряджається"), "charging");
+  assert.strictEqual(ctx.chargeFlowState("Заряджається (Bulk)"), "charging");
+  assert.strictEqual(ctx.chargeFlowState("Заряджається (Float)"), "charging");
+  assert.strictEqual(ctx.chargeFlowState("Розряджається"), "discharging");
+  assert.strictEqual(ctx.chargeFlowState("У простої"), null);
+});
+

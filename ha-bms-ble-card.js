@@ -7,7 +7,7 @@
  * https://github.com/kdinya/ha-bms-ble-card
  */
 
-const CARD_VERSION = "1.2.1";
+const CARD_VERSION = "1.2.2";
 
 console.info(
   `%c HA-BMS-BLE-CARD %c v${CARD_VERSION} `,
@@ -48,6 +48,7 @@ const I18N = {
     func_mode: "Режим",
     state_active: "Активний",
     state_disabled: "Вимкнено",
+    state_heating: "Нагрів",
     state_enabled: "Увімкнено",
     state_yes: "Є",
     state_no: "Немає",
@@ -152,6 +153,7 @@ const I18N = {
     func_mode: "Mode",
     state_active: "Active",
     state_disabled: "Disabled",
+    state_heating: "Heating",
     state_enabled: "Enabled",
     state_yes: "Yes",
     state_no: "None",
@@ -255,6 +257,46 @@ function escapeHtml(str) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
+}
+
+
+/** Парсить числове значення температури з примітивів або об'єктів TempSensor (aiobmsble) */
+function parseTempSensorValue(item) {
+  if (item === null || item === undefined) return null;
+  if (typeof item === "number") return Number.isFinite(item) ? item : null;
+  if (typeof item === "string") {
+    const n = parseFloat(item);
+    return Number.isFinite(n) ? n : null;
+  }
+  if (typeof item === "object") {
+    for (const k of ["value", "temp", "temperature", "val"]) {
+      if (k in item) {
+        const val = parseTempSensorValue(item[k]);
+        if (val !== null) return val;
+      }
+    }
+  }
+  return null;
+}
+
+/** Форматує один запис масиву датчиків температури з урахуванням типу */
+function formatTempSensor(item, idx, t) {
+  const val = parseTempSensorValue(item);
+  if (val === null) return null;
+  let label = `T${idx + 1}`;
+  if (typeof item === "object" && item !== null && item.type !== undefined) {
+    const rawType = item.type;
+    const typeStr = String(rawType).toUpperCase();
+    if (rawType === 1 || (typeStr.includes("CELL") && !typeStr.includes("MAX") && !typeStr.includes("MIN"))) label = `Cell ${idx + 1}`;
+    else if (rawType === 2 || typeStr.includes("MAX")) label = "Max Cell";
+    else if (rawType === 3 || typeStr.includes("MIN")) label = "Min Cell";
+    else if (rawType === 4 || typeStr.includes("MOS")) label = "MOSFET";
+    else if (rawType === 5 || typeStr.includes("PCB")) label = "PCB";
+    else if (rawType === 6 || typeStr.includes("HEAT")) label = t ? t("func_heater") : "Heater";
+    else if (rawType === 7 || typeStr.includes("BAL")) label = t ? t("func_balancer") : "Balancer";
+    else if (rawType === 8 || typeStr.includes("AMB")) label = "Ambient";
+  }
+  return `${label}: ${fmt(val, 1)}°C`;
 }
 
 function fmt(value, digits = 2, unit = "") {
@@ -1527,8 +1569,8 @@ const HARDWARE_DEPENDENT_FIELDS = new Set(["balancer", "heater", "soh", "design_
  * тут ми додаємо саме заряд/розряд, якого явно просив користувач).
  */
 function chargeFlowState(statusLabel) {
-  if (statusLabel === "Заряджається") return "charging";
-  if (statusLabel === "Розряджається") return "discharging";
+  if (typeof statusLabel === "string" && statusLabel.startsWith("Заряджається")) return "charging";
+  if (typeof statusLabel === "string" && statusLabel.startsWith("Розряджається")) return "discharging";
   return null;
 }
 
@@ -2389,12 +2431,21 @@ class HaBmsBleCard extends HTMLElement {
     const problem = stateOf(this._hass, this._e("problem"));
     const charging = stateOf(this._hass, this._e("charging"));
     const current = Number(stateOf(this._hass, this._e("current")));
-    const bmsMode = (attrOf(this._hass, this._e("charging"), "battery_mode") ||
-                     attrOf(this._hass, this._e("problem"), "battery_mode") || "").toLowerCase();
+    const rawMode = attrOf(this._hass, this._e("charging"), "battery_mode") ??
+                    attrOf(this._hass, this._e("problem"), "battery_mode") ?? "";
+    const bmsMode = String(rawMode).toLowerCase();
     const problemCode = attrOf(this._hass, this._e("problem"), "problem_code");
 
     if (problem === "on") return { label: "Проблема", icon: "ti-alert-triangle", color: "danger", problemCode, mode: bmsMode };
-    if (bmsMode === "charging" || charging === "on" || current > 0.3) return { label: "Заряджається", icon: "ti-bolt", color: "success", mode: bmsMode };
+
+    let phase = "";
+    if (rawMode === 0 || bmsMode === "0" || bmsMode === "bulk") phase = " (Bulk)";
+    else if (rawMode === 1 || bmsMode === "1" || bmsMode === "absorption") phase = " (Absorption)";
+    else if (rawMode === 2 || bmsMode === "2" || bmsMode === "float") phase = " (Float)";
+
+    if (bmsMode === "charging" || charging === "on" || current > 0.3) {
+      return { label: `Заряджається${phase}`, icon: "ti-bolt", color: "success", mode: bmsMode };
+    }
     if (bmsMode === "discharging" || current < -0.3) return { label: "Розряджається", icon: "ti-bolt-off", color: "warning", mode: bmsMode };
     return { label: "У простої", icon: "ti-pause", color: "neutral", mode: bmsMode };
   }
@@ -2858,7 +2909,8 @@ class HaBmsBleCard extends HTMLElement {
     metricsHtml += metric("ti-bolt", t("lbl_voltage"), Number.isFinite(voltN) ? `${fmt(voltN, 2)} V` : "—", "#4b9bf0", this._e("voltage"));
     metricsHtml += metric("ti-current", t("lbl_current"), Number.isFinite(Number(current)) ? `${fmt(current, 1)} A` : "—", "#14d8a6", this._e("current"));
     metricsHtml += metric("ti-plug", t("lbl_power"), Number.isFinite(powerN) ? fmtPower(power, t) : "—", powerTone, this._e("power"));
-    metricsHtml += metric("ti-thermometer", t("lbl_temperature"), Number.isFinite(tempN) ? `${fmt(tempN, 1)} °C` : "—", tempTone, this._e("temperature"));
+    const heatOn = on(heat);
+    metricsHtml += metric("ti-thermometer", t("lbl_temperature"), Number.isFinite(tempN) ? `${fmt(tempN, 1)} °C${heatOn ? ` (${t("state_heating")})` : ""}` : "—", heatOn ? "#EF9F27" : tempTone, this._e("temperature"));
     if (soh !== undefined) metricsHtml += metric("ti-heart-rate", t("lbl_soh"), `${fmt(soh, 0)} %`, "#a78bfa", this._e("soh"));
     if (cycles !== undefined) metricsHtml += metric("ti-refresh", t("lbl_cycles"), fmt(cycles, 0), "#f472b6", this._e("charge_cycles"));
     if (remainingAh !== undefined) metricsHtml += metric("ti-battery-2", t("lbl_remaining"), `${fmt(remainingAh, 1)} Ah`, "#1D9E75", this._e("design_capacity"));
@@ -2976,8 +3028,13 @@ class HaBmsBleCard extends HTMLElement {
               addRow(t("lbl_temperature"), Number.isFinite(Number(temp)) ? `${fmt(temp, 1)} °C` : undefined, this._e("temperature"));
               const tempSensors = attrOf(this._hass, this._e("temperature"), "temperature_sensors");
               if (Array.isArray(tempSensors) && tempSensors.length > 1) {
-                const sensorsStr = tempSensors.map((v, i) => `T${i + 1}: ${fmt(v, 1)}°C`).join(" · ");
-                addRow(t("lbl_temp_sensors"), sensorsStr, this._e("temperature"));
+                const sensorsStr = tempSensors
+                  .map((v, i) => formatTempSensor(v, i, t))
+                  .filter(Boolean)
+                  .join(" · ");
+                if (sensorsStr) {
+                  addRow(t("lbl_temp_sensors"), sensorsStr, this._e("temperature"));
+                }
               }
               addRow(t("lbl_soc"), Number.isFinite(soc) ? `${fmt(soc, 0)}%` : undefined, this._e("soc"));
               addRow(t("lbl_soh"), soh !== undefined ? `${fmt(soh, 0)}%` : undefined, this._e("soh"));
