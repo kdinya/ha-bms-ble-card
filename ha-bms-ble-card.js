@@ -7,7 +7,7 @@
  * https://github.com/kdinya/ha-bms-ble-card
  */
 
-const CARD_VERSION = "1.2.6";
+const CARD_VERSION = "1.2.7";
 
 console.info(
   `%c HA-BMS-BLE-CARD %c v${CARD_VERSION} `,
@@ -2749,7 +2749,13 @@ class HaBmsBleCard extends HTMLElement {
       return `<p class="bms-muted">${this._t("stats_loading")}</p>`;
     }
 
-    if (entityId && !data.error && (!data[kind] || (data.requestedIds && !data.requestedIds.includes(entityId)))) {
+    const isMissingRequestedId = (d, id) => {
+      if (!d || !id || !d.requestedIds) return false;
+      if (Array.isArray(d.requestedIds)) return !d.requestedIds.includes(id);
+      return !String(d.requestedIds).split(",").includes(id);
+    };
+
+    if (entityId && !data.error && (!data[kind] || isMissingRequestedId(data, entityId))) {
       return `<p class="bms-muted">${this._t("stats_loading")}</p>`;
     }
 
@@ -2837,13 +2843,17 @@ class HaBmsBleCard extends HTMLElement {
     const cached = this._statsCache.get(cacheKey);
     const now = Date.now();
     const ttl = period === "today" ? 60 * 1000 : 10 * 60 * 1000;
-    const cacheIsFresh = cached && (now - cached.time < ttl) && cached.data && !cached.data.error;
+    const cacheIsFresh = cached && (now - cached.time < ttl) && cached.data;
     if (cacheIsFresh) {
       this._statsData = cached.data;
       this._statsFetchKey = cacheKey;
       return;
     }
-    if (this._statsFetchInFlight) return;
+    if (this._statsFetchInFlight) {
+      this._statsPendingKey = cacheKey;
+      return;
+    }
+    this._statsPendingKey = null;
     this._statsFetchInFlight = true;
     this._statsFetchKey = cacheKey;
     const requestId = (this._statsRequestId = (this._statsRequestId || 0) + 1);
@@ -2917,18 +2927,37 @@ class HaBmsBleCard extends HTMLElement {
     } catch (e) {
       if (requestId !== this._statsRequestId || this.isConnected === false || this._activeTab !== "stats") return;
       // recorder/statistics_during_period недоступний (немає long-term statistics) — чесна підказка, а не поламана картка
-      this._statsData = { loading: false, error: true, period, groupBy };
+      this._statsData = { loading: false, error: true, period, groupBy, requestedIds };
+      if (!this._statsCache) this._statsCache = new Map();
+      this._statsCache.set(cacheKey, { time: Date.now(), data: this._statsData });
     } finally {
-      if (requestId === this._statsRequestId) {
+      const wasCurrentRequest = (requestId === this._statsRequestId);
+      if (wasCurrentRequest) {
         this._statsFetchInFlight = false;
       }
-      if (requestId !== this._statsRequestId || this.isConnected === false || this._activeTab !== "stats") return;
+      if (!wasCurrentRequest || this.isConnected === false || this._activeTab !== "stats") return;
       const statsPane = this.querySelector ? this.querySelector('.bms-tab-pane[data-pane="stats"]') : null;
       if (statsPane) {
         statsPane.innerHTML = this._renderStatsPane();
         this._wireStatsPaneEvents();
       } else {
         this._render();
+      }
+      if (this._statsPendingKey && this._statsPendingKey !== cacheKey) {
+        this._statsPendingKey = null;
+        if (typeof queueMicrotask === "function") {
+          queueMicrotask(() => {
+            if (this.isConnected !== false && this._activeTab === "stats") {
+              this._maybeFetchStatsPeriod();
+            }
+          });
+        } else {
+          setTimeout(() => {
+            if (this.isConnected !== false && this._activeTab === "stats") {
+              this._maybeFetchStatsPeriod();
+            }
+          }, 0);
+        }
       }
     }
   }

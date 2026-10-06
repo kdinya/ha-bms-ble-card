@@ -609,3 +609,65 @@ test("stats section loading guard: does not display 0 Ah before section data is 
   };
   assert.equal(isSectionLoading(chargeEntity, completeData, "charge"), false, "Charge section with fetched 0 Ah should render, not loading");
 });
+
+test("pending stats fetch queueing: re-triggers fetch if cacheKey changed during inFlight request", async () => {
+  let inFlight = false;
+  let pendingKey = null;
+  let activeKey = null;
+  const executedKeys = [];
+
+  const maybeFetch = (key) => {
+    if (inFlight) {
+      pendingKey = key;
+      return;
+    }
+    pendingKey = null;
+    inFlight = true;
+    activeKey = key;
+    executedKeys.push(key);
+  };
+
+  const finishFetch = () => {
+    inFlight = false;
+    if (pendingKey && pendingKey !== activeKey) {
+      const nextKey = pendingKey;
+      pendingKey = null;
+      maybeFetch(nextKey);
+    }
+  };
+
+  // Step 1: initial fetch for discharge
+  maybeFetch("bms_dev:today:discharge");
+  assert.equal(inFlight, true);
+  assert.deepEqual(executedKeys, ["bms_dev:today:discharge"]);
+
+  // Step 2: user toggles charge while in-flight
+  maybeFetch("bms_dev:today:discharge,charge");
+  assert.equal(pendingKey, "bms_dev:today:discharge,charge");
+  assert.deepEqual(executedKeys, ["bms_dev:today:discharge"]);
+
+  // Step 3: first fetch finishes
+  finishFetch();
+  assert.equal(inFlight, true);
+  assert.deepEqual(executedKeys, ["bms_dev:today:discharge", "bms_dev:today:discharge,charge"]);
+
+  // Step 4: second fetch finishes with no pending
+  finishFetch();
+  assert.equal(inFlight, false);
+});
+
+test("requestedIds exact match avoids substring false positives", () => {
+  const hasRequestedId = (d, id) => {
+    if (!d || !d.requestedIds || !id) return false;
+    if (Array.isArray(d.requestedIds)) return d.requestedIds.includes(id);
+    return String(d.requestedIds).split(",").includes(id);
+  };
+
+  const data = {
+    requestedIds: "sensor.bms_charge_total,sensor.bms_voltage"
+  };
+
+  assert.equal(hasRequestedId(data, "sensor.bms_charge"), false, "Substring sensor.bms_charge must not match sensor.bms_charge_total");
+  assert.equal(hasRequestedId(data, "sensor.bms_charge_total"), true, "Exact sensor.bms_charge_total must match");
+  assert.equal(hasRequestedId(data, "sensor.bms_voltage"), true, "sensor.bms_voltage must match");
+});
