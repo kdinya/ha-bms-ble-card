@@ -134,6 +134,31 @@ const I18N = {
     unit_seconds_short: "с (сек)",
     stats_calc_30d: "Розрахувати за 30 днів",
     stats_calculating: "Розрахунок...",
+    stats_calc_error: "Помилка завантаження історії",
+    error_no_bms_device: "${this._t('error_no_bms_device')}",
+    editor_tab_general: "Основне",
+    editor_tab_entities: "Сутності",
+    editor_lbl_name: "Назва",
+    editor_lbl_display_mode: "Режим відображення",
+    editor_lbl_reduced_motion: "Спрощені анімації",
+    editor_lbl_clock_interval: "Інтервал оновлення годинника",
+    editor_lbl_status: "Статус",
+    editor_lbl_key_metrics: "Ключові показники",
+    editor_lbl_cells: "Комірки",
+    editor_lbl_functions: "Функції",
+    editor_lbl_device: "Пристрій",
+    editor_lbl_voltage: "Напруга",
+    editor_lbl_current: "Струм",
+    editor_lbl_power: "Потужність",
+    editor_lbl_temperature: "Температура",
+    editor_wizard_title: "Сенсори споживання (заряд і розряд)",
+    editor_wizard_desc: "Створить helper-сенсори ємності розряду і заряду окремо (накопичена + сьогодні/тиждень/місяць для кожного) і часу заряду/розряду",
+    editor_wizard_btn_create: "Створити сенсори заряду/розряду",
+    editor_wizard_creating: "Створюю…",
+    editor_wizard_done: "Готово! Сенсори додано в конфіг картки.",
+    editor_wizard_err_admin: "Потрібні права адміністратора HA, щоб створювати helper-сенсори. Скористайтесь мануальною інструкцією в README.",
+    editor_wizard_err_power: "Вкажіть Потужність (або Струм) вище, щоб можна було створити сенсори споживання.",
+    editor_wizard_err_auto: "Не вдалося створити сенсори автоматично",
     btn_close: "Закрити",
     lang_uk: "Українська",
     lang_en: "English",
@@ -247,6 +272,31 @@ const I18N = {
     unit_seconds_short: "s (sec)",
     stats_calc_30d: "Calculate for 30 days",
     stats_calculating: "Calculating...",
+    stats_calc_error: "Failed to fetch history",
+    error_no_bms_device: "Failed to find BMS_BLE-HA battery. Check integration or select device in card editor.",
+    editor_tab_general: "General",
+    editor_tab_entities: "Entities",
+    editor_lbl_name: "Name",
+    editor_lbl_display_mode: "Display mode",
+    editor_lbl_reduced_motion: "Reduced animations",
+    editor_lbl_clock_interval: "Clock update interval",
+    editor_lbl_status: "Status",
+    editor_lbl_key_metrics: "Key metrics",
+    editor_lbl_cells: "Cells",
+    editor_lbl_functions: "Functions",
+    editor_lbl_device: "Device",
+    editor_lbl_voltage: "Voltage",
+    editor_lbl_current: "Current",
+    editor_lbl_power: "Power",
+    editor_lbl_temperature: "Temperature",
+    editor_wizard_title: "Consumption sensors (charge and discharge)",
+    editor_wizard_desc: "Creates helper sensors for discharge and charge capacity separately (accumulated + today/week/month for each) and charge/discharge time",
+    editor_wizard_btn_create: "Create charge/discharge sensors",
+    editor_wizard_creating: "Creating…",
+    editor_wizard_done: "Done! Sensors added to card config.",
+    editor_wizard_err_admin: "HA admin rights required to create helper sensors. Use manual instructions in README.",
+    editor_wizard_err_power: "Specify Power (or Current) above to create consumption sensors.",
+    editor_wizard_err_auto: "Failed to create sensors automatically",
     btn_close: "Close",
     lang_uk: "Українська",
     lang_en: "English",
@@ -463,7 +513,7 @@ function stateOf(hass, entityId) {
 }
 
 function attrOf(hass, entityId, attr) {
-  if (!entityId || !hass || !hass.states[entityId]) return undefined;
+  if (!entityId || !hass || !hass.states || !hass.states[entityId] || !hass.states[entityId].attributes) return undefined;
   return hass.states[entityId].attributes[attr];
 }
 
@@ -1593,6 +1643,11 @@ function chargeFlowState(statusLabel) {
 }
 
 class HaBmsBleCardEditor extends HTMLElement {
+  _t(key) {
+    const lang = (this._config && this._config.language) || (this._hass && this._hass.language) || "uk";
+    const dict = I18N[lang] || I18N.uk;
+    return dict[key] || I18N.uk[key] || key;
+  }
   setConfig(config) {
     this._config = { ...config };
     this._wizardStatus = null;
@@ -2400,8 +2455,10 @@ class HaBmsBleCard extends HTMLElement {
   _canFastPatch() {
     const card = this.querySelector(".bms-card");
     if (!card) return false;
-    const homePane = this.querySelector('.bms-tab-pane[data-pane="home"]');
-    return !!homePane;
+    return !!(
+      this.querySelector(".bms-mini") ||
+      this.querySelector('.bms-tab-pane[data-pane="home"]')
+    );
   }
 
   _updateDynamicDom() {
@@ -2419,6 +2476,30 @@ class HaBmsBleCard extends HTMLElement {
     const status = this._currentStatus();
     const statusSc = this._statusColorVars(status.color);
     const flowState = chargeFlowState(status.label);
+
+    const mini = this.querySelector(".bms-mini");
+    if (mini) {
+      const batBox = mini.querySelector(".battery-box");
+      if (batBox && !this._batteryAnimating) {
+        batBox.innerHTML = `
+          ${jarBatterySvg(this._uid, soc, fmt(voltage, 2))}
+          <div class="charge-badge" style="font-size:12px;padding:6px 10px;">${escapeHtml(statusLabelText(status))}</div>
+        `;
+      }
+      const stEl = mini.querySelector(".header .status");
+      if (stEl) {
+        stEl.innerHTML = `<span class="dot"></span> ${escapeHtml(statusLabelText(status))}`;
+      }
+      const vBox = mini.querySelector('.stat-box[data-metric-key="voltage"] .val');
+      if (vBox) vBox.textContent = `${fmt(voltage, 2)} ${t("unit_v")}`;
+      const cBox = mini.querySelector('.stat-box[data-metric-key="current"] .val');
+      if (cBox) cBox.textContent = `${fmt(currentN, 1)} ${t("unit_a")}`;
+      const pBox = mini.querySelector('.stat-box[data-metric-key="power"] .val');
+      if (pBox) pBox.textContent = fmtPower(power, t);
+      const tBox = mini.querySelector('.stat-box[data-metric-key="temperature"] .val');
+      if (tBox) tBox.textContent = `${fmt(temp, 1)} ${t("unit_c")}`;
+      return;
+    }
 
     // 1. Оновлюємо рідину та текст батареї (jarBatterySvg)
     const batEl = this.querySelector(".flow-battery");
@@ -2498,7 +2579,7 @@ class HaBmsBleCard extends HTMLElement {
       const etaPart = showEta ? `${etaLabelText}${eta.seconds !== undefined ? ": ~" + secondsToHuman(eta.seconds) : ""}` : "";
       const balancingOn = this._balancingActive();
       const st = this._cellsStats();
-      const balPart = balancingOn ? `${haIcon("ti-topology-star-3", 12)} ${t("balancing")}${st ? ` (${st.cells.map((v) => (Number.isFinite(v) ? v.toFixed(3) : "—")).join(", ")} В, Δ${st.delta.toFixed(3)} В)` : ""}` : "";
+      const balPart = balancingOn ? `${haIcon("ti-topology-star-3", 12)} ${t("balancing")}${st ? ` (${st.cells.map((v) => (Number.isFinite(v) ? v.toFixed(3) : "—")).join(", ")} ${t("unit_v")}, Δ${st.delta.toFixed(3)} ${t("unit_v")})` : ""}` : "";
       const line2 = [probPart, etaPart, balPart].filter(Boolean).join(" · ");
       if (line2) {
         if (l2) l2.innerHTML = line2;
@@ -2516,26 +2597,44 @@ class HaBmsBleCard extends HTMLElement {
       }
     }
 
-    // 7. Метрики (Voltage, Current, Power, Temperature)
-    const metricVals = this.querySelectorAll(".metric-card .metric-val");
-    if (metricVals.length >= 4) {
-      metricVals[0].textContent = `${fmt(voltage, 2)} ${t("unit_v")}`;
-      metricVals[1].textContent = `${fmt(currentN, 1)} ${t("unit_a")}`;
-      metricVals[2].textContent = `${fmtPower(power, t)}`;
-      metricVals[3].textContent = `${fmt(temp, 1)} ${t("unit_c")}`;
-    }
+    // 7. Метрики (Voltage, Current, Power, Temperature, SOH, Cycles, Capacity, Energy)
+    const updateMetric = (key, val) => {
+      const el = this.querySelector(`.metric-card[data-metric-key="${key}"] .metric-val`);
+      if (el && val !== undefined) el.textContent = val;
+    };
+    updateMetric("voltage", `${fmt(voltage, 2)} ${t("unit_v")}`);
+    updateMetric("current", `${fmt(currentN, 1)} ${t("unit_a")}`);
+    updateMetric("power", fmtPower(power, t));
+    const heat = stateOf(this._hass, this._e("heater"));
+    const heatOn = heat === "on" || heat === true;
+    updateMetric("temperature", `${fmt(temp, 1)} ${t("unit_c")}${heatOn ? ` (${t("state_heating")})` : ""}`);
+
+    const soh = stateOf(this._hass, this._e("soh"));
+    if (soh !== undefined) updateMetric("soh", `${fmt(soh, 0)} %`);
+    const cycles = stateOf(this._hass, this._e("charge_cycles"));
+    if (cycles !== undefined) updateMetric("cycles", fmt(cycles, 0));
+    const remAh = stateOf(this._hass, this._e("capacity_remaining"));
+    if (remAh !== undefined) updateMetric("capacity", `${fmt(remAh, 1)} Ah`);
+    const kwh = stateOf(this._hass, this._e("energy_stored"));
+    if (kwh !== undefined) updateMetric("energy", `${fmt(kwh, 2)} kWh`);
 
     // 8. Стан комірок у вкладці info (якщо вона змонтована)
     const st = this._cellsStats();
     if (st) {
-      const badges = this.querySelectorAll(".cell-badges .badge");
+      const badges = this.querySelectorAll(".badges-row .badge");
       if (badges.length >= 3) {
+        const maxSpan = badges[0].querySelector("span");
+        if (maxSpan) maxSpan.textContent = `${t("cell_max")} ${st.max.toFixed(3)} ${t("unit_v")}`;
         const maxB = badges[0].querySelector("b");
-        if (maxB) maxB.textContent = `${st.max.toFixed(3)} ${t("unit_v")}${st.maxIdx ? ` (#${st.maxIdx})` : ""}`;
+        if (maxB) maxB.textContent = `C${st.maxIdx + 1}`;
+
+        const minSpan = badges[1].querySelector("span");
+        if (minSpan) minSpan.textContent = `${t("cell_min")} ${st.min.toFixed(3)} ${t("unit_v")}`;
         const minB = badges[1].querySelector("b");
-        if (minB) minB.textContent = `${st.min.toFixed(3)} ${t("unit_v")}${st.minIdx ? ` (#${st.minIdx})` : ""}`;
-        const diffB = badges[2].querySelector("b");
-        if (diffB) diffB.textContent = `${st.delta.toFixed(3)} ${t("unit_v")}`;
+        if (minB) minB.textContent = `C${st.minIdx + 1}`;
+
+        const diffSpan = badges[2].querySelector("span");
+        if (diffSpan) diffSpan.textContent = `Δ ${st.delta.toFixed(3)} ${t("unit_v")}`;
       }
       this.querySelectorAll(".cell-row[data-cell-idx]").forEach((row) => {
         const idx = Number(row.dataset.cellIdx);
@@ -3061,17 +3160,27 @@ class HaBmsBleCard extends HTMLElement {
     const durKey = kind === "discharge" ? "dischargeSeconds" : "chargeSeconds";
     const durPeriod = data.duration && data.duration[durKey];
     const durAllTime = data.durationAllTime && data.durationAllTime[durKey];
-    const durationHtml = (durPeriod !== undefined || durAllTime !== undefined) ? `
+    const hasCurrent = !!this._e("current");
+    const showDuration = hasCurrent || durPeriod !== undefined || durAllTime !== undefined || this._statsAllTimeDurationInFlight;
+
+    const btnOrVal = durAllTime !== undefined
+      ? `<span class="v">${secondsToHuman(durAllTime)}</span>`
+      : `<button type="button" class="bms-btn-calc-30d" ${this._statsAllTimeDurationInFlight ? "disabled" : ""}>
+          ${this._statsAllTimeDurationInFlight ? this._t("stats_calculating") : this._t("stats_calc_30d")}
+        </button>`;
+
+    const durationHtml = showDuration ? `
       <h2 class="section-title">${kind === "discharge" ? this._t("stats_discharge_duration") : this._t("stats_charge_duration")}</h2>
       <div class="usage-grid stats-summary-grid">
         ${durPeriod !== undefined ? `<div class="usage-card">
           <div class="lbl">${this._t("stats_period_sum")}</div>
           <div class="val-row"><span class="v">${secondsToHuman(durPeriod)}</span></div>
         </div>` : ""}
-        ${durAllTime !== undefined ? `<div class="usage-card">
+        <div class="usage-card">
           <div class="lbl">${this._t("stats_duration_30d")}</div>
-          <div class="val-row"><span class="v">${secondsToHuman(durAllTime)}</span></div>
-        </div>` : ""}
+          <div class="val-row">${btnOrVal}</div>
+          ${this._statsAllTimeDurationError && durAllTime === undefined ? `<p class="muted-note" style="color:var(--error,#ff5252);margin:4px 0 0;">${this._t("stats_calc_error")}</p>` : ""}
+        </div>
       </div>` : "";
 
     return `${ahBlockHtml}${durationHtml}` || `<p class="bms-muted">${this._t("cells_no_data")}</p>`;
@@ -3245,27 +3354,45 @@ class HaBmsBleCard extends HTMLElement {
     const currentId = this._e("current");
     if (!currentId || !this._hass) return;
     this._statsAllTimeDurationInFlight = true;
+    this._statsAllTimeDurationError = false;
+    const statsPane = this.querySelector ? this.querySelector('.bms-tab-pane[data-pane="stats"]') : null;
+    if (statsPane) {
+      statsPane.innerHTML = this._renderStatsPane();
+      this._wireStatsPaneEvents();
+    }
     const requestId = this._statsRequestId;
     const thirtyDaysAgo = new Date(Date.now() - 30 * 86400 * 1000);
     fetchLoadChargeSeconds(this._hass, currentId, thirtyDaysAgo, new Date())
       .then((res) => {
-        // Захист від застарілої відповіді після зміни конфігурації,
-        // демонтування або закриття вкладки.
         if (requestId !== this._statsRequestId || this.isConnected === false || this._activeTab !== "stats") return;
         this._statsAllTimeDuration = res || {};
+        this._statsAllTimeDurationError = false;
         if (this._statsData) this._statsData = { ...this._statsData, durationAllTime: this._statsAllTimeDuration };
-        const statsPane = this.querySelector ? this.querySelector('.bms-tab-pane[data-pane="stats"]') : null;
-        if (statsPane) {
-          statsPane.innerHTML = this._renderStatsPane();
+        const p = this.querySelector ? this.querySelector('.bms-tab-pane[data-pane="stats"]') : null;
+        if (p) {
+          p.innerHTML = this._renderStatsPane();
           this._wireStatsPaneEvents();
         } else {
           this._render();
         }
       })
-      .catch(() => {})
+      .catch((err) => {
+        if (requestId !== this._statsRequestId) return;
+        this._statsAllTimeDurationError = true;
+        const p = this.querySelector ? this.querySelector('.bms-tab-pane[data-pane="stats"]') : null;
+        if (p) {
+          p.innerHTML = this._renderStatsPane();
+          this._wireStatsPaneEvents();
+        }
+      })
       .finally(() => {
         if (requestId === this._statsRequestId) {
           this._statsAllTimeDurationInFlight = false;
+          const p = this.querySelector ? this.querySelector('.bms-tab-pane[data-pane="stats"]') : null;
+          if (p) {
+            p.innerHTML = this._renderStatsPane();
+            this._wireStatsPaneEvents();
+          }
         }
       });
   }
@@ -3322,7 +3449,7 @@ class HaBmsBleCard extends HTMLElement {
         const warn = v === st.min && st.delta >= 0.005;
         const isBalancing = activeCells.has(i);
         const cellEntity = (cellEntityIds && cellEntityIds[i]) || this._e("delta_cell_voltage");
-        return `<div class="cell-row ${isBalancing ? "balancing" : ""}"${moreInfoAttr(cellEntity)}>
+        return `<div class="cell-row ${isBalancing ? "balancing" : ""}" data-cell-idx="${i}"${moreInfoAttr(cellEntity)}>
           <div class="cell-name">C${i + 1}</div>
           <div class="cell-track"><div class="cell-fill ${warn ? "warn" : ""}" style="width:${Math.round(frac * 100)}%"></div></div>
           <div class="cell-val">${Number.isFinite(v) ? v.toFixed(3) : "—"} V${isBalancing ? ` ${haIcon("ti-topology-star-3", 12, "#1D9E75")}` : ""}</div>
@@ -3374,8 +3501,8 @@ class HaBmsBleCard extends HTMLElement {
     if (heat !== undefined) chipsHtml += chip("ti-flame", t("func_heater"), on(heat) ? t("state_enabled") : t("state_disabled"), on(heat) ? A : M, this._e("heater"));
     if (prob !== undefined) chipsHtml += chip("ti-alert-triangle", t("func_problem"), on(prob) ? t("state_yes") : t("state_no"), on(prob) ? R : G, this._e("problem"));
 
-    const metric = (icon, label, value, tone, entityId) => `
-      <div class="metric-card"${moreInfoAttr(entityId)}>
+    const metric = (key, icon, label, value, tone, entityId) => `
+      <div class="metric-card" data-metric-key="${key}"${moreInfoAttr(entityId)}>
         <div class="metric-icon" style="background:${tone}1f;color:${tone}">${haIcon(icon, 16, tone)}</div>
         <div class="metric-meta"><div class="metric-lbl">${label}</div><div class="metric-val">${value}</div></div>
       </div>`;
@@ -3385,15 +3512,15 @@ class HaBmsBleCard extends HTMLElement {
     const tempTone = !Number.isFinite(tempN) ? "#8b96a3" : tempN >= 45 ? "#E24B4A" : tempN >= 35 ? "#EF9F27" : "#4b9bf0";
     const voltN = Number(voltage);
     let metricsHtml = "";
-    metricsHtml += metric("ti-bolt", t("lbl_voltage"), Number.isFinite(voltN) ? `${fmt(voltN, 2)} V` : "—", "#4b9bf0", this._e("voltage"));
-    metricsHtml += metric("ti-current", t("lbl_current"), Number.isFinite(Number(current)) ? `${fmt(current, 1)} A` : "—", "#14d8a6", this._e("current"));
-    metricsHtml += metric("ti-plug", t("lbl_power"), Number.isFinite(powerN) ? fmtPower(power, t) : "—", powerTone, this._e("power"));
+    metricsHtml += metric("voltage", "ti-bolt", t("lbl_voltage"), Number.isFinite(voltN) ? `${fmt(voltN, 2)} V` : "—", "#4b9bf0", this._e("voltage"));
+    metricsHtml += metric("current", "ti-current", t("lbl_current"), Number.isFinite(Number(current)) ? `${fmt(current, 1)} A` : "—", "#14d8a6", this._e("current"));
+    metricsHtml += metric("power", "ti-plug", t("lbl_power"), Number.isFinite(powerN) ? fmtPower(power, t) : "—", powerTone, this._e("power"));
     const heatOn = on(heat);
-    metricsHtml += metric("ti-thermometer", t("lbl_temperature"), Number.isFinite(tempN) ? `${fmt(tempN, 1)} °C${heatOn ? ` (${t("state_heating")})` : ""}` : "—", heatOn ? "#EF9F27" : tempTone, this._e("temperature"));
-    if (soh !== undefined) metricsHtml += metric("ti-heart-rate", t("lbl_soh"), `${fmt(soh, 0)} %`, "#a78bfa", this._e("soh"));
-    if (cycles !== undefined) metricsHtml += metric("ti-refresh", t("lbl_cycles"), fmt(cycles, 0), "#f472b6", this._e("charge_cycles"));
-    if (remainingAh !== undefined) metricsHtml += metric("ti-battery-2", t("lbl_remaining"), `${fmt(remainingAh, 1)} Ah`, "#1D9E75", this._e("design_capacity"));
-    if (stored !== undefined) metricsHtml += metric("ti-database", t("lbl_stored_energy"), fmtWh(stored), "#EF9F27", this._e("cycle_capacity"));
+    metricsHtml += metric("temperature", "ti-thermometer", t("lbl_temperature"), Number.isFinite(tempN) ? `${fmt(tempN, 1)} °C${heatOn ? ` (${t("state_heating")})` : ""}` : "—", heatOn ? "#EF9F27" : tempTone, this._e("temperature"));
+    if (soh !== undefined) metricsHtml += metric("soh", "ti-heart-rate", t("lbl_soh"), `${fmt(soh, 0)} %`, "#a78bfa", this._e("soh"));
+    if (cycles !== undefined) metricsHtml += metric("cycles", "ti-refresh", t("lbl_cycles"), fmt(cycles, 0), "#f472b6", this._e("charge_cycles"));
+    if (remainingAh !== undefined) metricsHtml += metric("capacity", "ti-battery-2", t("lbl_remaining"), `${fmt(remainingAh, 1)} Ah`, "#1D9E75", this._e("design_capacity"));
+    if (stored !== undefined) metricsHtml += metric("energy", "ti-database", t("lbl_stored_energy"), fmtWh(stored), "#EF9F27", this._e("cycle_capacity"));
 
     const currentN = Number(current);
 
@@ -3460,7 +3587,7 @@ class HaBmsBleCard extends HTMLElement {
                 const pDesc = decodeProblemCode(status.problemCode, t);
                 const probPart = status.color === "danger" && status.problemCode ? `${t("lbl_problem_code")}: ${escapeHtml(String(status.problemCode))}${pDesc && pDesc !== String(status.problemCode) ? ` (${escapeHtml(pDesc)})` : ""}` : "";
                 const etaPart = showEta ? `${etaLabelText}${eta.seconds !== undefined ? ": ~" + secondsToHuman(eta.seconds) : ""}` : "";
-                const balPart = balancingOn ? `${haIcon("ti-topology-star-3", 12)} ${t("balancing")}${st ? ` (${st.cells.map((v) => (Number.isFinite(v) ? v.toFixed(3) : "—")).join(", ")} В, Δ${st.delta.toFixed(3)} В)` : ""}` : "";
+                const balPart = balancingOn ? `${haIcon("ti-topology-star-3", 12)} ${t("balancing")}${st ? ` (${st.cells.map((v) => (Number.isFinite(v) ? v.toFixed(3) : "—")).join(", ")} ${t("unit_v")}, Δ${st.delta.toFixed(3)} ${t("unit_v")})` : ""}` : "";
                 const line2 = [probPart, etaPart, balPart].filter(Boolean).join(" · ");
                 return line2 ? `<div class="l2">${line2}</div>` : "";
               })()}
@@ -3672,12 +3799,12 @@ class HaBmsBleCard extends HTMLElement {
             <div class="charge-badge" style="font-size:12px;padding:6px 10px;">${status.label}</div>
           </div>
           <div class="stat-col">
-            <div class="stat-box"${moreInfoAttr(this._e("voltage"))}><div class="val">${fmt(voltage, 2)} V</div><div class="lbl">Напруга</div></div>
-            <div class="stat-box"${moreInfoAttr(this._e("current"))}><div class="val">${fmt(current, 1)} A</div><div class="lbl">Струм</div></div>
+            <div class="stat-box"${moreInfoAttr(this._e("voltage"))} data-metric-key="voltage"><div class="val">${fmt(voltage, 2)} ${this._t("unit_v")}</div><div class="lbl">${this._t("lbl_voltage")}</div></div>
+            <div class="stat-box"${moreInfoAttr(this._e("current"))} data-metric-key="current"><div class="val">${fmt(current, 1)} ${this._t("unit_a")}</div><div class="lbl">${this._t("lbl_current")}</div></div>
           </div>
           <div class="stat-col">
-            <div class="stat-box"${moreInfoAttr(this._e("power"))}><div class="val">${fmt(power, 0)} W</div><div class="lbl">Потужність</div></div>
-            <div class="stat-box"${moreInfoAttr(this._e("temperature"))}><div class="val">${fmt(temp, 1)} °C</div><div class="lbl">Температура</div></div>
+            <div class="stat-box"${moreInfoAttr(this._e("power"))} data-metric-key="power"><div class="val">${fmtPower(power, (k) => this._t(k))}</div><div class="lbl">${this._t("lbl_power")}</div></div>
+            <div class="stat-box"${moreInfoAttr(this._e("temperature"))} data-metric-key="temperature"><div class="val">${fmt(temp, 1)} ${this._t("unit_c")}</div><div class="lbl">${this._t("lbl_temperature")}</div></div>
           </div>
         </div>
       </div>
@@ -5114,7 +5241,7 @@ class HaBmsBleCard extends HTMLElement {
             <span>${escapeHtml(this._config.name && this._config.name.trim() ? this._config.name.trim() : "BMS Battery")}</span>
           </div>
           <p style="font-size:13px;opacity:0.75;margin:0;">
-            Не вдалося знайти акумулятор BMS_BLE-HA. Перевірте інтеграцію або оберіть пристрій у редакторі картки.
+            ${this._t('error_no_bms_device')}
           </p>
         </ha-card>`;
       return;
@@ -5137,7 +5264,7 @@ class HaBmsBleCard extends HTMLElement {
       ${this._expanded ? `
         <div class="bms-overlay ${isLandscape ? "landscape" : "portrait"}">
           <div class="bms-overlay-inner">
-            <button class="bms-overlay-close" aria-label="Закрити">✕</button>
+            <button class="bms-overlay-close" aria-label="${this._t('btn_close')}">✕</button>
             <div class="bms-card" style="padding:0;border:none;box-shadow:none;">${this._renderFullView()}</div>
           </div>
         </div>` : ""}

@@ -119,3 +119,89 @@ Before pushing any commit or releasing:
       - `cells`: active balancing bitmask on `binary_sensor.*_balancer`.
       - `cell_voltages`: array of individual cell voltages on `sensor.*_delta_cell_voltage`.
       - `cell_number`: 1-based index of extreme cells on `max_cell_voltage` and `min_cell_voltage`.
+
+
+## 5. Definition of Done for Every Feature
+
+A feature is not complete when the code compiles or unit tests pass.
+It is complete only when the full user-visible flow works end-to-end.
+
+For every new or changed feature, the AI MUST verify:
+1. The user-facing DOM element is actually rendered in the output HTML.
+2. The element has the expected selector/class/data attribute.
+3. The event listener is attached to that element.
+4. The event invokes the intended function.
+5. Loading, success, empty-data, and error states are handled and rendered.
+6. The feature is tested across all supported display modes:
+   - inline full view;
+   - widget mini view;
+   - widget expanded overlay.
+7. The feature works in every supported language (no hardcoded Cyrillic or untranslated strings).
+8. The feature still works after a subsequent `set hass()` update without breaking state.
+9. The feature works after leaving and re-entering the relevant tab.
+10. The feature is covered by at least one structural regression test in `test/verify-dom.test.js`.
+
+Do not mark any task complete based only on:
+- `node --check`;
+- unit tests for helper functions;
+- changelog entries;
+- the presence of an event listener without the corresponding DOM element;
+- the presence of translation keys without actual UI usage.
+
+---
+
+## 6. DOM Patching Rules
+
+Before adding or changing targeted DOM patching:
+1. Read the exact HTML produced by the corresponding render function.
+2. Verify every selector with a code search across render methods.
+3. Do not use positional selectors such as `items[0]`, `items[1]` for dynamic UI elements.
+4. Prefer explicit stable attributes:
+   - `data-metric-key`;
+   - `data-cell-idx`;
+   - `data-stat-key`;
+   - `data-action`.
+5. Every selector used by a patch method must have a DOM regression test.
+6. If a selector matches zero elements in supported views, the test must fail.
+7. If a patch updates only one display mode, explicitly document and test that limitation.
+
+---
+
+## 7. Display Mode Matrix
+
+The card has separate rendering paths.
+Every UI or performance change MUST be checked against this matrix:
+
+| Mode | View |
+|---|---|
+| `display_mode: inline` | full card |
+| `display_mode: widget`, collapsed | mini card (`.bms-mini`) |
+| `display_mode: widget`, expanded | full overlay |
+
+A change that works only in one path is incomplete unless the user explicitly requested that limitation.
+
+---
+
+## 8. Feature Flow Verification
+
+For every button, toggle, modal, manual action or async operation, verify the complete chain:
+`rendered element → event binding → state change → request/action → loading state → success state → error state → cleanup/reset state`
+
+For manual data-fetch actions, tests MUST verify:
+- the button exists in the rendered HTML;
+- the button is disabled while loading;
+- the request is issued exactly once;
+- the result is rendered;
+- errors are visible to the user;
+- the button can be used again after completion or failure.
+
+---
+
+## 9. Release Verification
+
+Before declaring a release complete, the AI MUST verify through GitHub API:
+1. The release exists and is published.
+2. The release tag points to the intended commit.
+3. The release has `ha-bms-ble-card.js` attached as an asset.
+4. The asset is accessible and valid.
+5. `package.json`, `CARD_VERSION`, tag, and release version match exactly.
