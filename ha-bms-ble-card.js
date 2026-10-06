@@ -4525,18 +4525,23 @@ class HaBmsBleCard extends HTMLElement {
         .flow-node.grid-node {
           transform: scale(calc(var(--bms-grid-scale, 1) * var(--bms-grid-flow-mult, 1)));
           transform-origin: center center;
+          margin-right: calc(max(0px, (var(--bms-grid-scale, 1) * var(--bms-grid-flow-mult, 1) - 1) * 22px));
+          transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1), margin-right 0.6s cubic-bezier(0.4, 0, 0.2, 1);
         }
         .flow-node.load-node {
           transform: scale(calc(var(--bms-load-scale, 1) * var(--bms-load-flow-mult, 1)));
           transform-origin: center center;
+          margin-left: calc(max(0px, (var(--bms-load-scale, 1) * var(--bms-load-flow-mult, 1) - 1) * 22px));
+          transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1), margin-left 0.6s cubic-bezier(0.4, 0, 0.2, 1);
         }
         .flow-battery {
           position: relative;
           z-index: 1;
           transform: scale(var(--bms-bat-scale, 1));
           transform-origin: center center;
-          transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1);
-          will-change: transform;
+          margin: 0 calc(max(0px, (var(--bms-bat-scale, 1) - 1) * 48px));
+          transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1), margin 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+          will-change: transform, margin;
         }
         .flow-icon-circle {
           width: 78px; height: 78px; border-radius: 50%; border: 2px solid #334155;
@@ -4580,8 +4585,10 @@ class HaBmsBleCard extends HTMLElement {
         }
 
         .flow-connector-wrap {
-          flex: 0 1 96px; min-width: 20px; max-width: 96px;
+          flex: 1 1 96px; min-width: 26px; max-width: 120px;
           display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+          position: relative;
+          z-index: 3;
         }
         .flow-arrows { display: flex; flex-direction: column; align-items: center; width: 100%; gap: 2px; }
         .flow-arrow { width: 100%; height: clamp(26px, 9vw, 83px); overflow: visible; flex-shrink: 0; }
