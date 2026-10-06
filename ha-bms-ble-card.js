@@ -166,6 +166,7 @@ const I18N = {
     editor_battery_scale: "Розмір батареї",
     editor_grid_scale: "Розмір мережі",
     editor_load_scale: "Розмір навантаження",
+    editor_flow_vertical_offset: "Положення блока по вертикалі",
     editor_appearance_hint: "Розміри масштабуються адаптивно. Під час заряду мережа стає більшою за навантаження, а під час розряду — навпаки. Зміна розмірів відбувається плавно.",
 editor_tab_general: "Основне",
     editor_tab_entities: "Сутності",
@@ -332,6 +333,7 @@ editor_tab_general: "Основне",
     editor_battery_scale: "Battery size",
     editor_grid_scale: "Grid size",
     editor_load_scale: "Load size",
+    editor_flow_vertical_offset: "Vertical block position",
     editor_appearance_hint: "Sizes scale responsively. During charging the grid node grows larger than the load, and during discharging vice versa. Transitions are smooth.",
 editor_tab_general: "General",
     editor_tab_entities: "Entities",
@@ -2243,6 +2245,18 @@ class HaBmsBleCardEditor extends HTMLElement {
             </div>
           </div>
 
+          <div class="bms-scale-group">
+            <div class="bms-scale-label">
+              <span>${this._t("editor_flow_vertical_offset")}</span>
+              <span class="bms-scale-val" id="flow-offset-val">${(c.flow_vertical_offset > 0 ? "+" : "") + (c.flow_vertical_offset || 0)}px</span>
+            </div>
+            <div class="bms-scale-control">
+              <button type="button" class="bms-scale-btn" data-scale-target="flow_vertical_offset" data-step="-5">–</button>
+              <input type="range" id="flow_vertical_offset" min="-50" max="50" step="5" value="${c.flow_vertical_offset || 0}" />
+              <button type="button" class="bms-scale-btn" data-scale-target="flow_vertical_offset" data-step="5">+</button>
+            </div>
+          </div>
+
           <div class="bms-scale-hint">
             ${this._t("editor_appearance_hint")}
           </div>
@@ -2314,17 +2328,24 @@ class HaBmsBleCardEditor extends HTMLElement {
         this._update("clock_interval", val);
       });
     }
-    // Scale controls wiring
-    this.querySelectorAll("input[type='range'][id$='_scale']").forEach((input) => {
+    // Scale & layout controls wiring
+    this.querySelectorAll("input[type='range']").forEach((input) => {
       input.addEventListener("input", (e) => {
         const key = e.target.id;
-        const val = parseInt(e.target.value, 10);
-        const valSpan = this.querySelector("#" + (key === "battery_scale" ? "bat" : key === "grid_scale" ? "grid" : "load") + "-scale-val");
-        if (valSpan) valSpan.textContent = val + "%";
+        const val = parseInt(e.target.value, 10) || 0;
+        let valSpanId = "";
+        if (key === "battery_scale") valSpanId = "bat-scale-val";
+        else if (key === "grid_scale") valSpanId = "grid-scale-val";
+        else if (key === "load_scale") valSpanId = "load-scale-val";
+        else if (key === "flow_vertical_offset") valSpanId = "flow-offset-val";
+        const valSpan = this.querySelector("#" + valSpanId);
+        if (valSpan) {
+          valSpan.textContent = key === "flow_vertical_offset" ? `${val > 0 ? "+" : ""}${val}px` : `${val}%`;
+        }
       });
       input.addEventListener("change", (e) => {
         const key = e.target.id;
-        const val = parseInt(e.target.value, 10);
+        const val = parseInt(e.target.value, 10) || 0;
         this._update(key, val);
       });
     });
@@ -2335,11 +2356,23 @@ class HaBmsBleCardEditor extends HTMLElement {
         const step = parseInt(btn.dataset.step, 10) || 5;
         const input = this.querySelector("#" + key);
         if (input) {
-          let val = (parseInt(input.value, 10) || 100) + step;
-          val = Math.max(50, Math.min(180, val));
+          const current = parseInt(input.value, 10) || 0;
+          let val = current + step;
+          if (key === "flow_vertical_offset") {
+            val = Math.max(-50, Math.min(50, val));
+          } else {
+            val = Math.max(50, Math.min(180, val));
+          }
           input.value = val;
-          const valSpan = this.querySelector("#" + (key === "battery_scale" ? "bat" : key === "grid_scale" ? "grid" : "load") + "-scale-val");
-          if (valSpan) valSpan.textContent = val + "%";
+          let valSpanId = "";
+          if (key === "battery_scale") valSpanId = "bat-scale-val";
+          else if (key === "grid_scale") valSpanId = "grid-scale-val";
+          else if (key === "load_scale") valSpanId = "load-scale-val";
+          else if (key === "flow_vertical_offset") valSpanId = "flow-offset-val";
+          const valSpan = this.querySelector("#" + valSpanId);
+          if (valSpan) {
+            valSpan.textContent = key === "flow_vertical_offset" ? `${val > 0 ? "+" : ""}${val}px` : `${val}%`;
+          }
           this._update(key, val);
         }
       });
@@ -2485,9 +2518,26 @@ class HaBmsBleCard extends HTMLElement {
     this._lastStaleState = undefined;
   }
 
+  _getDeviceOrCardKey() {
+    const c = this._config || {};
+    if (c.entities && c.entities.device_id) return c.entities.device_id;
+    if (c.device_id) return c.device_id;
+    if (typeof this._resolvedDeviceId === "function") {
+      const dev = this._resolvedDeviceId();
+      if (dev) return dev;
+    }
+    if (this._resolvedEntities && this._resolvedEntities.device_id) {
+      return this._resolvedEntities.device_id;
+    }
+    if (c.name && typeof c.name === "string" && c.name.trim()) {
+      return c.name.trim();
+    }
+    return "";
+  }
+
   _syncSettings() {
     const c = this._config || {};
-    const devId = (c.entities && c.entities.device_id) || "";
+    const devId = this._getDeviceOrCardKey();
 
     let storedHomeSecs = null;
     const storageKeys = [
@@ -2572,6 +2622,9 @@ class HaBmsBleCard extends HTMLElement {
   set hass(hass) {
     const oldHass = this._hass;
     this._hass = hass;
+    if (!oldHass) {
+      this._syncSettings();
+    }
     if (typeof document !== "undefined" && document.hidden) {
       this._needsRender = true;
       return;
@@ -3104,7 +3157,7 @@ class HaBmsBleCard extends HTMLElement {
 
   _setHomeSection(key, val) {
     this._homeSections = Object.assign({}, this._homeSections, { [key]: !!val });
-    const devId = (this._config && this._config.entities && this._config.entities.device_id) || "";
+    const devId = this._getDeviceOrCardKey();
     try {
       const json = JSON.stringify(this._homeSections);
       window.localStorage.setItem(HOME_SECTIONS_STORAGE_KEY, json);
@@ -3739,7 +3792,7 @@ class HaBmsBleCard extends HTMLElement {
 
         <div class="bms-tab-pane ${activeTab === "home" ? "active" : ""}" data-pane="home">
         <div class="flow-status-wrap">
-        <div class="flow-row" data-flow-state="${flowState}" style="--bms-bat-scale: ${(this._config.battery_scale || 100) / 100}; --bms-grid-scale: ${(this._config.grid_scale || 100) / 100}; --bms-load-scale: ${(this._config.load_scale || 100) / 100};">
+        <div class="flow-row" data-flow-state="${flowState}" style="--bms-bat-scale: ${(this._config.battery_scale || 100) / 100}; --bms-grid-scale: ${(this._config.grid_scale || 100) / 100}; --bms-load-scale: ${(this._config.load_scale || 100) / 100}; --bms-flow-y: ${(parseInt(this._config.flow_vertical_offset, 10) || 0)}px;">
           <div class="flow-node grid-node"${moreInfoAttr(this._e("current") || this._e("power"))}>
             ${gridPylonSvg()}
             <div class="node-lbl">${t("node_grid")}</div>
@@ -4502,9 +4555,15 @@ class HaBmsBleCard extends HTMLElement {
         .flow-row {
           position: relative;
           z-index: 1;
-          display: flex; align-items: center; justify-content: center; gap: 4px; margin: 6px 0 16px; width: 100%;
+          display: flex; align-items: center; justify-content: center; gap: 4px;
+          margin-top: calc(6px + var(--bms-flow-y, 0px));
+          margin-bottom: calc(16px - var(--bms-flow-y, 0px));
+          margin-left: 0;
+          margin-right: 0;
+          width: 100%;
           --bms-grid-flow-mult: 1;
           --bms-load-flow-mult: 1;
+          transition: margin-top 0.6s cubic-bezier(0.4, 0, 0.2, 1), margin-bottom 0.6s cubic-bezier(0.4, 0, 0.2, 1);
         }
         .flow-row[data-flow-state="charging"],
         .flow-row.flow-state-charging {

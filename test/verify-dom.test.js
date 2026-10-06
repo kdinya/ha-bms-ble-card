@@ -267,7 +267,7 @@ console.log("ALL VERIFICATION CHECKS PASSED SUCCESSFULLY!");
 // --- 6. Verify Visual Editor Appearance Tab & Scale Controls ---
 {
   const editor = new mod.HaBmsBleCardEditor();
-  editor._config = { battery_scale: 120, grid_scale: 90, load_scale: 110 };
+  editor._config = { battery_scale: 120, grid_scale: 90, load_scale: 110, flow_vertical_offset: 15 };
   editor._tab = "appearance";
   editor._t = (k) => mod.I18N.uk[k] || k;
   
@@ -278,8 +278,11 @@ console.log("ALL VERIFICATION CHECKS PASSED SUCCESSFULLY!");
   assert.ok(html.includes('id="battery_scale"'), "Інпут battery_scale присутній");
   assert.ok(html.includes('id="grid_scale"'), "Інпут grid_scale присутній");
   assert.ok(html.includes('id="load_scale"'), "Інпут load_scale присутній");
+  assert.ok(html.includes('id="flow_vertical_offset"'), "Інпут flow_vertical_offset присутній");
   assert.ok(html.includes('data-scale-target="battery_scale"'), "Кнопки +/- для battery_scale присутні");
+  assert.ok(html.includes('data-scale-target="flow_vertical_offset"'), "Кнопки +/- для flow_vertical_offset присутні");
   assert.ok(html.includes('120%'), "Відображається поточне значення battery_scale (120%)");
+  assert.ok(html.includes('+15px'), "Відображається поточне значення flow_vertical_offset (+15px)");
 
   console.log("  ✓ Visual editor appearance tab & scale controls verified");
 }
@@ -289,7 +292,7 @@ console.log("ALL VERIFICATION CHECKS PASSED SUCCESSFULLY!");
   const card = Object.create(mod.HaBmsBleCard.prototype);
   card._uid = "test-uid";
   card._lang = "uk";
-  card._config = { battery_scale: 115, grid_scale: 95, load_scale: 105 };
+  card._config = { battery_scale: 115, grid_scale: 95, load_scale: 105, flow_vertical_offset: 20 };
   card._t = (k) => mod.I18N.uk[k] || k;
   card._e = (k) => (k === "charging" ? "binary_sensor.charging" : `sensor.${k}`);
   card._batteryName = () => "Test BMS";
@@ -318,6 +321,7 @@ console.log("ALL VERIFICATION CHECKS PASSED SUCCESSFULLY!");
   assert.ok(fullHtml.includes('--bms-bat-scale: 1.15'), "CSS-змінна --bms-bat-scale встановлена коректно");
   assert.ok(fullHtml.includes('--bms-grid-scale: 0.95'), "CSS-змінна --bms-grid-scale встановлена коректно");
   assert.ok(fullHtml.includes('--bms-load-scale: 1.05'), "CSS-змінна --bms-load-scale встановлена коректно");
+  assert.ok(fullHtml.includes('--bms-flow-y: 20px'), "CSS-змінна --bms-flow-y встановлена коректно (20px)");
 
   const styles = card._styles();
   assert.ok(styles.includes('transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1)'), "Вузли мають плавну CSS-анімацію переходу");
