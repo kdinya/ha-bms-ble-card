@@ -2324,7 +2324,7 @@ class HaBmsBleCard extends HTMLElement {
         return;
       }
       this._updateClockFreshness();
-    }, 15000);
+    }, 5000);
   }
 
   _stopClockTicker() {
