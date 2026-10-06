@@ -7,7 +7,7 @@
  * https://github.com/kdinya/ha-bms-ble-card
  */
 
-const CARD_VERSION = "1.2.5";
+const CARD_VERSION = "1.2.4";
 
 console.info(
   `%c HA-BMS-BLE-CARD %c v${CARD_VERSION} `,
@@ -2240,6 +2240,7 @@ class HaBmsBleCard extends HTMLElement {
 
   setConfig(config) {
     this._config = { display_mode: "widget", ...config };
+    this._resolvedEntities = null;
     this._syncSettings();
     this._render();
   }
@@ -2336,7 +2337,7 @@ class HaBmsBleCard extends HTMLElement {
     if (!this._isCardVisible()) return;
     const clockEl = this.querySelector ? this.querySelector(".hdr-clock") : null;
     if (!clockEl) return;
-    const secAgo = getBmsLastUpdatedSecondsAgo(this._hass, this._effectiveEntities());
+    const secAgo = getBmsLastUpdatedSecondsAgo(this._hass, this._resolvedEntities || this._effectiveEntities());
     const isStale = secAgo !== null && secAgo >= 180;
     this._lastStaleState = isStale;
     const t = (k) => this._t(k);
@@ -2456,7 +2457,9 @@ class HaBmsBleCard extends HTMLElement {
   }
 
   _effectiveEntities() {
-    return { ...this._autoEntities(), ...((this._config && this._config.entities) || {}) };
+    if (this._resolvedEntities) return this._resolvedEntities;
+    this._resolvedEntities = { ...this._autoEntities(), ...((this._config && this._config.entities) || {}) };
+    return this._resolvedEntities;
   }
 
   _e(key) {
@@ -3040,7 +3043,7 @@ class HaBmsBleCard extends HTMLElement {
     const currentN = Number(current);
 
     const linkN = Number(link);
-    const secAgo = getBmsLastUpdatedSecondsAgo(this._hass, this._effectiveEntities());
+    const secAgo = getBmsLastUpdatedSecondsAgo(this._hass, this._resolvedEntities || this._effectiveEntities());
     const isStale = secAgo !== null && secAgo >= 180;
     const signalColor = isStale ? "#8b96a3" : (!Number.isFinite(linkN) ? "#8b96a3" : linkN >= 50 ? "#4b9bf0" : linkN >= 25 ? "#EF9F27" : "#E24B4A");
     const nowStr = new Date().toLocaleTimeString(this._lang === "en" ? "en-US" : "uk-UA", { hour: "2-digit", minute: "2-digit" });
@@ -4471,8 +4474,11 @@ class HaBmsBleCard extends HTMLElement {
             inset 0 0 40px rgba(255, 255, 255, 0.025) !important;
           contain: paint;
           transform: translateZ(0);
-          backdrop-filter: blur(20px) saturate(140%);
-          -webkit-backdrop-filter: blur(20px) saturate(140%);
+          backdrop-filter: blur(10px);
+          -webkit-backdrop-filter: blur(10px);
+          contain: paint;
+          content-visibility: auto;
+          transform: translateZ(0);
         }
         .header h1 { letter-spacing: -0.03em; font-size: clamp(15px, 3.4vw, 18px); }
         .hdr-status-pill {
