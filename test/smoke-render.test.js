@@ -694,6 +694,30 @@ const _statsWsRegressionPromise = (async () => {
   assert.ok(Math.abs(d.points[2].v - 15.4) < 0.01, "третя точка = дельта sum (15130.4-15115.0=15.4), не сирий стан");
 
   console.log("Statistics WS query regression (change/sum, never raw state, as bucket delta) test passed.");
+  // Регресійний тест v1.2.7: налаштування таймера оновлення, скидання секцій статистики та пріоритет збереження налаштувань
+  const testCard = Object.create(mod.HaBmsBleCard.prototype);
+  testCard._t = (k) => mod.I18N.uk[k] || k;
+  testCard._e = () => null;
+  testCard.querySelectorAll = () => [];
+  testCard._config = { clock_interval: 10, home_sections: { status: true, metrics: false, chips: true } };
+  testCard._syncSettings();
+  assert.strictEqual(testCard._clockIntervalSeconds, 10, "clock_interval зчитується з конфігу (10 с)");
+  assert.strictEqual(testCard._homeSections.metrics, false, "home_sections.metrics false зберігається");
+
+  // Перевірка початкового стану секцій статистики: обидві згорнуті
+  const statsHtml = testCard._renderStatsPane();
+  assert.strictEqual(testCard._statsSections.discharge, false, "секція розряду за замовчуванням згорнута");
+  assert.strictEqual(testCard._statsSections.charge, false, "секція заряду за замовчуванням згорнута");
+
+  // Перевірка скидання стану при виході / переході вкладок
+  testCard._switchTabPane("stats");
+  assert.strictEqual(testCard._statsSections.discharge, false, "після переходу на stats секції згорнуті");
+  testCard._switchTabPane("info");
+  assert.strictEqual(testCard._infoSections.cells, true, "у info розгорнута тільки секція cells");
+  assert.strictEqual(testCard._infoSections.indicators, false, "у info indicators згорнуті");
+
+  console.log("v1.2.7 clock_interval, accordion defaults and settings persistence regression test passed.");
+
 })();
 _statsWsRegressionPromise.catch((err) => {
   console.error(err);

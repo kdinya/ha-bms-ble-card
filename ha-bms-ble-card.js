@@ -7,7 +7,7 @@
  * https://github.com/kdinya/ha-bms-ble-card
  */
 
-const CARD_VERSION = "1.2.6";
+const CARD_VERSION = "1.2.7";
 
 console.info(
   `%c HA-BMS-BLE-CARD %c v${CARD_VERSION} `,
@@ -129,6 +129,8 @@ const I18N = {
     settings_show_chips: "Стан системи",
     settings_reduced_motion: "Спрощені анімації",
     settings_reduced_motion_hint: "Прибирає зайві декоративні ефекти — легше для слабких пристроїв. Анімації заряду/розряду лишаються повними",
+    settings_clock_interval: "Інтервал оновлення таймера (секунди)",
+    settings_clock_interval_hint: "Частота оновлення лічильника останнього звʼязку з BMS (за замовчуванням 5 с)",
     btn_close: "Закрити",
     lang_uk: "Українська",
     lang_en: "English",
@@ -237,6 +239,8 @@ const I18N = {
     settings_show_chips: "System state",
     settings_reduced_motion: "Simplified animations",
     settings_reduced_motion_hint: "Turns off extra decorative effects for weaker devices. Charge/discharge animations stay full",
+    settings_clock_interval: "Timer refresh interval (seconds)",
+    settings_clock_interval_hint: "How often to refresh the BMS last update counter (default 5s)",
     btn_close: "Close",
     lang_uk: "Українська",
     lang_en: "English",
@@ -245,6 +249,7 @@ const I18N = {
 const I18N_LANG_KEY = "ha-bms-ble-card-lang";
 const HOME_SECTIONS_STORAGE_KEY = "ha-bms-ble-card-home-sections";
 const REDUCED_MOTION_STORAGE_KEY = "ha-bms-ble-card-reduced-motion";
+const CLOCK_INTERVAL_STORAGE_KEY = "ha-bms-ble-card-clock-interval";
 
 const DEFAULT_THRESHOLDS = {
   cell_delta_warning: 0.02,
@@ -1933,24 +1938,63 @@ class HaBmsBleCardEditor extends HTMLElement {
     const c = this._config;
     this.innerHTML = `
       <style>
-        .bms-editor-group-title { font-size:13px; font-weight:500; margin-bottom:8px; }
-        details.bms-group { border:1px solid var(--divider-color,#333); border-radius:8px; padding:8px 10px; margin-bottom:8px; }
-        details.bms-group summary { cursor:pointer; font-size:13px; font-weight:500; padding:2px 0; }
-        .bms-group-grid { display:grid; grid-template-columns:1fr; gap:10px; margin-top:8px; }
-        .bms-field label { }
-        .bms-cell-row { display:flex; align-items:center; gap:6px; margin-bottom:6px; }
-        .bms-cell-row .bms-field { flex:1; }
-        ha-entity-picker { display:block; width:100%; }
-        .bms-field-label { font-size:12px; font-weight:500; opacity:0.85; margin-bottom:4px; }
-        .bms-auto-hint { font-size:11px; opacity:0.7; margin-top:4px; word-break:break-all; }
-        .bms-auto-hint code { font-size:10px; background:rgba(127,127,127,0.15); padding:1px 4px; border-radius:4px; }
-        .bms-auto-miss { opacity:0.45; }
-        .bms-tabs { display:flex; gap:4px; margin-bottom:12px; flex-wrap:wrap; }
-        .bms-tab {
-          flex:1; min-width:90px; padding:8px 10px; border-radius:8px; border:1px solid var(--divider-color,#333);
-          background:transparent; color:var(--primary-text-color); cursor:pointer; font-size:12px; font-weight:500;
+        .bms-editor {
+          background: var(--card-background-color, #151d28);
+          border: 1px solid var(--divider-color, rgba(255,255,255,0.08));
+          border-radius: 16px;
+          color: var(--primary-text-color, #e1e7ec);
+          font-family: inherit;
         }
-        .bms-tab.active { background:var(--primary-color,#0F6E56); color:#fff; border-color:transparent; }
+        .bms-editor-group-title { font-size: 13px; font-weight: 600; color: #fff; margin-bottom: 8px; letter-spacing: 0.2px; }
+        details.bms-group {
+          background: rgba(255, 255, 255, 0.03);
+          border: 1px solid rgba(255, 255, 255, 0.08);
+          border-radius: 12px;
+          padding: 10px 12px;
+          margin-bottom: 10px;
+          transition: border-color 0.2s;
+        }
+        details.bms-group[open] { border-color: rgba(29, 158, 117, 0.4); background: rgba(255, 255, 255, 0.04); }
+        details.bms-group summary { cursor: pointer; font-size: 13px; font-weight: 600; color: #fff; padding: 2px 0; outline: none; }
+        .bms-group-grid { display: grid; grid-template-columns: 1fr; gap: 10px; margin-top: 10px; }
+        .bms-cell-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+        .bms-cell-row .bms-field { flex: 1; }
+        ha-entity-picker { display: block; width: 100%; }
+        .bms-field-label { font-size: 12px; font-weight: 500; opacity: 0.85; margin-bottom: 5px; }
+        .bms-auto-hint { font-size: 11px; opacity: 0.7; margin-top: 4px; word-break: break-all; }
+        .bms-auto-hint code { font-size: 10px; background: rgba(127,127,127,0.18); padding: 1px 5px; border-radius: 4px; color: #4b9bf0; }
+        .bms-auto-miss { opacity: 0.45; }
+        .bms-tabs { display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
+        .bms-tab {
+          flex: 1; min-width: 90px; padding: 9px 12px; border-radius: 10px;
+          border: 1px solid rgba(255, 255, 255, 0.08);
+          background: rgba(255, 255, 255, 0.04);
+          color: var(--primary-text-color, #e1e7ec);
+          cursor: pointer; font-size: 13px; font-weight: 600; text-align: center;
+          transition: all 0.2s ease;
+        }
+        .bms-tab:hover { background: rgba(255, 255, 255, 0.08); }
+        .bms-tab.active {
+          background: #1D9E75; color: #fff; border-color: transparent;
+          box-shadow: 0 2px 10px rgba(29, 158, 117, 0.35);
+        }
+        .bms-editor input[type="text"],
+        .bms-editor input[type="number"],
+        .bms-editor select {
+          width: 100%; box-sizing: border-box; background: rgba(0,0,0,0.25);
+          border: 1px solid rgba(255,255,255,0.12); border-radius: 10px;
+          color: #fff; padding: 8px 12px; font-size: 13px; outline: none;
+          transition: border-color 0.2s, box-shadow 0.2s;
+        }
+        .bms-editor input[type="text"]:focus,
+        .bms-editor input[type="number"]:focus,
+        .bms-editor select:focus {
+          border-color: #1D9E75; box-shadow: 0 0 0 2px rgba(29, 158, 117, 0.25);
+        }
+        .bms-editor-sec-box {
+          background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06);
+          border-radius: 10px; padding: 10px 12px; margin-top: 4px;
+        }
 
       </style>
       <div class="bms-editor" style="padding:12px;display:flex;flex-direction:column;gap:12px;max-width:100%;overflow-x:hidden;">
@@ -1999,6 +2043,14 @@ class HaBmsBleCardEditor extends HTMLElement {
               <span>Спрощені анімації</span>
             </label>
           </div>
+        </div>
+        <div style="border-top:1px solid var(--divider-color,rgba(255,255,255,0.08)); padding-top:12px;">
+          <div style="font-size:13px; font-weight:500; margin-bottom:4px;">Інтервал оновлення таймера BMS</div>
+          <div style="font-size:11px; opacity:0.7; margin-bottom:8px;">Частота оновлення лічильника останнього звʼязку (секунди)</div>
+          <div style="display:flex; align-items:center; gap:8px;">
+            <input type="number" min="1" max="300" id="bms-editor-clock-interval" value="${c.clock_interval || 5}" style="width:90px;" />
+            <span style="font-size:13px; opacity:0.8;">с (сек)</span>
+          </div>
         </div>` : ""}
         ${this._tab === "entities" ? `
         <div>
@@ -2039,13 +2091,33 @@ class HaBmsBleCardEditor extends HTMLElement {
         const sec = el.dataset.sec;
         const cur = Object.assign({ status: true, metrics: true, chips: true }, this._config.home_sections || {});
         cur[sec] = el.checked;
+        const devId = (this._config && this._config.entities && this._config.entities.device_id) || "";
+        try {
+          const json = JSON.stringify(cur);
+          window.localStorage.setItem(HOME_SECTIONS_STORAGE_KEY, json);
+          if (devId) window.localStorage.setItem(`${HOME_SECTIONS_STORAGE_KEY}-${devId}`, json);
+        } catch (err) {}
         this._update("home_sections", cur);
       });
     });
     const reducedMotionEl = this.querySelector("#bms-editor-reduced-motion");
     if (reducedMotionEl) {
       reducedMotionEl.addEventListener("change", (e) => {
-        this._update("reduced_motion", e.target.checked);
+        const val = e.target.checked;
+        try { window.localStorage.setItem(REDUCED_MOTION_STORAGE_KEY, val ? "1" : "0"); } catch (err) {}
+        this._update("reduced_motion", val);
+      });
+    }
+    const clockIntEl = this.querySelector("#bms-editor-clock-interval");
+    if (clockIntEl) {
+      clockIntEl.addEventListener("change", (e) => {
+        const val = Math.max(1, Math.min(300, parseInt(e.target.value, 10) || 5));
+        const devId = (this._config && this._config.entities && this._config.entities.device_id) || "";
+        try {
+          window.localStorage.setItem(CLOCK_INTERVAL_STORAGE_KEY, String(val));
+          if (devId) window.localStorage.setItem(`${CLOCK_INTERVAL_STORAGE_KEY}-${devId}`, String(val));
+        } catch (err) {}
+        this._update("clock_interval", val);
       });
     }
     this._wireEntityFields();
@@ -2209,15 +2281,34 @@ class HaBmsBleCard extends HTMLElement {
     }
 
     const cfgSecs = c.home_sections || {};
+    // Пріоритет: явний збережений вибір користувача в localStorage, потім конфіг картки, потім значення true
     this._homeSections = {
-      status: cfgSecs.status !== undefined ? !!cfgSecs.status : (c.show_status !== undefined ? !!c.show_status : (storedHomeSecs?.status !== undefined ? !!storedHomeSecs.status : true)),
-      metrics: cfgSecs.metrics !== undefined ? !!cfgSecs.metrics : (c.show_metrics !== undefined ? !!c.show_metrics : (storedHomeSecs?.metrics !== undefined ? !!storedHomeSecs.metrics : true)),
-      chips: cfgSecs.chips !== undefined ? !!cfgSecs.chips : (c.show_chips !== undefined ? !!c.show_chips : (storedHomeSecs?.chips !== undefined ? !!storedHomeSecs.chips : true)),
+      status: storedHomeSecs?.status !== undefined ? !!storedHomeSecs.status : (cfgSecs.status !== undefined ? !!cfgSecs.status : (c.show_status !== undefined ? !!c.show_status : true)),
+      metrics: storedHomeSecs?.metrics !== undefined ? !!storedHomeSecs.metrics : (cfgSecs.metrics !== undefined ? !!cfgSecs.metrics : (c.show_metrics !== undefined ? !!c.show_metrics : true)),
+      chips: storedHomeSecs?.chips !== undefined ? !!storedHomeSecs.chips : (cfgSecs.chips !== undefined ? !!cfgSecs.chips : (c.show_chips !== undefined ? !!c.show_chips : true)),
     };
 
     let storedReduced;
     try { storedReduced = window.localStorage.getItem(REDUCED_MOTION_STORAGE_KEY); } catch (e) { storedReduced = null; }
-    this._reducedMotion = c.reduced_motion !== undefined ? !!c.reduced_motion : (storedReduced === "1");
+    this._reducedMotion = storedReduced !== null ? (storedReduced === "1") : (c.reduced_motion !== undefined ? !!c.reduced_motion : false);
+
+    let storedClock;
+    const clockKeys = [
+      devId ? `${CLOCK_INTERVAL_STORAGE_KEY}-${devId}` : null,
+      CLOCK_INTERVAL_STORAGE_KEY
+    ].filter(Boolean);
+    for (const k of clockKeys) {
+      try {
+        const raw = window.localStorage.getItem(k);
+        if (raw !== null && raw !== undefined) {
+          storedClock = raw;
+          break;
+        }
+      } catch (e) {}
+    }
+    const cfgClock = c.clock_interval;
+    const rawClock = storedClock !== null && storedClock !== undefined ? storedClock : cfgClock;
+    this._clockIntervalSeconds = rawClock !== undefined && rawClock !== null ? Math.max(1, Math.min(300, parseInt(rawClock, 10) || 5)) : 5;
 
     let storedLang;
     try { storedLang = window.localStorage.getItem(I18N_LANG_KEY); } catch (e) { storedLang = null; }
@@ -2327,15 +2418,14 @@ class HaBmsBleCard extends HTMLElement {
     this._stopClockTicker();
     if (typeof window === "undefined") return;
     if (!this._isCardVisible()) return;
-    // Оновлюємо свіжість даних кожні 5 секунд лише в текстовому полі заголовка,
-    // без жодного перерендеру картки, звільняючи процесор у режимі спокою.
+    const intervalMs = Math.max(1, Math.min(300, Number(this._clockIntervalSeconds) || 5)) * 1000;
     this._clockInterval = setInterval(() => {
       if (!this._isCardVisible()) {
         this._stopClockTicker();
         return;
       }
       this._updateClockFreshness();
-    }, 5000);
+    }, intervalMs);
   }
 
   _stopClockTicker() {
@@ -2570,6 +2660,21 @@ class HaBmsBleCard extends HTMLElement {
     this._render();
   }
 
+  _setClockInterval(val) {
+    const sec = Math.max(1, Math.min(300, parseInt(val, 10) || 5));
+    this._clockIntervalSeconds = sec;
+    const devId = (this._config && this._config.entities && this._config.entities.device_id) || "";
+    try {
+      window.localStorage.setItem(CLOCK_INTERVAL_STORAGE_KEY, String(sec));
+      if (devId) window.localStorage.setItem(`${CLOCK_INTERVAL_STORAGE_KEY}-${devId}`, String(sec));
+    } catch (e) {}
+    if (this._config) {
+      this._config = { ...this._config, clock_interval: sec };
+      this.dispatchEvent(new CustomEvent("config-changed", { detail: { config: this._config }, bubbles: true, composed: true }));
+    }
+    this._startClockTicker();
+  }
+
   _statusColorVars(color) {
     if (color === "success") return { bg: "#1f3d29", fg: "#1D9E75" };
     if (color === "warning") return { bg: "#3d3320", fg: "#EF9F27" };
@@ -2675,7 +2780,7 @@ class HaBmsBleCard extends HTMLElement {
    * вигаданих цифр.
    */
   _renderStatsPane() {
-    const statsSections = this._statsSections || (this._statsSections = { discharge: true, charge: false });
+    const statsSections = this._statsSections || (this._statsSections = { discharge: false, charge: false });
 
     const dischargeEntityId = this._e("capacity_total");
     const chargeEntityId = this._e("charge_total");
@@ -2843,7 +2948,7 @@ class HaBmsBleCard extends HTMLElement {
     const cached = this._statsCache.get(cacheKey);
     const now = Date.now();
     const ttl = period === "today" ? 60 * 1000 : 10 * 60 * 1000;
-    const cacheIsFresh = cached && (now - cached.time < ttl) && cached.data;
+    const cacheIsFresh = cached && (now - cached.time < (cached.data && cached.data.error ? 15000 : ttl)) && cached.data && !cached.data.error;
     if (cacheIsFresh) {
       this._statsData = cached.data;
       this._statsFetchKey = cacheKey;
@@ -3319,6 +3424,15 @@ class HaBmsBleCard extends HTMLElement {
             <span class="switch-ui"></span>
           </label>
         </div>
+
+        <h2 class="section-title" style="margin-top:24px;">${t("settings_clock_interval")}</h2>
+        <p class="bms-muted">${t("settings_clock_interval_hint")}</p>
+        <div class="settings-clock-row" style="display:flex; align-items:center; gap:12px; margin-top:8px;">
+          <input type="number" min="1" max="300" step="1" class="bms-input" id="bms-clock-interval-input"
+            value="${this._clockIntervalSeconds || 5}"
+            style="width:90px; text-align:center; padding:8px 12px; border-radius:10px; background:var(--card,#151d28); border:1px solid var(--border,rgba(255,255,255,0.12)); color:#fff; font-size:14px; font-weight:600;">
+          <span style="font-size:13px; opacity:0.8;">с (сек)</span>
+        </div>
         </div>
 
                 <div class="bms-modal-overlay ${this._langModalOpen ? "open" : ""}" id="bms-lang-modal">
@@ -3569,6 +3683,22 @@ class HaBmsBleCard extends HTMLElement {
     this.querySelectorAll(".nav-item[data-tab]").forEach(n => {
       n.classList.toggle("active", n.dataset.tab === tab);
     });
+    if (tab === "stats") {
+      this._statsSections = { discharge: false, charge: false };
+      this.querySelectorAll('.bms-tab-pane[data-pane="stats"] details.info-accordion-section').forEach(d => {
+        d.open = false;
+      });
+    } else {
+      this._statsSections = { discharge: false, charge: false };
+    }
+    if (tab === "info") {
+      this._infoSections = { cells: true, indicators: false, functions: false };
+      this.querySelectorAll('.bms-tab-pane[data-pane="info"] details.info-accordion-section').forEach(d => {
+        d.open = (d.dataset.section === "cells");
+      });
+    } else {
+      this._infoSections = { cells: true, indicators: false, functions: false };
+    }
   }
 
   _wireStatsPaneEvents() {
@@ -3665,6 +3795,12 @@ class HaBmsBleCard extends HTMLElement {
         this.querySelectorAll(".bms-full, .bms-card").forEach(c => c.classList.toggle("bms-reduced-motion", this._reducedMotion));
       });
     });
+    const clockInput = this.querySelector("#bms-clock-interval-input");
+    if (clockInput) {
+      clockInput.addEventListener("change", (e) => {
+        this._setClockInterval(e.target.value);
+      });
+    }
     this.querySelectorAll("details.info-accordion-section[data-section]").forEach((el) => {
       el.addEventListener("toggle", () => {
         const key = el.dataset.section;
@@ -4842,10 +4978,18 @@ class HaBmsBleCard extends HTMLElement {
     const closeBtn = this.querySelector(".bms-overlay-close");
     if (overlayEl) {
       overlayEl.addEventListener("click", (e) => {
-        if (e.target === overlayEl) this._toggleOverlay(false);
+        if (e.target === overlayEl) {
+          this._statsSections = { discharge: false, charge: false };
+          this._infoSections = { cells: true, indicators: false, functions: false };
+          this._toggleOverlay(false);
+        }
       });
     }
-    if (closeBtn) closeBtn.addEventListener("click", () => this._toggleOverlay(false));
+    if (closeBtn) closeBtn.addEventListener("click", () => {
+      this._statsSections = { discharge: false, charge: false };
+      this._infoSections = { cells: true, indicators: false, functions: false };
+      this._toggleOverlay(false);
+    });
     this._wireBatteryLongPress();
     this._wireMoreInfo();
     this._wireTabs();
