@@ -3842,7 +3842,7 @@ class HaBmsBleCard extends HTMLElement {
         .flow-arrow-head { transition: fill 0.3s ease; }
         @keyframes bms-arrow-flow { 0% { stroke-dashoffset: 0; opacity: 1; } 50% { opacity: 0.85; } 100% { stroke-dashoffset: -48; opacity: 1; } }
         .flow-arrow-path.flow-arrow-active {
-          stroke-dasharray: 12 10 4 10; animation: bms-arrow-flow 0.7s linear infinite; filter: drop-shadow(0 0 6px var(--green));
+          stroke-dasharray: 12 10 4 10; animation: bms-arrow-flow 0.7s linear infinite;
         }
         @media (prefers-reduced-motion: reduce) {
           .flow-arrow-path.flow-arrow-active { animation: none; }
@@ -3898,6 +3898,10 @@ class HaBmsBleCard extends HTMLElement {
           align-items: stretch;
           gap: 6px;
           box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+          touch-action: manipulation;
+        }
+        .bms-tab-pane:not(.active) * {
+          animation-play-state: paused !important;
         }
         .nav-item {
           display: flex;
@@ -3916,7 +3920,9 @@ class HaBmsBleCard extends HTMLElement {
           min-width: 0;
           border: 1px solid transparent;
           user-select: none;
-          transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+          touch-action: manipulation;
+          -webkit-tap-highlight-color: transparent;
+          transition: color 0.15s ease, background 0.15s ease, border-color 0.15s ease;
         }
         .nav-item:hover { color: var(--text); background: rgba(255, 255, 255, 0.04); }
         .nav-item.active {
@@ -4477,8 +4483,7 @@ class HaBmsBleCard extends HTMLElement {
           backdrop-filter: blur(10px);
           -webkit-backdrop-filter: blur(10px);
           contain: paint;
-          content-visibility: auto;
-          transform: translateZ(0);
+                    transform: translateZ(0);
         }
         .header h1 { letter-spacing: -0.03em; font-size: clamp(15px, 3.4vw, 18px); }
         .hdr-status-pill {
