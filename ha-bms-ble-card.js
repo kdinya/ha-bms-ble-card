@@ -4090,15 +4090,29 @@ class HaBmsBleCard extends HTMLElement {
     const start = soc !== null ? soc : 0;
     const voltageLabel = fmt(stateOf(this._hass, this._e("voltage")), 2);
 
+    const flowRowEl = this.querySelector(".flow-row");
+    const gridCircle = this.querySelector(".grid-node .flow-icon-circle");
+    const loadCircle = this.querySelector(".load-node .flow-icon-circle");
+
     // "discharge" = ліва (Мережа->Батарея) гасне, права (Батарея->
     // Навантаження) отримує анімований потік; "charge" — навпаки.
+    // Також плавно масштабуємо вузли мережі й навантаження відповідного стану.
     const setArrows = (mode) => {
+      const isChg = mode === "charge";
+      const isDsg = mode === "discharge";
       if (leftArrows) {
-        leftArrows.innerHTML = `${flowArrowSvg(false, mode === "charge", "#1D9E75")}${flowArrowSvg(true, mode === "charge", "#1D9E75")}`;
+        leftArrows.innerHTML = `${flowArrowSvg(false, isChg, "#1D9E75")}${flowArrowSvg(true, isChg, "#1D9E75")}`;
       }
       if (rightArrows) {
-        rightArrows.innerHTML = `${flowArrowSvg(false, mode === "discharge", "#EF9F27", true)}${flowArrowSvg(true, mode === "discharge", "#EF9F27", true)}`;
+        rightArrows.innerHTML = `${flowArrowSvg(false, isDsg, "#EF9F27", true)}${flowArrowSvg(true, isDsg, "#EF9F27", true)}`;
       }
+      if (flowRowEl) {
+        flowRowEl.setAttribute("data-flow-state", isChg ? "charging" : (isDsg ? "discharging" : "idle"));
+        flowRowEl.classList.toggle("flow-state-charging", isChg);
+        flowRowEl.classList.toggle("flow-state-discharging", isDsg);
+      }
+      if (gridCircle) gridCircle.classList.toggle("flow-active-charge", isChg);
+      if (loadCircle) loadCircle.classList.toggle("flow-active-discharge", isDsg);
     };
 
     this._batteryAnimating = true;
@@ -4134,8 +4148,12 @@ class HaBmsBleCard extends HTMLElement {
   }
 
   _stopBatteryDemoAnimation() {
+    const wasAnimating = this._batteryAnimating;
     this._batteryAnimating = false;
     if (this._batteryAnimFrame) { cancelAnimationFrame(this._batteryAnimFrame); this._batteryAnimFrame = null; }
+    if (wasAnimating && typeof this._updateDynamicDom === "function") {
+      this._updateDynamicDom();
+    }
   }
 
   /** Підключає клік/Enter на всіх [data-more-info] елементах у поточному
@@ -4407,6 +4425,8 @@ class HaBmsBleCard extends HTMLElement {
 
         /* Верхній рядок: назва батареї, бейдж статусу та Bluetooth-індикатор свіжості */
         .header {
+          position: relative;
+          z-index: 5;
           display: flex;
           align-items: flex-start;
           justify-content: space-between;
@@ -4480,6 +4500,8 @@ class HaBmsBleCard extends HTMLElement {
         /* Flow-діаграма заряд/розряд навколо батареї (захищена геометрія) */
         .flow-status-wrap { display: flex; flex-direction: column; margin-bottom: 14px; }
         .flow-row {
+          position: relative;
+          z-index: 1;
           display: flex; align-items: center; justify-content: center; gap: 4px; margin: 6px 0 16px; width: 100%;
           --bms-grid-flow-mult: 1;
           --bms-load-flow-mult: 1;
@@ -4509,6 +4531,8 @@ class HaBmsBleCard extends HTMLElement {
           transform-origin: center center;
         }
         .flow-battery {
+          position: relative;
+          z-index: 1;
           transform: scale(var(--bms-bat-scale, 1));
           transform-origin: center center;
           transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1);
@@ -4579,7 +4603,11 @@ class HaBmsBleCard extends HTMLElement {
 
         /* Преміальний блок статусу / режиму під батареєю */
         .discharge-box {
-          background: linear-gradient(135deg, rgba(255, 255, 255, 0.045) 0%, rgba(255, 255, 255, 0.015) 100%);
+          position: relative;
+          z-index: 5;
+          background: linear-gradient(135deg, rgba(20, 30, 45, 0.95) 0%, rgba(13, 20, 32, 0.98) 100%);
+          backdrop-filter: blur(10px);
+          -webkit-backdrop-filter: blur(10px);
           border: 1px solid rgba(255, 255, 255, 0.1);
           border-radius: 16px;
           padding: 14px 18px;

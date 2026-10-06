@@ -325,4 +325,13 @@ console.log("ALL VERIFICATION CHECKS PASSED SUCCESSFULLY!");
   assert.ok(styles.includes('--bms-load-flow-mult: 1.25'), "Навантаження збільшується під час розряду");
 
   console.log("  ✓ Card responsive scale styles & smooth transitions verified");
+
+  // Перевірка шарів (z-index) та поведінки демо-анімації
+  assert.ok(styles.includes(".header {\n          position: relative;\n          z-index: 5;"), "Шапка має position: relative та z-index: 5");
+  assert.ok(styles.includes(".flow-row {\n          position: relative;\n          z-index: 1;"), "flow-row має z-index: 1");
+  assert.ok(styles.includes(".flow-battery {\n          position: relative;\n          z-index: 1;"), "Батарея має z-index: 1 (шаром нижче за шапку й статус)");
+  assert.ok(styles.includes(".discharge-box {\n          position: relative;\n          z-index: 5;"), "Блок статусу має z-index: 5 (шаром вище за батарею)");
+
+  console.log("  ✓ Stacking context & z-index layers verified");
+
 }
