@@ -2,7 +2,13 @@
 
 ## [1.2.7] - 2026-10-06
 
-### Додано та виправлено
+### Added & Fixed
+- **Performance & Targeted DOM Patching**: Implemented selective DOM patching on telemetry ticks (`set hass`). The card now updates only dynamic numbers (SOC %, voltage, current, power, battery SVG liquid, cell values, and status chips) without tearing down and recreating the entire DOM tree, eliminating client-side micro-stutter and frame drops on tablets.
+- **Manual 30-Day Stats Duration**: Removed automatic background loading of 30 days of raw current history from Recorder upon opening Statistics. Added a dedicated manual action button to calculate 30-day runtime only on user request.
+- **Flow Arrows Idle State**: Ensured flow arrows completely freeze and disable CSS keyframe animations when current is idle (neither charging nor discharging).
+- **Full Localization Coverage**: Added localized units for seconds (`unit_seconds_short`: `с (сек)` / `s (sec)`) and calculation states across Ukrainian and English dictionaries, replacing hardcoded strings.
+- **Clock Interval Setting & State Sync**: Added configurable BMS update timer interval in card settings and visual editor, with two-way sync across localStorage and card config.
+- **Default Accordion State**: Collapsed both charge and discharge accordions in Statistics by default, and reset views cleanly when navigating tabs.
 - **Кешування помилок Recorder**: виправлено логіку `cacheIsFresh` — помилки запитів більше не кешуються як свіжі валідні дані на 10 хвилин (`!cached.data.error`), що дозволяє картці швидко повторювати спроби при відновленні з'єднання.
 - **Налаштування інтервалу оновлення таймера свіжості (секунди)**: додано вибір інтервалу таймера свіжості BMS у секундах як у меню «Налаштування» на панелі картки, так і у візуальний редактор (`clock_interval`).
 - **Синхронізація та збереження налаштувань**: виправлено скидання чекбоксів відображення блоків головної сторінки (`status`, `metrics`, `chips`) та спрощених анімацій після перезавантаження — забезпечено двосторонню синхронізацію між панеллю налаштувань картки, `localStorage` та візуальним редактором Lovelace.

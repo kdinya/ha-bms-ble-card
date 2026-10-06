@@ -131,6 +131,9 @@ const I18N = {
     settings_reduced_motion_hint: "Прибирає зайві декоративні ефекти — легше для слабких пристроїв. Анімації заряду/розряду лишаються повними",
     settings_clock_interval: "Інтервал оновлення таймера (секунди)",
     settings_clock_interval_hint: "Частота оновлення лічильника останнього звʼязку з BMS (за замовчуванням 5 с)",
+    unit_seconds_short: "с (сек)",
+    stats_calc_30d: "Розрахувати за 30 днів",
+    stats_calculating: "Розрахунок...",
     btn_close: "Закрити",
     lang_uk: "Українська",
     lang_en: "English",
@@ -241,6 +244,9 @@ const I18N = {
     settings_reduced_motion_hint: "Turns off extra decorative effects for weaker devices. Charge/discharge animations stay full",
     settings_clock_interval: "Timer refresh interval (seconds)",
     settings_clock_interval_hint: "How often to refresh the BMS last update counter (default 5s)",
+    unit_seconds_short: "s (sec)",
+    stats_calc_30d: "Calculate for 30 days",
+    stats_calculating: "Calculating...",
     btn_close: "Close",
     lang_uk: "Українська",
     lang_en: "English",
@@ -2049,7 +2055,7 @@ class HaBmsBleCardEditor extends HTMLElement {
           <div style="font-size:11px; opacity:0.7; margin-bottom:8px;">Частота оновлення лічильника останнього звʼязку (секунди)</div>
           <div style="display:flex; align-items:center; gap:8px;">
             <input type="number" min="1" max="300" id="bms-editor-clock-interval" value="${c.clock_interval || 5}" style="width:90px;" />
-            <span style="font-size:13px; opacity:0.8;">с (сек)</span>
+            <span style="font-size:13px; opacity:0.8;">${this._t ? this._t("unit_seconds_short") : "s (sec)"}</span>
           </div>
         </div>` : ""}
         ${this._tab === "entities" ? `
@@ -2376,10 +2382,171 @@ class HaBmsBleCard extends HTMLElement {
     if (typeof requestAnimationFrame === "function") {
       this._renderRaf = requestAnimationFrame(() => {
         this._renderRaf = null;
-        this._render();
+        if (this._mounted && this._hasAnyData() && this._canFastPatch()) {
+          this._updateDynamicDom();
+        } else {
+          this._render();
+        }
       });
     } else {
-      this._render();
+      if (this._mounted && this._hasAnyData() && this._canFastPatch()) {
+        this._updateDynamicDom();
+      } else {
+        this._render();
+      }
+    }
+  }
+
+  _canFastPatch() {
+    const card = this.querySelector(".bms-card");
+    if (!card) return false;
+    const homePane = this.querySelector('.bms-tab-pane[data-pane="home"]');
+    return !!homePane;
+  }
+
+  _updateDynamicDom() {
+    if (!this._config || !this._hass) return;
+    this._resolvedEntities = this._effectiveEntities();
+    this._updateClockFreshness();
+
+    const t = (k) => this._t(k);
+    const soc = normalizeSoc(stateOf(this._hass, this._e("soc")));
+    const voltage = numStateOf(this._hass, this._e("voltage"));
+    const current = stateOf(this._hass, this._e("current"));
+    const currentN = numStateOf(this._hass, this._e("current"));
+    const power = numStateOf(this._hass, this._e("power"));
+    const temp = stateOf(this._hass, this._e("temperature"));
+    const status = this._currentStatus();
+    const statusSc = this._statusColorVars(status.color);
+    const flowState = chargeFlowState(status.label);
+
+    // 1. Оновлюємо рідину та текст батареї (jarBatterySvg)
+    const batEl = this.querySelector(".flow-battery");
+    if (batEl && !this._batteryAnimating) {
+      batEl.innerHTML = jarBatterySvg(this._uid, soc, fmt(voltage, 2));
+    }
+
+    // 2. Вузол "Мережа" (Grid)
+    const gridNodeVal = this.querySelector(".flow-node.grid-node .node-val");
+    if (flowState === "charging") {
+      const txt = `${current !== undefined && current !== null ? `${fmt(Math.abs(currentN), 1)} ${t("unit_a")}` : "—"}<br>${fmtPower(power, t)}`;
+      if (gridNodeVal) gridNodeVal.innerHTML = txt;
+      else {
+        const gridNode = this.querySelector(".flow-node.grid-node");
+        if (gridNode) {
+          const div = document.createElement("div");
+          div.className = "node-val";
+          div.innerHTML = txt;
+          gridNode.appendChild(div);
+        }
+      }
+    } else if (gridNodeVal) {
+      gridNodeVal.remove();
+    }
+
+    // 3. Вузол "Навантаження" (Load)
+    const loadNodeVal = this.querySelector(".flow-node.load-node .node-val");
+    if (flowState === "discharging") {
+      const txt = `${current !== undefined && current !== null ? `${fmt(Math.abs(currentN), 1)} ${t("unit_a")}` : "—"}<br>${fmtPower(power, t)}`;
+      if (loadNodeVal) loadNodeVal.innerHTML = txt;
+      else {
+        const loadNode = this.querySelector(".flow-node.load-node");
+        if (loadNode) {
+          const div = document.createElement("div");
+          div.className = "node-val";
+          div.innerHTML = txt;
+          loadNode.appendChild(div);
+        }
+      }
+    } else if (loadNodeVal) {
+      loadNodeVal.remove();
+    }
+
+    // 4. Стрілки потоку (без анімації у спокої)
+    const arrowWraps = this.querySelectorAll(".flow-arrows");
+    if (arrowWraps.length >= 2) {
+      const leftArrows = arrowWraps[0];
+      const rightArrows = arrowWraps[1];
+      const isChg = flowState === "charging";
+      const isDsg = flowState === "discharging";
+      leftArrows.innerHTML = `${flowArrowSvg(false, isChg, "#1D9E75")}${flowArrowSvg(true, isChg, "#1D9E75")}`;
+      rightArrows.innerHTML = `${flowArrowSvg(false, isDsg, "#EF9F27", true)}${flowArrowSvg(true, isDsg, "#EF9F27", true)}`;
+    }
+
+    // 5. Flow-icon круги
+    const gridCircle = this.querySelector(".flow-node.grid-node .flow-icon-circle");
+    if (gridCircle) gridCircle.classList.toggle("flow-active-charge", flowState === "charging");
+    const loadCircle = this.querySelector(".flow-node.load-node .flow-icon-circle");
+    if (loadCircle) loadCircle.classList.toggle("flow-active-discharge", flowState === "discharging");
+
+    // 6. Блок статусу (discharge-box)
+    const disBox = this.querySelector(".discharge-box");
+    if (disBox) {
+      const iconCircle = disBox.querySelector(".icon-circle");
+      if (iconCircle) {
+        iconCircle.style.background = statusSc.bg;
+        iconCircle.innerHTML = haIcon(status.icon, 20, statusSc.fg);
+      }
+      const l1 = disBox.querySelector(".discharge-text .l1");
+      if (l1) l1.textContent = statusLabelText(status);
+      const l2 = disBox.querySelector(".discharge-text .l2");
+      const eta = this._etaInfo();
+      const showEta = status.color === "success" || status.color === "warning";
+      const etaLabelText = flowState === "charging" ? t("eta_to_full_charge") : (flowState === "discharging" ? t("eta_to_discharge") : "");
+      const pDesc = decodeProblemCode(status.problemCode, t);
+      const probPart = status.color === "danger" && status.problemCode ? `${t("lbl_problem_code")}: ${escapeHtml(String(status.problemCode))}${pDesc && pDesc !== String(status.problemCode) ? ` (${escapeHtml(pDesc)})` : ""}` : "";
+      const etaPart = showEta ? `${etaLabelText}${eta.seconds !== undefined ? ": ~" + secondsToHuman(eta.seconds) : ""}` : "";
+      const balancingOn = this._balancingActive();
+      const st = this._cellsStats();
+      const balPart = balancingOn ? `${haIcon("ti-topology-star-3", 12)} ${t("balancing")}${st ? ` (${st.cells.map((v) => (Number.isFinite(v) ? v.toFixed(3) : "—")).join(", ")} В, Δ${st.delta.toFixed(3)} В)` : ""}` : "";
+      const line2 = [probPart, etaPart, balPart].filter(Boolean).join(" · ");
+      if (line2) {
+        if (l2) l2.innerHTML = line2;
+        else {
+          const txtDiv = disBox.querySelector(".discharge-text");
+          if (txtDiv) {
+            const div = document.createElement("div");
+            div.className = "l2";
+            div.innerHTML = line2;
+            txtDiv.appendChild(div);
+          }
+        }
+      } else if (l2) {
+        l2.remove();
+      }
+    }
+
+    // 7. Метрики (Voltage, Current, Power, Temperature)
+    const metricVals = this.querySelectorAll(".metric-card .metric-val");
+    if (metricVals.length >= 4) {
+      metricVals[0].textContent = `${fmt(voltage, 2)} ${t("unit_v")}`;
+      metricVals[1].textContent = `${fmt(currentN, 1)} ${t("unit_a")}`;
+      metricVals[2].textContent = `${fmtPower(power, t)}`;
+      metricVals[3].textContent = `${fmt(temp, 1)} ${t("unit_c")}`;
+    }
+
+    // 8. Стан комірок у вкладці info (якщо вона змонтована)
+    const st = this._cellsStats();
+    if (st) {
+      const badges = this.querySelectorAll(".cell-badges .badge");
+      if (badges.length >= 3) {
+        const maxB = badges[0].querySelector("b");
+        if (maxB) maxB.textContent = `${st.max.toFixed(3)} ${t("unit_v")}${st.maxIdx ? ` (#${st.maxIdx})` : ""}`;
+        const minB = badges[1].querySelector("b");
+        if (minB) minB.textContent = `${st.min.toFixed(3)} ${t("unit_v")}${st.minIdx ? ` (#${st.minIdx})` : ""}`;
+        const diffB = badges[2].querySelector("b");
+        if (diffB) diffB.textContent = `${st.delta.toFixed(3)} ${t("unit_v")}`;
+      }
+      this.querySelectorAll(".cell-row[data-cell-idx]").forEach((row) => {
+        const idx = Number(row.dataset.cellIdx);
+        if (idx >= 0 && idx < st.cells.length) {
+          const v = st.cells[idx];
+          const valEl = row.querySelector(".cell-val");
+          if (valEl) valEl.textContent = `${Number.isFinite(v) ? v.toFixed(3) : "—"} ${t("unit_v")}`;
+          const fillEl = row.querySelector(".cell-fill");
+          if (fillEl) fillEl.style.width = `${Math.round(cellVoltageFraction(v) * 100)}%`;
+        }
+      });
     }
   }
 
@@ -3028,8 +3195,7 @@ class HaBmsBleCard extends HTMLElement {
       };
       if (!this._statsCache) this._statsCache = new Map();
       this._statsCache.set(cacheKey, { time: Date.now(), data: this._statsData });
-      this._maybeFetchStatsAllTimeDuration();
-    } catch (e) {
+      } catch (e) {
       if (requestId !== this._statsRequestId || this.isConnected === false || this._activeTab !== "stats") return;
       // recorder/statistics_during_period недоступний (немає long-term statistics) — чесна підказка, а не поламана картка
       this._statsData = { loading: false, error: true, period, groupBy, requestedIds };
@@ -3072,7 +3238,8 @@ class HaBmsBleCard extends HTMLElement {
    *  наскільки дозволяє recorder-історія (обмежено 30 днями).
    *  Рахується один раз і кешується — не прив'язано до обраного
    *  періоду, тож не бʼється з _statsFetchKey. */
-  _maybeFetchStatsAllTimeDuration() {
+  _maybeFetchStatsAllTimeDuration(force = false) {
+    if (!force) return;
     if (this._statsAllTimeDuration || this._statsAllTimeDurationInFlight) return;
     if (this._activeTab !== "stats" || this.isConnected === false) return;
     const currentId = this._e("current");
@@ -3431,7 +3598,7 @@ class HaBmsBleCard extends HTMLElement {
           <input type="number" min="1" max="300" step="1" class="bms-input" id="bms-clock-interval-input"
             value="${this._clockIntervalSeconds || 5}"
             style="width:90px; text-align:center; padding:8px 12px; border-radius:10px; background:var(--card,#151d28); border:1px solid var(--border,rgba(255,255,255,0.12)); color:#fff; font-size:14px; font-weight:600;">
-          <span style="font-size:13px; opacity:0.8;">с (сек)</span>
+          <span style="font-size:13px; opacity:0.8;">${this._t ? this._t("unit_seconds_short") : "s (sec)"}</span>
         </div>
         </div>
 
@@ -3757,6 +3924,12 @@ class HaBmsBleCard extends HTMLElement {
         }, 0);
       });
     });
+    this.querySelectorAll(".bms-btn-calc-30d").forEach((btn) => {
+      btn.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        this._maybeFetchStatsAllTimeDuration(true);
+      });
+    });
     this.querySelectorAll("details.info-accordion-section[data-stats-section]").forEach((el) => {
       el.addEventListener("toggle", () => {
         const key = el.dataset.statsSection;
@@ -4045,8 +4218,13 @@ class HaBmsBleCard extends HTMLElement {
         .flow-arrow-path { transition: stroke 0.3s ease; }
         .flow-arrow-head { transition: fill 0.3s ease; }
         @keyframes bms-arrow-flow { 0% { stroke-dashoffset: 0; opacity: 1; } 50% { opacity: 0.85; } 100% { stroke-dashoffset: -48; opacity: 1; } }
+        .flow-arrow-path {
+          animation: none !important;
+          stroke-dasharray: none !important;
+        }
         .flow-arrow-path.flow-arrow-active {
-          stroke-dasharray: 12 10 4 10; animation: bms-arrow-flow 0.7s linear infinite;
+          stroke-dasharray: 12 10 4 10 !important;
+          animation: bms-arrow-flow 0.7s linear infinite !important;
         }
         @media (prefers-reduced-motion: reduce) {
           .flow-arrow-path.flow-arrow-active { animation: none; }
