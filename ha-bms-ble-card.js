@@ -7,7 +7,7 @@
  * https://github.com/kdinya/ha-bms-ble-card
  */
 
-const CARD_VERSION = "1.2.4";
+const CARD_VERSION = "1.2.5";
 
 console.info(
   `%c HA-BMS-BLE-CARD %c v${CARD_VERSION} `,
@@ -82,6 +82,7 @@ const I18N = {
     stats_no_longterm_stats: "Дані недоступні — для обраного періоду потрібна довготривала статистика (recorder) на сенсорі накопиченої ємності.",
     stats_period_sum: "За обраний період",
     stats_lifetime_total: "За весь час",
+    stats_duration_30d: "Останні 30 днів",
     stats_charge_unavailable: "Статистика заряду поки не налаштована. Відредагуйте картку (значок олівця/меню → \"Редагувати\") і натисніть кнопку майстра \"Створити сенсори заряду/розряду\" — вона створить потрібні helper-сенсори автоматично.",
     lbl_voltage: "Напруга",
     lbl_current: "Струм",
@@ -189,6 +190,7 @@ const I18N = {
     stats_no_longterm_stats: "Data unavailable — the selected period needs long-term statistics (recorder) on the accumulated-capacity sensor.",
     stats_period_sum: "For the selected period",
     stats_lifetime_total: "All-time total",
+    stats_duration_30d: "Last 30 days",
     stats_charge_unavailable: "Charge statistics aren't set up yet. Edit the card (pencil icon/menu → \"Edit\") and click the \"Create charge/discharge sensors\" wizard button — it will create the needed helper sensors automatically.",
     lbl_voltage: "Voltage",
     lbl_current: "Current",
@@ -2245,6 +2247,9 @@ class HaBmsBleCard extends HTMLElement {
     this._statsData = null;
     this._statsFetchKey = null;
     this._statsAllTimeDuration = null;
+    this._statsRequestId = (this._statsRequestId || 0) + 1;
+    this._statsFetchInFlight = false;
+    this._statsAllTimeDurationInFlight = false;
     this._syncSettings();
     this._render();
   }
@@ -2782,7 +2787,7 @@ class HaBmsBleCard extends HTMLElement {
           <div class="val-row"><span class="v">${secondsToHuman(durPeriod)}</span></div>
         </div>` : ""}
         ${durAllTime !== undefined ? `<div class="usage-card">
-          <div class="lbl">${this._t("stats_lifetime_total")}</div>
+          <div class="lbl">${this._t("stats_duration_30d")}</div>
           <div class="val-row"><span class="v">${secondsToHuman(durAllTime)}</span></div>
         </div>` : ""}
       </div>` : "";
@@ -2799,6 +2804,11 @@ class HaBmsBleCard extends HTMLElement {
    * під навантаженням/заряду рахується окремим запитом історії струму
    * (fetchLoadChargeSeconds) — той самий період, простій не враховується.
    */
+    _statsCacheKey(period, groupBy) {
+    const devId = this._resolvedDeviceId() || "default";
+    return `${devId}:${period}:${this._statsCustomFrom || ""}:${this._statsCustomTo || ""}:${groupBy}`;
+  }
+
   async _maybeFetchStatsPeriod() {
     if (this._activeTab !== "stats") return;
     const statsSections = this._statsSections || { discharge: true, charge: false };
@@ -2808,13 +2818,14 @@ class HaBmsBleCard extends HTMLElement {
     if (!this._hass || typeof this._hass.callWS !== "function") return;
     const period = this._statsPeriod || "today";
     const { start, end, groupBy } = statsPeriodRange(period, this._statsCustomFrom, this._statsCustomTo);
-    const dischargeId = this._e("capacity_total");
-    const chargeId = this._e("charge_total");
-    const voltageId = this._e("voltage");
+    // Запитуємо лише ті сенсори, чия секція зараз відкрита —
+    // закрита секція не має викликати зайвих WS-запитів.
+    const dischargeId = statsSections.discharge ? this._e("capacity_total") : null;
+    const chargeId = statsSections.charge ? this._e("charge_total") : null;
+    const voltageId = (statsSections.discharge || statsSections.charge) ? this._e("voltage") : null;
     const ids = [dischargeId, chargeId, voltageId].filter(Boolean);
     if (!ids.length) return;
-    const devId = this._resolvedDeviceId() || "default";
-    const cacheKey = `${devId}:${period}:${this._statsCustomFrom || ""}:${this._statsCustomTo || ""}:${groupBy}`;
+    const cacheKey = this._statsCacheKey(period, groupBy);
 
     if (!this._statsCache) this._statsCache = new Map();
     const cached = this._statsCache.get(cacheKey);
@@ -2844,6 +2855,9 @@ class HaBmsBleCard extends HTMLElement {
         // може знадобитись для правильного підрахунку приросту.
         types: ["change", "sum", "mean", "min", "max", "state"],
       });
+      // Відсікаємо застарілі відповіді: конфігурація змінилась,
+      // картку демонтовано або вкладку статистики закрито.
+      if (requestId !== this._statsRequestId || this.isConnected === false || this._activeTab !== "stats") return;
       const buildSeries = (entityId) => {
         if (!entityId) return { points: [], sum: 0 };
         const rows = (result && result[entityId]) || [];
@@ -2882,6 +2896,7 @@ class HaBmsBleCard extends HTMLElement {
       const avgVoltage = buildAvgVoltage(voltageId);
       const currentId = this._e("current");
       const duration = await fetchLoadChargeSeconds(this._hass, currentId, start, end);
+      if (requestId !== this._statsRequestId || this.isConnected === false || this._activeTab !== "stats") return;
       this._statsData = {
         loading: false, error: false, period, groupBy, start, end,
         discharge, charge, avgVoltage, duration,
@@ -2893,6 +2908,7 @@ class HaBmsBleCard extends HTMLElement {
       this._statsCache.set(cacheKey, { time: Date.now(), data: this._statsData });
       this._maybeFetchStatsAllTimeDuration();
     } catch (e) {
+      if (requestId !== this._statsRequestId || this.isConnected === false || this._activeTab !== "stats") return;
       // recorder/statistics_during_period недоступний (немає long-term statistics) — чесна підказка, а не поламана картка
       this._statsData = { loading: false, error: true, period, groupBy };
     } finally {
@@ -2908,26 +2924,37 @@ class HaBmsBleCard extends HTMLElement {
     }
   }
 
-  /** "За весь час" для часу під навантаженням/заряду — best effort
-   *  (обмежено тим, скільки історії ще фізично зберігає recorder;
-   *  окремого вічного лічильника годин, на відміну від Ah, немає).
+  /** "За останні 30 днів" для часу під навантаженням/заряду —
+   *  окремого вічного лічильника годин немає, тому рахуємо
+   *  наскільки дозволяє recorder-історія (обмежено 30 днями).
    *  Рахується один раз і кешується — не прив'язано до обраного
    *  періоду, тож не бʼється з _statsFetchKey. */
   _maybeFetchStatsAllTimeDuration() {
     if (this._statsAllTimeDuration || this._statsAllTimeDurationInFlight) return;
+    if (this._activeTab !== "stats" || this.isConnected === false) return;
     const currentId = this._e("current");
     if (!currentId || !this._hass) return;
     this._statsAllTimeDurationInFlight = true;
+    const requestId = this._statsRequestId;
     const thirtyDaysAgo = new Date(Date.now() - 30 * 86400 * 1000);
     fetchLoadChargeSeconds(this._hass, currentId, thirtyDaysAgo, new Date())
       .then((res) => {
+        // Захист від застарілої відповіді після зміни конфігурації,
+        // демонтування або закриття вкладки.
+        if (requestId !== this._statsRequestId || this.isConnected === false || this._activeTab !== "stats") return;
         this._statsAllTimeDuration = res || {};
         if (this._statsData) this._statsData = { ...this._statsData, durationAllTime: this._statsAllTimeDuration };
+        const statsPane = this.querySelector ? this.querySelector('.bms-tab-pane[data-pane="stats"]') : null;
+        if (statsPane) {
+          statsPane.innerHTML = this._renderStatsPane();
+          this._wireStatsPaneEvents();
+        } else {
+          this._render();
+        }
       })
       .catch(() => {})
       .finally(() => {
         this._statsAllTimeDurationInFlight = false;
-        this._render();
       });
   }
 
@@ -3512,7 +3539,7 @@ class HaBmsBleCard extends HTMLElement {
         if (!period || period === this._statsPeriod) return;
         this._statsPeriod = period;
         const { groupBy } = statsPeriodRange(period, this._statsCustomFrom, this._statsCustomTo);
-        const cacheKey = `${period}:${this._statsCustomFrom || ""}:${this._statsCustomTo || ""}:${groupBy}`;
+        const cacheKey = this._statsCacheKey(period, groupBy);
         const cached = this._statsCache && this._statsCache.get(cacheKey);
         if (cached && cached.data && !cached.data.error) {
           this._statsData = cached.data;
@@ -3537,7 +3564,13 @@ class HaBmsBleCard extends HTMLElement {
         if (role === "from") this._statsCustomFrom = val;
         else if (role === "to") this._statsCustomTo = val;
         this._statsData = null;
-        setTimeout(() => {
+        if (this._statsDateTimer) {
+          clearTimeout(this._statsDateTimer);
+          this._statsDateTimer = null;
+        }
+        this._statsDateTimer = setTimeout(() => {
+          this._statsDateTimer = null;
+          if (!this.isConnected || this._activeTab !== "stats") return;
           const statsPane = this.querySelector('.bms-tab-pane[data-pane="stats"]');
           if (statsPane) {
             statsPane.innerHTML = this._renderStatsPane();

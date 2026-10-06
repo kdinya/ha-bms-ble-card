@@ -550,3 +550,10 @@ test("chargeFlowState supports charging mode prefixes like Bulk/Absorption/Float
   assert.strictEqual(ctx.chargeFlowState("У простої"), null);
 });
 
+
+test("statsCacheKey logic format matches device, period, custom dates and groupBy", () => {
+  const makeKey = (devId, period, from, to, groupBy) => `${devId || "default"}:${period}:${from || ""}:${to || ""}:${groupBy}`;
+  assert.equal(makeKey("bms_dev_1", "today", "", "", "hour"), "bms_dev_1:today:::hour");
+  assert.equal(makeKey(undefined, "today", "", "", "hour"), "default:today:::hour");
+  assert.equal(makeKey("bms_dev_1", "custom", "2026-01-01", "2026-01-02", "day"), "bms_dev_1:custom:2026-01-01:2026-01-02:day");
+});
