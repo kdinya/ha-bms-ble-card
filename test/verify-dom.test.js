@@ -176,6 +176,8 @@ console.log("Running comprehensive DOM & runtime verification tests...");
   card._batteryName = () => "Test BMS";
   card._statusInfo = () => ({ label: "Розряджання", icon: "ti-battery", color: "warning" });
   card._statusColorVars = () => ({ bg: "#fff", fg: "#000" });
+  card._balancingActive = () => false;
+  card._etaInfo = () => ({ seconds: 3600 });
   card._storedEnergyWh = () => 2500;
   card._cellsStats = () => ({ min: 3.25, max: 3.35, delta: 0.1, minIdx: 0, maxIdx: 3, cells: [3.25, 3.30, 3.32, 3.35] });
   card._activeTab = "home";
@@ -194,17 +196,26 @@ console.log("Running comprehensive DOM & runtime verification tests...");
     }
   };
 
-  // Mock DOM tree queries for full view
-  card.querySelector = (sel) => {
+  // Mock DOM tree queries for full view (must NOT match .bms-mini to test full-card branch)
+  const fullEl = () => {
     const el = new MockElement();
+    el.remove = () => {};
+    el.querySelector = () => fullEl();
+    el.querySelectorAll = () => [fullEl(), fullEl(), fullEl()];
+    el.appendChild = (c) => c;
+    return el;
+  };
+  card.querySelector = (sel) => {
+    if (sel === ".bms-mini") return null;
+    const el = fullEl();
     el.className = sel.replace(".", "");
     return el;
   };
   card.querySelectorAll = (sel) => {
-    return [new MockElement()];
+    return [fullEl(), fullEl(), fullEl()];
   };
 
-  // Verify runtime execution in full mode
+  // Verify runtime execution in full mode (tests design_capacity and capacity update without ReferenceError)
   assert.doesNotThrow(() => {
     card._updateDynamicDom();
   }, "card._updateDynamicDom() runs without throwing in full mode");

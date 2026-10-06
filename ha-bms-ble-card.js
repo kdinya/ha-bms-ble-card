@@ -2697,8 +2697,8 @@ class HaBmsBleCard extends HTMLElement {
     if (cycles !== undefined) updateMetric("cycles", fmt(cycles, 0));
     const design = stateOf(this._hass, this._e("design_capacity"));
     const designN = Number(design);
-    if (Number.isFinite(designN) && socPct !== null) {
-      const remainingAh = designN * (socPct / 100);
+    if (Number.isFinite(designN) && soc !== null) {
+      const remainingAh = designN * (soc / 100);
       updateMetric("capacity", `${fmt(remainingAh, 1)} ${t("unit_ah")}`);
     }
     const stored = this._storedEnergyWh();
