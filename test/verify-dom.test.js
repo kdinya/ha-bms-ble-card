@@ -263,3 +263,66 @@ console.log("Running comprehensive DOM & runtime verification tests...");
 }
 
 console.log("ALL VERIFICATION CHECKS PASSED SUCCESSFULLY!");
+
+// --- 6. Verify Visual Editor Appearance Tab & Scale Controls ---
+{
+  const editor = new mod.HaBmsBleCardEditor();
+  editor._config = { battery_scale: 120, grid_scale: 90, load_scale: 110 };
+  editor._tab = "appearance";
+  editor._t = (k) => mod.I18N.uk[k] || k;
+  
+  // Render appearance tab
+  editor._render();
+  const html = editor.innerHTML;
+  assert.ok(html.includes('data-tab="appearance"'), "Вкладка appearance присутня у переліку вкладок");
+  assert.ok(html.includes('id="battery_scale"'), "Інпут battery_scale присутній");
+  assert.ok(html.includes('id="grid_scale"'), "Інпут grid_scale присутній");
+  assert.ok(html.includes('id="load_scale"'), "Інпут load_scale присутній");
+  assert.ok(html.includes('data-scale-target="battery_scale"'), "Кнопки +/- для battery_scale присутні");
+  assert.ok(html.includes('120%'), "Відображається поточне значення battery_scale (120%)");
+
+  console.log("  ✓ Visual editor appearance tab & scale controls verified");
+}
+
+// --- 7. Verify Card Scaling & Smooth Flow State Attributes ---
+{
+  const card = Object.create(mod.HaBmsBleCard.prototype);
+  card._uid = "test-uid";
+  card._lang = "uk";
+  card._config = { battery_scale: 115, grid_scale: 95, load_scale: 105 };
+  card._t = (k) => mod.I18N.uk[k] || k;
+  card._e = (k) => (k === "charging" ? "binary_sensor.charging" : `sensor.${k}`);
+  card._batteryName = () => "Test BMS";
+  card._statusInfo = () => ({ label: "Заряджається", icon: "ti-battery", color: "success" });
+  card._statusColorVars = () => ({ bg: "#fff", fg: "#000" });
+  card._balancingActive = () => false;
+  card._etaInfo = () => ({ seconds: 1200 });
+  card._storedEnergyWh = () => 1500;
+  card._cellStats = () => null;
+  card._activeTab = "home";
+  card._homeSections = { status: true, metrics: true, chips: true };
+  card._hass = {
+    states: {
+      "binary_sensor.charging": { state: "on", attributes: {} },
+      "sensor.soc": { state: "80", attributes: {} },
+      "sensor.voltage": { state: "13.4", attributes: {} },
+      "sensor.current": { state: "15.0", attributes: {} },
+      "sensor.power": { state: "201", attributes: {} },
+      "sensor.temperature": { state: "21.0", attributes: {} },
+    }
+  };
+
+  const fullHtml = card._renderFullView();
+  assert.ok(fullHtml.includes('class="flow-row"'), "flow-row присутній");
+  assert.ok(fullHtml.includes('data-flow-state="charging"'), "data-flow-state встановлено в charging");
+  assert.ok(fullHtml.includes('--bms-bat-scale: 1.15'), "CSS-змінна --bms-bat-scale встановлена коректно");
+  assert.ok(fullHtml.includes('--bms-grid-scale: 0.95'), "CSS-змінна --bms-grid-scale встановлена коректно");
+  assert.ok(fullHtml.includes('--bms-load-scale: 1.05'), "CSS-змінна --bms-load-scale встановлена коректно");
+
+  const styles = card._styles();
+  assert.ok(styles.includes('transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1)'), "Вузли мають плавну CSS-анімацію переходу");
+  assert.ok(styles.includes('--bms-grid-flow-mult: 1.25'), "Мережа збільшується під час заряду");
+  assert.ok(styles.includes('--bms-load-flow-mult: 1.25'), "Навантаження збільшується під час розряду");
+
+  console.log("  ✓ Card responsive scale styles & smooth transitions verified");
+}

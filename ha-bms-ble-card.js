@@ -162,7 +162,12 @@ const I18N = {
     stats_calculating: "Розрахунок...",
     stats_calc_error: "Помилка завантаження історії",
     error_no_bms_device: "Не вдалося знайти акумулятор BMS_BLE-HA. Перевірте інтеграцію або оберіть пристрій у редакторі картки.",
-    editor_tab_general: "Основне",
+        editor_tab_appearance: "Вигляд і розміри",
+    editor_battery_scale: "Розмір батареї",
+    editor_grid_scale: "Розмір мережі",
+    editor_load_scale: "Розмір навантаження",
+    editor_appearance_hint: "Розміри масштабуються адаптивно. Під час заряду мережа стає більшою за навантаження, а під час розряду — навпаки. Зміна розмірів відбувається плавно.",
+editor_tab_general: "Основне",
     editor_tab_entities: "Сутності",
     editor_lbl_name: "Назва",
     editor_lbl_display_mode: "Режим відображення",
@@ -323,7 +328,12 @@ const I18N = {
     stats_calculating: "Calculating...",
     stats_calc_error: "Failed to fetch history",
     error_no_bms_device: "Failed to find BMS_BLE-HA battery. Check integration or select device in card editor.",
-    editor_tab_general: "General",
+        editor_tab_appearance: "Appearance & Sizes",
+    editor_battery_scale: "Battery size",
+    editor_grid_scale: "Grid size",
+    editor_load_scale: "Load size",
+    editor_appearance_hint: "Sizes scale responsively. During charging the grid node grows larger than the load, and during discharging vice versa. Transitions are smooth.",
+editor_tab_general: "General",
     editor_tab_entities: "Entities",
     editor_lbl_name: "Name",
     editor_lbl_display_mode: "Display mode",
@@ -2121,6 +2131,18 @@ class HaBmsBleCardEditor extends HTMLElement {
         .bms-editor select:focus {
           border-color: #1D9E75; box-shadow: 0 0 0 2px rgba(29, 158, 117, 0.25);
         }
+        .bms-scale-group { margin-bottom: 14px; }
+        .bms-scale-label { display: flex; justify-content: space-between; font-size: 13px; font-weight: 500; margin-bottom: 6px; }
+        .bms-scale-val { font-weight: 600; color: #1D9E75; }
+        .bms-scale-control { display: flex; align-items: center; gap: 8px; }
+        .bms-scale-control input[type="range"] { flex: 1; accent-color: #1D9E75; cursor: pointer; }
+        .bms-scale-btn {
+          width: 32px; height: 32px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.15);
+          background: rgba(255,255,255,0.06); color: #fff; font-size: 16px; font-weight: bold;
+          display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all 0.2s;
+        }
+        .bms-scale-btn:hover { background: rgba(255,255,255,0.15); border-color: #1D9E75; }
+        .bms-scale-hint { font-size: 11px; opacity: 0.75; line-height: 1.4; margin-top: 10px; padding: 8px 10px; background: rgba(29, 158, 117, 0.1); border-radius: 8px; border: 1px solid rgba(29, 158, 117, 0.2); }
         .bms-editor-sec-box {
           background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06);
           border-radius: 10px; padding: 10px 12px; margin-top: 4px;
@@ -2131,6 +2153,7 @@ class HaBmsBleCardEditor extends HTMLElement {
         <div class="bms-tabs">
           <button type="button" class="bms-tab ${this._tab === "main" ? "active" : ""}" data-tab="main">${this._t("editor_tab_general")}</button>
           <button type="button" class="bms-tab ${this._tab === "entities" ? "active" : ""}" data-tab="entities">${this._t("editor_tab_entities")}</button>
+          <button type="button" class="bms-tab ${this._tab === "appearance" ? "active" : ""}" data-tab="appearance">${this._t("editor_tab_appearance")}</button>
         </div>
         ${this._tab === "main" ? `
         <div>
@@ -2180,6 +2203,48 @@ class HaBmsBleCardEditor extends HTMLElement {
           <div style="display:flex; align-items:center; gap:8px;">
             <input type="number" min="1" max="300" id="bms-editor-clock-interval" value="${c.clock_interval || 5}" style="width:90px;" />
             <span style="font-size:13px; opacity:0.8;">${this._t ? this._t("unit_seconds_short") : "s (sec)"}</span>
+          </div>
+        </div>` : ""}
+        ${this._tab === "appearance" ? `
+        <div class="bms-editor-sec-box">
+          <div class="bms-scale-group">
+            <div class="bms-scale-label">
+              <span>${this._t("editor_battery_scale")}</span>
+              <span class="bms-scale-val" id="bat-scale-val">${c.battery_scale || 100}%</span>
+            </div>
+            <div class="bms-scale-control">
+              <button type="button" class="bms-scale-btn" data-scale-target="battery_scale" data-step="-5">–</button>
+              <input type="range" id="battery_scale" min="50" max="180" step="5" value="${c.battery_scale || 100}" />
+              <button type="button" class="bms-scale-btn" data-scale-target="battery_scale" data-step="5">+</button>
+            </div>
+          </div>
+
+          <div class="bms-scale-group">
+            <div class="bms-scale-label">
+              <span>${this._t("editor_grid_scale")}</span>
+              <span class="bms-scale-val" id="grid-scale-val">${c.grid_scale || 100}%</span>
+            </div>
+            <div class="bms-scale-control">
+              <button type="button" class="bms-scale-btn" data-scale-target="grid_scale" data-step="-5">–</button>
+              <input type="range" id="grid_scale" min="50" max="180" step="5" value="${c.grid_scale || 100}" />
+              <button type="button" class="bms-scale-btn" data-scale-target="grid_scale" data-step="5">+</button>
+            </div>
+          </div>
+
+          <div class="bms-scale-group">
+            <div class="bms-scale-label">
+              <span>${this._t("editor_load_scale")}</span>
+              <span class="bms-scale-val" id="load-scale-val">${c.load_scale || 100}%</span>
+            </div>
+            <div class="bms-scale-control">
+              <button type="button" class="bms-scale-btn" data-scale-target="load_scale" data-step="-5">–</button>
+              <input type="range" id="load_scale" min="50" max="180" step="5" value="${c.load_scale || 100}" />
+              <button type="button" class="bms-scale-btn" data-scale-target="load_scale" data-step="5">+</button>
+            </div>
+          </div>
+
+          <div class="bms-scale-hint">
+            ${this._t("editor_appearance_hint")}
           </div>
         </div>` : ""}
         ${this._tab === "entities" ? `
@@ -2249,6 +2314,36 @@ class HaBmsBleCardEditor extends HTMLElement {
         this._update("clock_interval", val);
       });
     }
+    // Scale controls wiring
+    this.querySelectorAll("input[type='range'][id$='_scale']").forEach((input) => {
+      input.addEventListener("input", (e) => {
+        const key = e.target.id;
+        const val = parseInt(e.target.value, 10);
+        const valSpan = this.querySelector("#" + (key === "battery_scale" ? "bat" : key === "grid_scale" ? "grid" : "load") + "-scale-val");
+        if (valSpan) valSpan.textContent = val + "%";
+      });
+      input.addEventListener("change", (e) => {
+        const key = e.target.id;
+        const val = parseInt(e.target.value, 10);
+        this._update(key, val);
+      });
+    });
+
+    this.querySelectorAll(".bms-scale-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const key = btn.dataset.scaleTarget;
+        const step = parseInt(btn.dataset.step, 10) || 5;
+        const input = this.querySelector("#" + key);
+        if (input) {
+          let val = (parseInt(input.value, 10) || 100) + step;
+          val = Math.max(50, Math.min(180, val));
+          input.value = val;
+          const valSpan = this.querySelector("#" + (key === "battery_scale" ? "bat" : key === "grid_scale" ? "grid" : "load") + "-scale-val");
+          if (valSpan) valSpan.textContent = val + "%";
+          this._update(key, val);
+        }
+      });
+    });
     this._wireEntityFields();
     this._mounted = true;
   }
@@ -2634,6 +2729,14 @@ class HaBmsBleCard extends HTMLElement {
         rightArrows.innerHTML = `${flowArrowSvg(false, isDsg, "#EF9F27", true)}${flowArrowSvg(true, isDsg, "#EF9F27", true)}`;
         this._lastFlowState = flowState;
       }
+    }
+
+    // Оновлення динамічного масштабування вузлів (заряд / розряд)
+    const flowRowEl = this.querySelector(".flow-row");
+    if (flowRowEl) {
+      flowRowEl.setAttribute("data-flow-state", flowState);
+      flowRowEl.classList.toggle("flow-state-charging", flowState === "charging");
+      flowRowEl.classList.toggle("flow-state-discharging", flowState === "discharging");
     }
 
     // 5. Flow-icon круги
@@ -3636,7 +3739,7 @@ class HaBmsBleCard extends HTMLElement {
 
         <div class="bms-tab-pane ${activeTab === "home" ? "active" : ""}" data-pane="home">
         <div class="flow-status-wrap">
-        <div class="flow-row">
+        <div class="flow-row" data-flow-state="${flowState}" style="--bms-bat-scale: ${(this._config.battery_scale || 100) / 100}; --bms-grid-scale: ${(this._config.grid_scale || 100) / 100}; --bms-load-scale: ${(this._config.load_scale || 100) / 100};">
           <div class="flow-node grid-node"${moreInfoAttr(this._e("current") || this._e("power"))}>
             ${gridPylonSvg()}
             <div class="node-lbl">${t("node_grid")}</div>
@@ -4376,10 +4479,40 @@ class HaBmsBleCard extends HTMLElement {
 
         /* Flow-діаграма заряд/розряд навколо батареї (захищена геометрія) */
         .flow-status-wrap { display: flex; flex-direction: column; margin-bottom: 14px; }
-        .flow-row { display: flex; align-items: center; justify-content: center; gap: 4px; margin: 6px 0 16px; width: 100%; }
+        .flow-row {
+          display: flex; align-items: center; justify-content: center; gap: 4px; margin: 6px 0 16px; width: 100%;
+          --bms-grid-flow-mult: 1;
+          --bms-load-flow-mult: 1;
+        }
+        .flow-row[data-flow-state="charging"],
+        .flow-row.flow-state-charging {
+          --bms-grid-flow-mult: 1.25;
+          --bms-load-flow-mult: 0.88;
+        }
+        .flow-row[data-flow-state="discharging"],
+        .flow-row.flow-state-discharging {
+          --bms-grid-flow-mult: 0.88;
+          --bms-load-flow-mult: 1.25;
+        }
         .flow-node {
           display: flex; flex-direction: column; align-items: center; gap: 4px;
           flex: 1 1 135px; min-width: 54px; max-width: 135px;
+          transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+          will-change: transform;
+        }
+        .flow-node.grid-node {
+          transform: scale(calc(var(--bms-grid-scale, 1) * var(--bms-grid-flow-mult, 1)));
+          transform-origin: center center;
+        }
+        .flow-node.load-node {
+          transform: scale(calc(var(--bms-load-scale, 1) * var(--bms-load-flow-mult, 1)));
+          transform-origin: center center;
+        }
+        .flow-battery {
+          transform: scale(var(--bms-bat-scale, 1));
+          transform-origin: center center;
+          transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+          will-change: transform;
         }
         .flow-icon-circle {
           width: 78px; height: 78px; border-radius: 50%; border: 2px solid #334155;
