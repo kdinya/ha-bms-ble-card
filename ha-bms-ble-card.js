@@ -7,7 +7,7 @@
  * https://github.com/kdinya/ha-bms-ble-card
  */
 
-const CARD_VERSION = "1.2.7";
+const CARD_VERSION = "1.2.6";
 
 console.info(
   `%c HA-BMS-BLE-CARD %c v${CARD_VERSION} `,
