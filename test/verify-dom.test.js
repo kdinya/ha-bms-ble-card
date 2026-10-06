@@ -339,3 +339,17 @@ console.log("ALL VERIFICATION CHECKS PASSED SUCCESSFULLY!");
   console.log("  ✓ Stacking context & z-index layers verified");
 
 }
+
+// --- 8. Verify Visual Editor default tab rendering (when _tab is undefined) ---
+{
+  const editor = new mod.HaBmsBleCardEditor();
+  editor._config = { display_mode: "widget" };
+  editor._t = (k) => mod.I18N.uk[k] || k;
+  editor._tab = undefined; // Default state before any tab clicked
+
+  editor._render();
+  assert.ok(editor.innerHTML.includes('id="name"'), "Дефолтна вкладка (Основне) рендериться навіть коли _tab не визначено");
+  assert.ok(editor.innerHTML.includes('class="bms-tab active"'), "Активна кнопка вкладки присутня");
+
+  console.log("  ✓ Visual editor default tab rendering verified");
+}

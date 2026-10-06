@@ -2078,6 +2078,7 @@ class HaBmsBleCardEditor extends HTMLElement {
   _render() {
     if (!this._config) return;
     const c = this._config;
+    const activeTab = this._tab || "main";
     this.innerHTML = `
       <style>
         .bms-editor {
@@ -2153,11 +2154,11 @@ class HaBmsBleCardEditor extends HTMLElement {
       </style>
       <div class="bms-editor" style="padding:12px;display:flex;flex-direction:column;gap:12px;max-width:100%;overflow-x:hidden;">
         <div class="bms-tabs">
-          <button type="button" class="bms-tab ${this._tab === "main" ? "active" : ""}" data-tab="main">${this._t("editor_tab_general")}</button>
-          <button type="button" class="bms-tab ${this._tab === "entities" ? "active" : ""}" data-tab="entities">${this._t("editor_tab_entities")}</button>
-          <button type="button" class="bms-tab ${this._tab === "appearance" ? "active" : ""}" data-tab="appearance">${this._t("editor_tab_appearance")}</button>
+          <button type="button" class="bms-tab ${activeTab === "main" ? "active" : ""}" data-tab="main">${this._t("editor_tab_general")}</button>
+          <button type="button" class="bms-tab ${activeTab === "entities" ? "active" : ""}" data-tab="entities">${this._t("editor_tab_entities")}</button>
+          <button type="button" class="bms-tab ${activeTab === "appearance" ? "active" : ""}" data-tab="appearance">${this._t("editor_tab_appearance")}</button>
         </div>
-        ${this._tab === "main" ? `
+        ${activeTab === "main" ? `
         <div>
           <label style="display:block; font-size:13px; margin-bottom:4px;">${this._t("editor_auto_from_device")}</label>
           <input id="name" type="text" value="${escapeHtml(c.name || "")}" placeholder="${this._t('editor_placeholder_auto')}"
@@ -2207,7 +2208,7 @@ class HaBmsBleCardEditor extends HTMLElement {
             <span style="font-size:13px; opacity:0.8;">${this._t ? this._t("unit_seconds_short") : "s (sec)"}</span>
           </div>
         </div>` : ""}
-        ${this._tab === "appearance" ? `
+        ${activeTab === "appearance" ? `
         <div class="bms-editor-sec-box">
           <div class="bms-scale-group">
             <div class="bms-scale-label">
@@ -2261,7 +2262,7 @@ class HaBmsBleCardEditor extends HTMLElement {
             ${this._t("editor_appearance_hint")}
           </div>
         </div>` : ""}
-        ${this._tab === "entities" ? `
+        ${activeTab === "entities" ? `
         <div>
           <div class="bms-editor-group-title">${this._t("editor_entities_title")}</div>
           <p style="font-size:12px; opacity:0.65; margin:0 0 8px; line-height:1.4;">
@@ -2624,6 +2625,7 @@ class HaBmsBleCard extends HTMLElement {
     this._hass = hass;
     if (!oldHass) {
       this._syncSettings();
+      this._render();
     }
     if (typeof document !== "undefined" && document.hidden) {
       this._needsRender = true;
