@@ -578,3 +578,34 @@ test("stale finally does not reset inFlight flag when requestId has changed", ()
   staleFinally(2); // Current request finishing
   assert.equal(inFlight, false, "inFlight should be reset when current request finishes");
 });
+
+test("stats section loading guard: does not display 0 Ah before section data is loaded", () => {
+  const isSectionLoading = (entityId, data, kind, currentPeriod = "today") => {
+    if (!data || data.period !== currentPeriod) return true;
+    if (entityId && !data.error && (!data[kind] || (data.requestedIds && !data.requestedIds.includes(entityId)))) {
+      return true;
+    }
+    return false;
+  };
+
+  const chargeEntity = "sensor.bms_charge_total";
+  // Data only contains discharge
+  const partialData = {
+    period: "today",
+    requestedIds: "sensor.bms_capacity_total,sensor.bms_voltage",
+    discharge: { sum: 15.2 },
+    charge: undefined
+  };
+
+  assert.equal(isSectionLoading(chargeEntity, partialData, "charge"), true, "Charge section should show loading when not yet fetched");
+  assert.equal(isSectionLoading("sensor.bms_capacity_total", partialData, "discharge"), false, "Discharge section with data should not show loading");
+
+  // Fully fetched data
+  const completeData = {
+    period: "today",
+    requestedIds: "sensor.bms_capacity_total,sensor.bms_charge_total,sensor.bms_voltage",
+    discharge: { sum: 15.2 },
+    charge: { sum: 0 }
+  };
+  assert.equal(isSectionLoading(chargeEntity, completeData, "charge"), false, "Charge section with fetched 0 Ah should render, not loading");
+});

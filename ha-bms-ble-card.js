@@ -7,7 +7,7 @@
  * https://github.com/kdinya/ha-bms-ble-card
  */
 
-const CARD_VERSION = "1.2.5";
+const CARD_VERSION = "1.2.6";
 
 console.info(
   `%c HA-BMS-BLE-CARD %c v${CARD_VERSION} `,
@@ -2749,6 +2749,10 @@ class HaBmsBleCard extends HTMLElement {
       return `<p class="bms-muted">${this._t("stats_loading")}</p>`;
     }
 
+    if (entityId && !data.error && (!data[kind] || (data.requestedIds && !data.requestedIds.includes(entityId)))) {
+      return `<p class="bms-muted">${this._t("stats_loading")}</p>`;
+    }
+
     const ahBlockHtml = (() => {
       if (!entityId) {
         // Ah-сенсори (Setup Wizard) ще не створені — чесна підказка саме
@@ -2893,18 +2897,19 @@ class HaBmsBleCard extends HTMLElement {
         if (!means.length) return undefined;
         return means.reduce((s, v) => s + v, 0) / means.length;
       };
-      const discharge = buildSeries(dischargeId);
-      const charge = buildSeries(chargeId);
+      const discharge = dischargeId ? buildSeries(dischargeId) : undefined;
+      const charge = chargeId ? buildSeries(chargeId) : undefined;
       const avgVoltage = buildAvgVoltage(voltageId);
       const currentId = this._e("current");
       const duration = await fetchLoadChargeSeconds(this._hass, currentId, start, end);
       if (requestId !== this._statsRequestId || this.isConnected === false || this._activeTab !== "stats") return;
       this._statsData = {
         loading: false, error: false, period, groupBy, start, end,
+        requestedIds,
         discharge, charge, avgVoltage, duration,
         durationAllTime: this._statsAllTimeDuration,
-        whDischarge: Number.isFinite(avgVoltage) ? discharge.sum * avgVoltage : undefined,
-        whCharge: Number.isFinite(avgVoltage) ? charge.sum * avgVoltage : undefined,
+        whDischarge: Number.isFinite(avgVoltage) && discharge ? discharge.sum * avgVoltage : undefined,
+        whCharge: Number.isFinite(avgVoltage) && charge ? charge.sum * avgVoltage : undefined,
       };
       if (!this._statsCache) this._statsCache = new Map();
       this._statsCache.set(cacheKey, { time: Date.now(), data: this._statsData });
