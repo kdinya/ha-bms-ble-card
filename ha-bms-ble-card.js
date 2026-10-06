@@ -2549,10 +2549,17 @@ class HaBmsBleCard extends HTMLElement {
     if (mini) {
       const batBox = mini.querySelector(".battery-box");
       if (batBox && !this._batteryAnimating) {
-        batBox.innerHTML = `
-          ${jarBatterySvg(this._uid, soc, fmt(voltage, 2))}
-          <div class="charge-badge" style="font-size:12px;padding:6px 10px;">${escapeHtml(statusLabelText(status, t))}</div>
-        `;
+        if (this._lastMiniBatSoc !== soc || this._lastMiniBatVolt !== voltage) {
+          batBox.innerHTML = `
+            ${jarBatterySvg(this._uid, soc, fmt(voltage, 2))}
+            <div class="charge-badge" style="font-size:12px;padding:6px 10px;">${escapeHtml(statusLabelText(status, t))}</div>
+          `;
+          this._lastMiniBatSoc = soc;
+          this._lastMiniBatVolt = voltage;
+        } else {
+          const badge = batBox.querySelector(".charge-badge");
+          if (badge) badge.textContent = statusLabelText(status, t);
+        }
       }
       const stEl = mini.querySelector(".header .status");
       if (stEl) {
@@ -2572,7 +2579,11 @@ class HaBmsBleCard extends HTMLElement {
     // 1. Оновлюємо рідину та текст батареї (jarBatterySvg)
     const batEl = this.querySelector(".flow-battery");
     if (batEl && !this._batteryAnimating) {
-      batEl.innerHTML = jarBatterySvg(this._uid, soc, fmt(voltage, 2));
+      if (this._lastBatSoc !== soc || this._lastBatVolt !== voltage) {
+        batEl.innerHTML = jarBatterySvg(this._uid, soc, fmt(voltage, 2));
+        this._lastBatSoc = soc;
+        this._lastBatVolt = voltage;
+      }
     }
 
     // 2. Вузол "Мережа" (Grid)
@@ -2614,12 +2625,15 @@ class HaBmsBleCard extends HTMLElement {
     // 4. Стрілки потоку (без анімації у спокої)
     const arrowWraps = this.querySelectorAll(".flow-arrows");
     if (arrowWraps.length >= 2) {
-      const leftArrows = arrowWraps[0];
-      const rightArrows = arrowWraps[1];
-      const isChg = flowState === "charging";
-      const isDsg = flowState === "discharging";
-      leftArrows.innerHTML = `${flowArrowSvg(false, isChg, "#1D9E75")}${flowArrowSvg(true, isChg, "#1D9E75")}`;
-      rightArrows.innerHTML = `${flowArrowSvg(false, isDsg, "#EF9F27", true)}${flowArrowSvg(true, isDsg, "#EF9F27", true)}`;
+      if (this._lastFlowState !== flowState) {
+        const leftArrows = arrowWraps[0];
+        const rightArrows = arrowWraps[1];
+        const isChg = flowState === "charging";
+        const isDsg = flowState === "discharging";
+        leftArrows.innerHTML = `${flowArrowSvg(false, isChg, "#1D9E75")}${flowArrowSvg(true, isChg, "#1D9E75")}`;
+        rightArrows.innerHTML = `${flowArrowSvg(false, isDsg, "#EF9F27", true)}${flowArrowSvg(true, isDsg, "#EF9F27", true)}`;
+        this._lastFlowState = flowState;
+      }
     }
 
     // 5. Flow-icon круги
@@ -5300,6 +5314,11 @@ class HaBmsBleCard extends HTMLElement {
 
   _render() {
     if (!this._config || !this._hass) return;
+    this._lastBatSoc = undefined;
+    this._lastBatVolt = undefined;
+    this._lastMiniBatSoc = undefined;
+    this._lastMiniBatVolt = undefined;
+    this._lastFlowState = undefined;
     this._resolvedEntities = this._effectiveEntities();
 
     if (!this._hasAnyData()) {

@@ -4,7 +4,7 @@
   "description": "Lovelace card for BLE BMS batteries integrated via BMS_BLE-HA",
   "main": "ha-bms-ble-card.js",
   "scripts": {
-    "test": "node --test test/logic.test.js test/smoke-render.test.js",
+    "test": "node --test test/logic.test.js test/smoke-render.test.js test/verify-dom.test.js",
     "check": "node --check ha-bms-ble-card.js",
     "verify": "node --check ha-bms-ble-card.js && npm test && node test/verify-dom.test.js"
   },
