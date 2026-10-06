@@ -2316,13 +2316,15 @@ class HaBmsBleCard extends HTMLElement {
     this._stopClockTicker();
     if (typeof window === "undefined") return;
     if (!this._isCardVisible()) return;
+    // Оновлюємо свіжість даних кожні 15 секунд лише в текстовому полі заголовка,
+    // без жодного перерендеру картки, звільняючи процесор у режимі спокою.
     this._clockInterval = setInterval(() => {
       if (!this._isCardVisible()) {
         this._stopClockTicker();
         return;
       }
       this._updateClockFreshness();
-    }, 1000);
+    }, 15000);
   }
 
   _stopClockTicker() {
@@ -3057,7 +3059,7 @@ class HaBmsBleCard extends HTMLElement {
         <div class="header">
           <div class="hdr-left">
             <h1 title="${this._batteryName()}">${this._batteryName()}</h1>
-            <span class="hdr-status-pill" style="background:${statusSc.bg};color:${statusSc.fg}"><span class="hdr-status-dot"></span>${statusLabelText(status)}</span>
+            <span class="hdr-status-pill" style="background:${statusSc.bg};color:${statusSc.fg}"><span class="hdr-status-dot ${flowState === "charging" || flowState === "discharging" || status.color === "danger" ? "pulse" : ""}"></span>${statusLabelText(status)}</span>
           </div>
           <div class="hdr-right"${moreInfoAttr(this._e("link_quality") || this._e("rssi"))}>
             <span class="hdr-clock ${isStale ? "stale" : ""}" title="${nowStr}">${clockDisplay}</span>
@@ -3774,7 +3776,7 @@ class HaBmsBleCard extends HTMLElement {
           background: var(--green);
           box-shadow: 0 0 10px var(--green);
           display: inline-block;
-          animation: bms-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+          animation: none;
         }
         @keyframes bms-pulse {
           0%, 100% { opacity: 1; transform: scale(1); }
@@ -4491,7 +4493,8 @@ class HaBmsBleCard extends HTMLElement {
           margin-top: 5px; padding: 3px 10px; border-radius: 999px;
           font-size: 11px; font-weight: 700; letter-spacing: 0.02em; width: fit-content;
         }
-        .hdr-status-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; animation: bmsPulse 2.4s ease-in-out infinite; }
+        .hdr-status-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+        .hdr-status-dot.pulse { animation: bmsPulse 2.4s ease-in-out infinite; }
         @keyframes bmsPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
         .hdr-clock { background: var(--panel); border: 1px solid var(--border); border-radius: 999px; padding: 4px 12px; font-size: 11.5px; font-variant-numeric: tabular-nums; }
         .section-head {
