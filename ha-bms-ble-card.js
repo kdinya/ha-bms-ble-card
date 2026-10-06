@@ -2541,7 +2541,7 @@ class HaBmsBleCard extends HTMLElement {
     const currentN = numStateOf(this._hass, this._e("current"));
     const power = numStateOf(this._hass, this._e("power"));
     const temp = stateOf(this._hass, this._e("temperature"));
-    const status = this._currentStatus();
+    const status = this._statusInfo();
     const statusSc = this._statusColorVars(status.color);
     const flowState = chargeFlowState(status.label);
 
@@ -2970,6 +2970,10 @@ class HaBmsBleCard extends HTMLElement {
   _cellVoltageEntityIds() {
     const explicit = this._e("cell_voltages");
     return Array.isArray(explicit) && explicit.length ? explicit : undefined;
+  }
+
+  _currentStatus() {
+    return this._statusInfo();
   }
 
   _statusInfo() {

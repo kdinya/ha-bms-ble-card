@@ -175,7 +175,6 @@ console.log("Running comprehensive DOM & runtime verification tests...");
   card._e = (k) => `sensor.${k}`;
   card._batteryName = () => "Test BMS";
   card._statusInfo = () => ({ label: "Розряджання", icon: "ti-battery", color: "warning" });
-  card._currentStatus = () => ({ label: "Розряджання", icon: "ti-battery", color: "warning" });
   card._statusColorVars = () => ({ bg: "#fff", fg: "#000" });
   card._storedEnergyWh = () => 2500;
   card._cellsStats = () => ({ min: 3.25, max: 3.35, delta: 0.1, minIdx: 0, maxIdx: 3, cells: [3.25, 3.30, 3.32, 3.35] });
