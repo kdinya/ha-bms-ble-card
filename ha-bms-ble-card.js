@@ -2327,7 +2327,7 @@ class HaBmsBleCard extends HTMLElement {
     this._stopClockTicker();
     if (typeof window === "undefined") return;
     if (!this._isCardVisible()) return;
-    // Оновлюємо свіжість даних кожні 15 секунд лише в текстовому полі заголовка,
+    // Оновлюємо свіжість даних кожні 5 секунд лише в текстовому полі заголовка,
     // без жодного перерендеру картки, звільняючи процесор у режимі спокою.
     this._clockInterval = setInterval(() => {
       if (!this._isCardVisible()) {
@@ -2804,9 +2804,10 @@ class HaBmsBleCard extends HTMLElement {
    * під навантаженням/заряду рахується окремим запитом історії струму
    * (fetchLoadChargeSeconds) — той самий період, простій не враховується.
    */
-    _statsCacheKey(period, groupBy) {
+    _statsCacheKey(period, groupBy, requestedIds) {
     const devId = this._resolvedDeviceId() || "default";
-    return `${devId}:${period}:${this._statsCustomFrom || ""}:${this._statsCustomTo || ""}:${groupBy}`;
+    const reqStr = requestedIds ? `:${requestedIds}` : "";
+    return `${devId}:${period}:${this._statsCustomFrom || ""}:${this._statsCustomTo || ""}:${groupBy}${reqStr}`;
   }
 
   async _maybeFetchStatsPeriod() {
@@ -2825,7 +2826,8 @@ class HaBmsBleCard extends HTMLElement {
     const voltageId = (statsSections.discharge || statsSections.charge) ? this._e("voltage") : null;
     const ids = [dischargeId, chargeId, voltageId].filter(Boolean);
     if (!ids.length) return;
-    const cacheKey = this._statsCacheKey(period, groupBy);
+    const requestedIds = [...ids].sort().join(",");
+    const cacheKey = this._statsCacheKey(period, groupBy, requestedIds);
 
     if (!this._statsCache) this._statsCache = new Map();
     const cached = this._statsCache.get(cacheKey);
@@ -2912,8 +2914,10 @@ class HaBmsBleCard extends HTMLElement {
       // recorder/statistics_during_period недоступний (немає long-term statistics) — чесна підказка, а не поламана картка
       this._statsData = { loading: false, error: true, period, groupBy };
     } finally {
-      this._statsFetchInFlight = false;
-      if (requestId !== this._statsRequestId || this.isConnected === false) return;
+      if (requestId === this._statsRequestId) {
+        this._statsFetchInFlight = false;
+      }
+      if (requestId !== this._statsRequestId || this.isConnected === false || this._activeTab !== "stats") return;
       const statsPane = this.querySelector ? this.querySelector('.bms-tab-pane[data-pane="stats"]') : null;
       if (statsPane) {
         statsPane.innerHTML = this._renderStatsPane();
@@ -2954,7 +2958,9 @@ class HaBmsBleCard extends HTMLElement {
       })
       .catch(() => {})
       .finally(() => {
-        this._statsAllTimeDurationInFlight = false;
+        if (requestId === this._statsRequestId) {
+          this._statsAllTimeDurationInFlight = false;
+        }
       });
   }
 
@@ -3539,7 +3545,12 @@ class HaBmsBleCard extends HTMLElement {
         if (!period || period === this._statsPeriod) return;
         this._statsPeriod = period;
         const { groupBy } = statsPeriodRange(period, this._statsCustomFrom, this._statsCustomTo);
-        const cacheKey = this._statsCacheKey(period, groupBy);
+        const statsSections = this._statsSections || { discharge: true, charge: false };
+        const dischargeId = statsSections.discharge ? this._e("capacity_total") : null;
+        const chargeId = statsSections.charge ? this._e("charge_total") : null;
+        const voltageId = (statsSections.discharge || statsSections.charge) ? this._e("voltage") : null;
+        const requestedIds = [dischargeId, chargeId, voltageId].filter(Boolean).sort().join(",");
+        const cacheKey = this._statsCacheKey(period, groupBy, requestedIds);
         const cached = this._statsCache && this._statsCache.get(cacheKey);
         if (cached && cached.data && !cached.data.error) {
           this._statsData = cached.data;

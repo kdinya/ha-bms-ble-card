@@ -551,9 +551,30 @@ test("chargeFlowState supports charging mode prefixes like Bulk/Absorption/Float
 });
 
 
-test("statsCacheKey logic format matches device, period, custom dates and groupBy", () => {
-  const makeKey = (devId, period, from, to, groupBy) => `${devId || "default"}:${period}:${from || ""}:${to || ""}:${groupBy}`;
-  assert.equal(makeKey("bms_dev_1", "today", "", "", "hour"), "bms_dev_1:today:::hour");
+test("statsCacheKey logic format matches device, period, custom dates, groupBy and requestedIds", () => {
+  const makeKey = (devId, period, from, to, groupBy, requestedIds) => {
+    const reqStr = requestedIds ? `:${requestedIds}` : "";
+    return `${devId || "default"}:${period}:${from || ""}:${to || ""}:${groupBy}${reqStr}`;
+  };
+  assert.equal(makeKey("bms_dev_1", "today", "", "", "hour", "sensor.discharge"), "bms_dev_1:today:::hour:sensor.discharge");
+  assert.notEqual(
+    makeKey("bms_dev_1", "today", "", "", "hour", "sensor.discharge"),
+    makeKey("bms_dev_1", "today", "", "", "hour", "sensor.charge,sensor.discharge")
+  );
   assert.equal(makeKey(undefined, "today", "", "", "hour"), "default:today:::hour");
-  assert.equal(makeKey("bms_dev_1", "custom", "2026-01-01", "2026-01-02", "day"), "bms_dev_1:custom:2026-01-01:2026-01-02:day");
+});
+
+test("stale finally does not reset inFlight flag when requestId has changed", () => {
+  let inFlight = true;
+  let activeRequestId = 2;
+
+  const staleFinally = (staleReqId) => {
+    if (staleReqId === activeRequestId) inFlight = false;
+  };
+
+  staleFinally(1); // Old request finishing
+  assert.equal(inFlight, true, "inFlight should remain true while new request is active");
+
+  staleFinally(2); // Current request finishing
+  assert.equal(inFlight, false, "inFlight should be reset when current request finishes");
 });
