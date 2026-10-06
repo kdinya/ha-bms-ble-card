@@ -2241,6 +2241,10 @@ class HaBmsBleCard extends HTMLElement {
   setConfig(config) {
     this._config = { display_mode: "widget", ...config };
     this._resolvedEntities = null;
+    this._statsCache = null;
+    this._statsData = null;
+    this._statsFetchKey = null;
+    this._statsAllTimeDuration = null;
     this._syncSettings();
     this._render();
   }
@@ -2265,7 +2269,9 @@ class HaBmsBleCard extends HTMLElement {
       return;
     }
     this._needsRender = false;
-    this._maybeFetchStatsPeriod();
+    if (this._activeTab === "stats") {
+      this._maybeFetchStatsPeriod();
+    }
     this._scheduleRender();
   }
 
@@ -2442,6 +2448,7 @@ class HaBmsBleCard extends HTMLElement {
     if (this._io) { this._io.disconnect(); this._io = undefined; }
     this._stopBatteryDemoAnimation();
     if (this._batteryPressTimer) { clearTimeout(this._batteryPressTimer); this._batteryPressTimer = null; }
+    if (this._statsDateTimer) { clearTimeout(this._statsDateTimer); this._statsDateTimer = null; }
   }
 
   _resolvedDeviceId() {
@@ -2793,6 +2800,9 @@ class HaBmsBleCard extends HTMLElement {
    * (fetchLoadChargeSeconds) — той самий період, простій не враховується.
    */
   async _maybeFetchStatsPeriod() {
+    if (this._activeTab !== "stats") return;
+    const statsSections = this._statsSections || { discharge: true, charge: false };
+    if (!statsSections.discharge && !statsSections.charge) return;
     if (typeof document !== "undefined" && document.hidden) return;
     if (this.isConnected === false) return;
     if (!this._hass || typeof this._hass.callWS !== "function") return;
@@ -2803,21 +2813,23 @@ class HaBmsBleCard extends HTMLElement {
     const voltageId = this._e("voltage");
     const ids = [dischargeId, chargeId, voltageId].filter(Boolean);
     if (!ids.length) return;
-    const cacheKey = `${period}:${this._statsCustomFrom || ""}:${this._statsCustomTo || ""}:${groupBy}`;
+    const devId = this._resolvedDeviceId() || "default";
+    const cacheKey = `${devId}:${period}:${this._statsCustomFrom || ""}:${this._statsCustomTo || ""}:${groupBy}`;
 
     if (!this._statsCache) this._statsCache = new Map();
     const cached = this._statsCache.get(cacheKey);
     const now = Date.now();
     const ttl = period === "today" ? 60 * 1000 : 10 * 60 * 1000;
-    if (cached && (now - cached.time < ttl) && cached.data && !cached.data.error) {
+    const cacheIsFresh = cached && (now - cached.time < ttl) && cached.data && !cached.data.error;
+    if (cacheIsFresh) {
       this._statsData = cached.data;
       this._statsFetchKey = cacheKey;
       return;
     }
-    if (this._statsFetchKey === cacheKey && this._statsData && !this._statsData.error) return;
     if (this._statsFetchInFlight) return;
     this._statsFetchInFlight = true;
     this._statsFetchKey = cacheKey;
+    const requestId = (this._statsRequestId = (this._statsRequestId || 0) + 1);
     try {
       const result = await this._hass.callWS({
         type: "recorder/statistics_during_period",
@@ -2885,6 +2897,7 @@ class HaBmsBleCard extends HTMLElement {
       this._statsData = { loading: false, error: true, period, groupBy };
     } finally {
       this._statsFetchInFlight = false;
+      if (requestId !== this._statsRequestId || this.isConnected === false) return;
       const statsPane = this.querySelector ? this.querySelector('.bms-tab-pane[data-pane="stats"]') : null;
       if (statsPane) {
         statsPane.innerHTML = this._renderStatsPane();
@@ -2905,7 +2918,8 @@ class HaBmsBleCard extends HTMLElement {
     const currentId = this._e("current");
     if (!currentId || !this._hass) return;
     this._statsAllTimeDurationInFlight = true;
-    fetchLoadChargeSeconds(this._hass, currentId, new Date(2000, 0, 1), new Date())
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 86400 * 1000);
+    fetchLoadChargeSeconds(this._hass, currentId, thirtyDaysAgo, new Date())
       .then((res) => {
         this._statsAllTimeDuration = res || {};
         if (this._statsData) this._statsData = { ...this._statsData, durationAllTime: this._statsAllTimeDuration };
@@ -3541,6 +3555,9 @@ class HaBmsBleCard extends HTMLElement {
         if (!key) return;
         if (!this._statsSections) this._statsSections = { discharge: true, charge: false };
         this._statsSections[key] = el.open;
+        if (el.open) {
+          this._maybeFetchStatsPeriod();
+        }
       });
     });
   }
@@ -3570,41 +3587,12 @@ class HaBmsBleCard extends HTMLElement {
         this.querySelectorAll(".bms-full, .bms-card").forEach(c => c.classList.toggle("bms-reduced-motion", this._reducedMotion));
       });
     });
-    this.querySelectorAll(".stats-date-input[data-role]").forEach((el) => {
-      el.addEventListener("change", (ev) => {
-        ev.stopPropagation();
-        const role = el.dataset.role;
-        const val = el.value || "";
-        if (role === "from") this._statsCustomFrom = val;
-        else if (role === "to") this._statsCustomTo = val;
-        this._statsData = null;
-        // Відкладаємо перерендер на наступний тік: якщо перебудувати
-        // innerHTML картки синхронно всередині обробника "change", у
-        // деяких браузерах (особливо мобільних) це зриває ще не
-        // доанімований нативний календар — він самовільно закривався.
-        setTimeout(() => {
-          this._render();
-          this._maybeFetchStatsPeriod();
-        }, 0);
-      });
-    });
     this.querySelectorAll("details.info-accordion-section[data-section]").forEach((el) => {
       el.addEventListener("toggle", () => {
         const key = el.dataset.section;
         if (!key) return;
         if (!this._infoSections) this._infoSections = { cells: true, indicators: false, functions: false };
-        // Лише запам'ятовуємо стан, БЕЗ this._render() — перерендер під час
-        // взаємодії (напр. скролу/тапу всередині) саме й скидав <details>
-        // назад до дефолтного стану з шаблону.
         this._infoSections[key] = el.open;
-      });
-    });
-    this.querySelectorAll("details.info-accordion-section[data-stats-section]").forEach((el) => {
-      el.addEventListener("toggle", () => {
-        const key = el.dataset.statsSection;
-        if (!key) return;
-        if (!this._statsSections) this._statsSections = { discharge: true, charge: false };
-        this._statsSections[key] = el.open;
       });
     });
     const langPickerBtn = this.querySelector("#bms-lang-picker-btn");

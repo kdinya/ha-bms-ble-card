@@ -679,6 +679,7 @@ const _statsWsRegressionPromise = (async () => {
   };
   card._resolvedEntities = { capacity_total: "sensor.cap_total" };
   card._render = () => {};
+  card._activeTab = "stats";
   card._statsPeriod = "week";
   await card._maybeFetchStatsPeriod();
 
