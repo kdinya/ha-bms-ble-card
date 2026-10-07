@@ -2530,6 +2530,11 @@ class HaBmsBleCard extends HTMLElement {
     if (this._resolvedEntities && this._resolvedEntities.device_id) {
       return this._resolvedEntities.device_id;
     }
+    const anyEntity = (c.entities && (c.entities.soc || c.entities.voltage || c.entities.current)) ||
+                      (this._resolvedEntities && (this._resolvedEntities.soc || this._resolvedEntities.voltage));
+    if (anyEntity && this._hass && this._hass.entities && this._hass.entities[anyEntity] && this._hass.entities[anyEntity].device_id) {
+      return this._hass.entities[anyEntity].device_id;
+    }
     if (c.name && typeof c.name === "string" && c.name.trim()) {
       return c.name.trim();
     }
@@ -2541,8 +2546,11 @@ class HaBmsBleCard extends HTMLElement {
     const devId = this._getDeviceOrCardKey();
 
     let storedHomeSecs = null;
+    this._lastSyncedDevId = devId;
+    const cardName = (c.name && typeof c.name === "string" && c.name.trim()) ? c.name.trim() : null;
     const storageKeys = [
       devId ? `${HOME_SECTIONS_STORAGE_KEY}-${devId}` : null,
+      cardName ? `${HOME_SECTIONS_STORAGE_KEY}-${cardName}` : null,
       HOME_SECTIONS_STORAGE_KEY
     ].filter(Boolean);
     for (const k of storageKeys) {
@@ -2623,7 +2631,8 @@ class HaBmsBleCard extends HTMLElement {
   set hass(hass) {
     const oldHass = this._hass;
     this._hass = hass;
-    if (!oldHass) {
+    const curDevId = this._getDeviceOrCardKey();
+    if (!oldHass || (!this._lastSyncedDevId && curDevId)) {
       this._syncSettings();
       this._render();
     }
@@ -3160,10 +3169,13 @@ class HaBmsBleCard extends HTMLElement {
   _setHomeSection(key, val) {
     this._homeSections = Object.assign({}, this._homeSections, { [key]: !!val });
     const devId = this._getDeviceOrCardKey();
+    const c = this._config || {};
+    const cardName = (c.name && typeof c.name === "string" && c.name.trim()) ? c.name.trim() : null;
     try {
       const json = JSON.stringify(this._homeSections);
       window.localStorage.setItem(HOME_SECTIONS_STORAGE_KEY, json);
       if (devId) window.localStorage.setItem(`${HOME_SECTIONS_STORAGE_KEY}-${devId}`, json);
+      if (cardName) window.localStorage.setItem(`${HOME_SECTIONS_STORAGE_KEY}-${cardName}`, json);
     } catch (e) { /* ignore */ }
 
     if (this._config) {
