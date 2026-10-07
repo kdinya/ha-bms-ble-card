@@ -353,3 +353,31 @@ console.log("ALL VERIFICATION CHECKS PASSED SUCCESSFULLY!");
 
   console.log("  ✓ Visual editor default tab rendering verified");
 }
+
+// --- 9. Verify Visual Editor Language selector & Settings Cache Notice ---
+{
+  const editor = new mod.HaBmsBleCardEditor();
+  editor._config = { display_mode: "widget" };
+  editor._t = (k) => mod.I18N.en[k] || k;
+  editor._tab = "main";
+
+  editor._render();
+  assert.ok(editor.innerHTML.includes('id="bms-editor-language"'), "Селектор мови присутній у візуальному редакторі");
+  assert.ok(editor.innerHTML.includes('🇬🇧 English'), "Опція англійської мови присутня");
+  assert.ok(editor.innerHTML.includes('🇺🇦 Українська'), "Опція української мови присутня");
+
+  // Перевірка селектора мови в розмітці та дефолтної мови
+  assert.ok(editor.innerHTML.includes('value="en" selected'), "Англійська мова вибрана за замовчуванням у селекторі");
+
+  // Перевірка наявності попередження про кеш у налаштуваннях
+  const card = Object.create(mod.HaBmsBleCard.prototype);
+  card._config = {};
+  card._t = (k) => mod.I18N.en[k] || k;
+  card._tab = "settings";
+  card._homeSections = { status: true, metrics: true, chips: true };
+  const fullHtml = card._renderFullView();
+  assert.ok(fullHtml.includes("data-home-section="), "Перемикачі секцій присутні в налаштуваннях");
+  assert.ok(fullHtml.includes(mod.I18N.en.settings_home_sections_cache_notice), "Попередження про скидання локальних налаштувань присутнє");
+
+  console.log("  ✓ Visual editor language selector & settings cache notice verified");
+}

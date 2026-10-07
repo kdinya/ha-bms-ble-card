@@ -311,6 +311,7 @@ console.log("Discovered:", Object.keys(discovered).sort().join(", "));
 {
   const card = Object.create(mod.HaBmsBleCard.prototype);
   card._config = { entities: {} };
+  card._lang = "uk";
 
   // 1) charging: on → статус "Заряджається" → клас bms-flow-charging.
   const hassCharging = {
@@ -374,6 +375,7 @@ console.log("Discovered:", Object.keys(discovered).sort().join(", "));
 {
   const card = Object.create(mod.HaBmsBleCard.prototype);
   card._config = { entities: {} };
+  card._lang = "uk";
 
   const hassCharging = {
     ...mockHass,

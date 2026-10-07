@@ -20,8 +20,8 @@ console.info(
  *  localStorage і перемикається на вкладці "Налаштування" без
  *  перезавантаження сторінки (просто перерендерює картку). */
 const AVAILABLE_LANGUAGES = [
-  { code: "uk", name: "Українська", flag: "🇺🇦" },
   { code: "en", name: "English", flag: "🇬🇧" },
+  { code: "uk", name: "Українська", flag: "🇺🇦" },
 ];
 
 const I18N = {
@@ -150,6 +150,9 @@ const I18N = {
     settings_language_hint: "Мова інтерфейсу картки",
     settings_home_sections: "Відображення на головній",
     settings_home_sections_hint: "Оберіть інформаційні блоки для головної вкладки",
+    settings_home_sections_cache_notice: "Зверніть увагу — ці налаштування діють локально в цьому браузері. При повному очищенні кешу вони скинуться до значень, збережених у візуальному редакторі картки.",
+    editor_language: "Мова інтерфейсу картки",
+    editor_language_hint: "Мова за замовчуванням для цієї картки (зберігається в конфігурації)",
     settings_show_status: "Статус (під батареєю)",
     settings_show_metrics: "Ключові показники",
     settings_show_chips: "Стан системи",
@@ -317,6 +320,9 @@ editor_tab_general: "Основне",
     settings_language_hint: "Card interface language",
     settings_home_sections: "Home tab display",
     settings_home_sections_hint: "Choose information sections to display on the main tab",
+    settings_home_sections_cache_notice: "Note — these settings apply locally in this browser. When clearing cache, they will reset to the values saved in the card visual editor.",
+    editor_language: "Card Interface Language",
+    editor_language_hint: "Default language for this card (saved in configuration)",
     settings_show_status: "Status (below battery)",
     settings_show_metrics: "Key metrics",
     settings_show_chips: "System state",
@@ -1724,10 +1730,14 @@ function chargeFlowState(statusLabel) {
 }
 
 class HaBmsBleCardEditor extends HTMLElement {
+  _effectiveLang() {
+    const c = this._config || {};
+    return c.language || c.lang || (this._hass && this._hass.language === "uk" ? "uk" : "en") || "en";
+  }
   _t(key) {
-    const lang = (this._config && this._config.language) || (this._hass && this._hass.language) || "uk";
-    const dict = I18N[lang] || I18N.uk;
-    return dict[key] || I18N.uk[key] || key;
+    const lang = this._effectiveLang();
+    const dict = I18N[lang] || I18N.en || I18N.uk;
+    return dict[key] || I18N.en[key] || I18N.uk[key] || key;
   }
   setConfig(config) {
     this._config = { ...config };
@@ -2082,22 +2092,46 @@ class HaBmsBleCardEditor extends HTMLElement {
     this.innerHTML = `
       <style>
         .bms-editor {
-          background: var(--card-background-color, #151d28);
-          border: 1px solid var(--divider-color, rgba(255,255,255,0.08));
-          border-radius: 16px;
-          color: var(--primary-text-color, #e1e7ec);
-          font-family: inherit;
+          --card: #0b121c;
+          --panel: rgba(18, 28, 42, 0.65);
+          --panel-hover: rgba(26, 40, 58, 0.85);
+          --border: rgba(255, 255, 255, 0.08);
+          --text: #f0f4f8;
+          --accent: #1D9E75;
+
+          background: radial-gradient(120% 120% at 50% 0%, #111b27 0%, var(--card) 60%, #070b10 100%) !important;
+          border: 1px solid var(--border) !important;
+          border-radius: 20px !important;
+          box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.08) !important;
+          color: var(--text, #e1e7ec);
+          font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+          backdrop-filter: blur(12px);
+          -webkit-backdrop-filter: blur(12px);
+          padding: 16px;
         }
-        .bms-editor-group-title { font-size: 13px; font-weight: 600; color: #fff; margin-bottom: 8px; letter-spacing: 0.2px; }
+        .bms-editor-card {
+          background: var(--panel);
+          border: 1px solid var(--border);
+          border-radius: 14px;
+          padding: 12px 14px;
+          margin-bottom: 12px;
+        }
+        .bms-editor-group-title {
+          font-size: 13px; font-weight: 600; color: #fff; margin-bottom: 10px; letter-spacing: 0.3px;
+          display: flex; align-items: center; gap: 8px;
+        }
+        .bms-editor-group-title::before {
+          content: ""; display: inline-block; width: 4px; height: 14px; background: var(--accent); border-radius: 2px;
+        }
         details.bms-group {
           background: rgba(255, 255, 255, 0.03);
-          border: 1px solid rgba(255, 255, 255, 0.08);
+          border: 1px solid var(--border);
           border-radius: 12px;
           padding: 10px 12px;
           margin-bottom: 10px;
-          transition: border-color 0.2s;
+          transition: border-color 0.2s, background 0.2s;
         }
-        details.bms-group[open] { border-color: rgba(29, 158, 117, 0.4); background: rgba(255, 255, 255, 0.04); }
+        details.bms-group[open] { border-color: rgba(29, 158, 117, 0.4); background: rgba(255, 255, 255, 0.05); }
         details.bms-group summary { cursor: pointer; font-size: 13px; font-weight: 600; color: #fff; padding: 2px 0; outline: none; }
         .bms-group-grid { display: grid; grid-template-columns: 1fr; gap: 10px; margin-top: 10px; }
         .bms-cell-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
@@ -2107,50 +2141,76 @@ class HaBmsBleCardEditor extends HTMLElement {
         .bms-auto-hint { font-size: 11px; opacity: 0.7; margin-top: 4px; word-break: break-all; }
         .bms-auto-hint code { font-size: 10px; background: rgba(127,127,127,0.18); padding: 1px 5px; border-radius: 4px; color: #4b9bf0; }
         .bms-auto-miss { opacity: 0.45; }
-        .bms-tabs { display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
+        .bms-tabs {
+          display: flex; gap: 6px; margin-bottom: 16px; flex-wrap: wrap;
+          background: rgba(0, 0, 0, 0.3); padding: 4px; border-radius: 12px; border: 1px solid var(--border);
+        }
         .bms-tab {
-          flex: 1; min-width: 90px; padding: 9px 12px; border-radius: 10px;
-          border: 1px solid rgba(255, 255, 255, 0.08);
-          background: rgba(255, 255, 255, 0.04);
-          color: var(--primary-text-color, #e1e7ec);
+          flex: 1; min-width: 90px; padding: 8px 12px; border-radius: 8px;
+          border: 1px solid transparent;
+          background: transparent;
+          color: var(--text, #e1e7ec);
           cursor: pointer; font-size: 13px; font-weight: 600; text-align: center;
           transition: all 0.2s ease;
         }
-        .bms-tab:hover { background: rgba(255, 255, 255, 0.08); }
+        .bms-tab:hover { background: rgba(255, 255, 255, 0.06); }
         .bms-tab.active {
-          background: #1D9E75; color: #fff; border-color: transparent;
+          background: var(--accent); color: #fff;
           box-shadow: 0 2px 10px rgba(29, 158, 117, 0.35);
         }
         .bms-editor input[type="text"],
         .bms-editor input[type="number"],
         .bms-editor select {
-          width: 100%; box-sizing: border-box; background: rgba(0,0,0,0.25);
-          border: 1px solid rgba(255,255,255,0.12); border-radius: 10px;
-          color: #fff; padding: 8px 12px; font-size: 13px; outline: none;
+          width: 100%; box-sizing: border-box; background: rgba(0,0,0,0.3);
+          border: 1px solid var(--border); border-radius: 10px;
+          color: #fff; padding: 9px 12px; font-size: 13px; outline: none;
           transition: border-color 0.2s, box-shadow 0.2s;
         }
         .bms-editor input[type="text"]:focus,
         .bms-editor input[type="number"]:focus,
         .bms-editor select:focus {
-          border-color: #1D9E75; box-shadow: 0 0 0 2px rgba(29, 158, 117, 0.25);
+          border-color: var(--accent); box-shadow: 0 0 0 2px rgba(29, 158, 117, 0.25);
+        }
+        .settings-toggles { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+        .settings-toggle-row {
+          display: flex; align-items: center; justify-content: space-between;
+          padding: 10px 12px; background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border);
+          border-radius: 12px; cursor: pointer; user-select: none; transition: background 0.2s;
+        }
+        .settings-toggle-row:hover { background: rgba(255, 255, 255, 0.06); }
+        .toggle-title { font-size: 13px; font-weight: 500; color: var(--text); }
+        .bms-switch { position: absolute; opacity: 0; pointer-events: none; width: 0; height: 0; }
+        .switch-ui {
+          position: relative; width: 44px; height: 24px; background: rgba(255, 255, 255, 0.12);
+          border-radius: 999px; transition: background 0.2s, box-shadow 0.2s; flex-shrink: 0;
+        }
+        .switch-ui::after {
+          content: ""; position: absolute; top: 2px; left: 2px; width: 20px; height: 20px;
+          background: #ffffff; border-radius: 50%; transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+          box-shadow: 0 2px 4px rgba(0, 0, 0, 0.4);
+        }
+        .bms-switch:checked + .switch-ui {
+          background: var(--accent); box-shadow: 0 0 12px rgba(29, 158, 117, 0.4);
+        }
+        .bms-switch:checked + .switch-ui::after {
+          transform: translateX(20px);
         }
         .bms-scale-group { margin-bottom: 14px; }
         .bms-scale-label { display: flex; justify-content: space-between; font-size: 13px; font-weight: 500; margin-bottom: 6px; }
-        .bms-scale-val { font-weight: 600; color: #1D9E75; }
+        .bms-scale-val { font-weight: 600; color: var(--accent); }
         .bms-scale-control { display: flex; align-items: center; gap: 8px; }
-        .bms-scale-control input[type="range"] { flex: 1; accent-color: #1D9E75; cursor: pointer; }
+        .bms-scale-control input[type="range"] { flex: 1; accent-color: var(--accent); cursor: pointer; }
         .bms-scale-btn {
           width: 32px; height: 32px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.15);
           background: rgba(255,255,255,0.06); color: #fff; font-size: 16px; font-weight: bold;
           display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all 0.2s;
         }
-        .bms-scale-btn:hover { background: rgba(255,255,255,0.15); border-color: #1D9E75; }
+        .bms-scale-btn:hover { background: rgba(255,255,255,0.15); border-color: var(--accent); }
         .bms-scale-hint { font-size: 11px; opacity: 0.75; line-height: 1.4; margin-top: 10px; padding: 8px 10px; background: rgba(29, 158, 117, 0.1); border-radius: 8px; border: 1px solid rgba(29, 158, 117, 0.2); }
         .bms-editor-sec-box {
-          background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06);
-          border-radius: 10px; padding: 10px 12px; margin-top: 4px;
+          background: var(--panel); border: 1px solid var(--border);
+          border-radius: 14px; padding: 12px 14px; margin-top: 4px;
         }
-
       </style>
       <div class="bms-editor" style="padding:12px;display:flex;flex-direction:column;gap:12px;max-width:100%;overflow-x:hidden;">
         <div class="bms-tabs">
@@ -2160,12 +2220,20 @@ class HaBmsBleCardEditor extends HTMLElement {
         </div>
         ${activeTab === "main" ? `
         <div>
-          <label style="display:block; font-size:13px; margin-bottom:4px;">${this._t("editor_auto_from_device")}</label>
+          <label style="display:block; font-size:13px; margin-bottom:6px; font-weight:500;">${this._t("editor_language")}</label>
+          <select id="bms-editor-language" style="width:100%;">
+            <option value="en" ${(c.language === "en" || c.lang === "en" || (!c.language && !c.lang && this._effectiveLang() === "en")) ? "selected" : ""}>🇬🇧 English</option>
+            <option value="uk" ${(c.language === "uk" || c.lang === "uk" || (!c.language && !c.lang && this._effectiveLang() === "uk")) ? "selected" : ""}>🇺🇦 Українська</option>
+          </select>
+          <div style="font-size:11px; opacity:0.65; margin-top:4px;">${this._t("editor_language_hint")}</div>
+        </div>
+        <div>
+          <label style="display:block; font-size:13px; margin-bottom:4px; font-weight:500;">${this._t("editor_auto_from_device")}</label>
           <input id="name" type="text" value="${escapeHtml(c.name || "")}" placeholder="${this._t('editor_placeholder_auto')}"
             style="width:100%; box-sizing:border-box;" />
         </div>
         <div>
-          <label style="display:block; font-size:13px; margin-bottom:4px;">${this._t("editor_display_mode")}</label>
+          <label style="display:block; font-size:13px; margin-bottom:4px; font-weight:500;">${this._t("editor_display_mode")}</label>
           <select id="display_mode" style="width:100%;">
             <option value="widget" ${c.display_mode !== "inline" ? "selected" : ""}>${this._t("editor_mode_widget")}</option>
             <option value="inline" ${c.display_mode === "inline" ? "selected" : ""}>${this._t("editor_mode_inline")}</option>
@@ -2179,24 +2247,28 @@ class HaBmsBleCardEditor extends HTMLElement {
           <div style="font-size:13px; font-weight:500; margin-bottom:8px;">${this._t("editor_sub_consumption")}</div>
           ${this._renderWizard()}
         </div>
-        <div style="border-top:1px solid var(--divider-color,#333); padding-top:12px;">
-          <div style="font-size:13px; font-weight:500; margin-bottom:8px;">${this._t("editor_sub_home_sections")}</div>
-          <div style="display:flex; flex-direction:column; gap:8px;">
-            <label style="display:flex; align-items:center; gap:8px; font-size:13px; cursor:pointer;">
-              <input type="checkbox" class="bms-editor-home-sec" data-sec="status" ${(c.home_sections && c.home_sections.status === false) || c.show_status === false ? "" : "checked"}>
-              <span>${this._t("editor_sec_status")}</span>
+        <div style="border-top:1px solid var(--border, rgba(255,255,255,0.08)); padding-top:12px;">
+          <div class="bms-editor-group-title">${this._t("editor_sub_home_sections")}</div>
+          <div class="settings-toggles">
+            <label class="settings-toggle-row">
+              <span class="toggle-title">${this._t("editor_sec_status")}</span>
+              <input type="checkbox" class="bms-switch bms-editor-home-sec" data-sec="status" ${(c.home_sections && c.home_sections.status === false) || c.show_status === false ? "" : "checked"}>
+              <span class="switch-ui"></span>
             </label>
-            <label style="display:flex; align-items:center; gap:8px; font-size:13px; cursor:pointer;">
-              <input type="checkbox" class="bms-editor-home-sec" data-sec="metrics" ${(c.home_sections && c.home_sections.metrics === false) || c.show_metrics === false ? "" : "checked"}>
-              <span>${this._t("editor_sec_metrics")}</span>
+            <label class="settings-toggle-row">
+              <span class="toggle-title">${this._t("editor_sec_metrics")}</span>
+              <input type="checkbox" class="bms-switch bms-editor-home-sec" data-sec="metrics" ${(c.home_sections && c.home_sections.metrics === false) || c.show_metrics === false ? "" : "checked"}>
+              <span class="switch-ui"></span>
             </label>
-            <label style="display:flex; align-items:center; gap:8px; font-size:13px; cursor:pointer;">
-              <input type="checkbox" class="bms-editor-home-sec" data-sec="chips" ${(c.home_sections && c.home_sections.chips === false) || c.show_chips === false ? "" : "checked"}>
-              <span>${this._t("editor_sec_chips")}</span>
+            <label class="settings-toggle-row">
+              <span class="toggle-title">${this._t("editor_sec_chips")}</span>
+              <input type="checkbox" class="bms-switch bms-editor-home-sec" data-sec="chips" ${(c.home_sections && c.home_sections.chips === false) || c.show_chips === false ? "" : "checked"}>
+              <span class="switch-ui"></span>
             </label>
-            <label style="display:flex; align-items:center; gap:8px; font-size:13px; cursor:pointer; margin-top:4px;">
-              <input type="checkbox" id="bms-editor-reduced-motion" ${c.reduced_motion ? "checked" : ""}>
-              <span>${this._t("editor_sec_reduced_motion")}</span>
+            <label class="settings-toggle-row">
+              <span class="toggle-title">${this._t("editor_sec_reduced_motion")}</span>
+              <input type="checkbox" class="bms-switch" id="bms-editor-reduced-motion" ${c.reduced_motion ? "checked" : ""}>
+              <span class="switch-ui"></span>
             </label>
           </div>
         </div>
@@ -2280,6 +2352,12 @@ class HaBmsBleCardEditor extends HTMLElement {
         this._render();
       });
     });
+    const langSelect = this.querySelector("#bms-editor-language");
+    if (langSelect) {
+      langSelect.addEventListener("change", (e) => {
+        this._update("language", e.target.value);
+      });
+    }
     const nameEl = this.querySelector("#name");
     if (nameEl) nameEl.addEventListener("change", (e) => this._update("name", e.target.value));
     const modeEl = this.querySelector("#display_mode");
@@ -2512,7 +2590,7 @@ class HaBmsBleCard extends HTMLElement {
     this._visible = true;
     this._homeSections = { status: true, metrics: true, chips: true };
     this._reducedMotion = false;
-    this._lang = "uk";
+    this._lang = "en";
     this._syncSettings();
     this._statsCache = new Map();
     this._lastStructSig = null;
@@ -2595,15 +2673,15 @@ class HaBmsBleCard extends HTMLElement {
 
     let storedLang;
     try { storedLang = window.localStorage.getItem(I18N_LANG_KEY); } catch (e) { storedLang = null; }
-    const langCandidate = c.lang || c.language || storedLang;
-    this._lang = langCandidate === "en" ? "en" : "uk";
+    const langCandidate = c.language || c.lang || storedLang;
+    this._lang = langCandidate === "uk" ? "uk" : "en";
   }
 
   /** Переклад одного рядка інтерфейсу за ключем словника I18N, з
    *  фолбеком на українську, якщо ключа немає в поточній мові. */
   _t(key) {
-    const dict = I18N[this._lang] || I18N.uk;
-    return dict[key] || I18N.uk[key] || key;
+    const dict = I18N[this._lang] || I18N.en || I18N.uk;
+    return dict[key] || I18N.en[key] || I18N.uk[key] || key;
   }
 
   static getConfigElement() {
@@ -3975,6 +4053,10 @@ class HaBmsBleCard extends HTMLElement {
             <span class="switch-ui"></span>
           </label>
         </div>
+        <p class="bms-muted" style="margin-top:8px; font-size:11px; line-height:1.4; opacity:0.75;">
+          <ha-icon icon="mdi:information-outline" style="--mdc-icon-size:14px; vertical-align:middle; margin-right:4px; color:var(--accent,#1D9E75);"></ha-icon>
+          ${t("settings_home_sections_cache_notice")}
+        </p>
 
         <h2 class="section-title" style="margin-top:24px;">${t("settings_clock_interval")}</h2>
         <p class="bms-muted">${t("settings_clock_interval_hint")}</p>
