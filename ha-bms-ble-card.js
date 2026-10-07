@@ -2211,6 +2211,76 @@ class HaBmsBleCardEditor extends HTMLElement {
           background: var(--panel); border: 1px solid var(--border);
           border-radius: 14px; padding: 12px 14px; margin-top: 4px;
         }
+        /* Modal & Dropdown Popup Design System in Editor */
+        .lang-picker-wrap { margin-top: 6px; }
+        .lang-picker-btn {
+          display: flex; align-items: center; justify-content: space-between;
+          width: 100%; padding: 10px 14px; border-radius: 12px;
+          background: var(--panel); border: 1px solid var(--border);
+          color: var(--text); font-size: 13px; font-weight: 600;
+          cursor: pointer; transition: border-color 0.15s, background 0.15s;
+        }
+        .lang-picker-btn:hover {
+          border-color: rgba(20, 216, 166, 0.4); background: rgba(255, 255, 255, 0.04);
+        }
+        .lang-picker-current { display: inline-flex; align-items: center; gap: 10px; }
+        .lang-picker-flag { font-size: 17px; line-height: 1; }
+        .lang-picker-name { font-size: 13px; font-weight: 600; }
+        .lang-picker-chevron { color: var(--muted); --mdc-icon-size: 18px; }
+
+        .bms-modal-overlay {
+          position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+          width: 100vw; height: 100vh;
+          background: rgba(7, 11, 16, 0.78);
+          backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+          display: flex; align-items: center; justify-content: center;
+          padding: 16px; z-index: 999999;
+          opacity: 0; pointer-events: none;
+          transition: opacity 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+          box-sizing: border-box;
+        }
+        .bms-modal-overlay.open { opacity: 1; pointer-events: auto; }
+        .bms-modal-dialog {
+          background: #0f1823; border: 1px solid var(--border);
+          border-radius: 18px;
+          box-shadow: 0 16px 40px -10px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+          width: 100%; max-width: 320px; overflow: hidden;
+          transform: scale(0.95); transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .bms-modal-overlay.open .bms-modal-dialog { transform: scale(1); }
+        .bms-modal-header {
+          display: flex; align-items: center; justify-content: space-between;
+          padding: 14px 16px; border-bottom: 1px solid var(--border);
+        }
+        .bms-modal-title {
+          display: flex; align-items: center; gap: 8px;
+          font-size: 14px; font-weight: 700; color: var(--text);
+        }
+        .bms-modal-close {
+          background: transparent; border: none; color: var(--muted);
+          padding: 4px; border-radius: 8px; cursor: pointer;
+          display: inline-flex; align-items: center; justify-content: center;
+          transition: background 0.15s, color 0.15s;
+        }
+        .bms-modal-close:hover { background: rgba(255, 255, 255, 0.08); color: var(--text); }
+        .bms-modal-body { padding: 12px; }
+        .bms-lang-list { display: flex; flex-direction: column; gap: 6px; }
+        .bms-lang-list .lang-btn {
+          display: flex; align-items: center; justify-content: space-between;
+          width: 100%; padding: 10px 14px; border-radius: 12px;
+          background: var(--panel); border: 1px solid var(--border);
+          color: var(--text); font-size: 13px; font-weight: 600;
+          cursor: pointer; transition: all 0.15s ease; text-align: left;
+        }
+        .bms-lang-list .lang-btn:hover {
+          border-color: rgba(20, 216, 166, 0.3); background: rgba(20, 216, 166, 0.06);
+        }
+        .bms-lang-list .lang-btn.active {
+          background: rgba(20, 216, 166, 0.15); border-color: var(--accent); color: var(--accent);
+        }
+        .lang-btn-left { display: flex; align-items: center; gap: 10px; }
+        .lang-flag { font-size: 18px; line-height: 1; }
+        .lang-name { font-size: 13px; }
       </style>
       <div class="bms-editor" style="padding:12px;display:flex;flex-direction:column;gap:12px;max-width:100%;overflow-x:hidden;">
         <div class="bms-tabs">
@@ -2221,10 +2291,15 @@ class HaBmsBleCardEditor extends HTMLElement {
         ${activeTab === "main" ? `
         <div>
           <label style="display:block; font-size:13px; margin-bottom:6px; font-weight:500;">${this._t("editor_language")}</label>
-          <select id="bms-editor-language" style="width:100%;">
-            <option value="en" ${(c.language === "en" || c.lang === "en" || (!c.language && !c.lang && this._effectiveLang() === "en")) ? "selected" : ""}>🇬🇧 English</option>
-            <option value="uk" ${(c.language === "uk" || c.lang === "uk" || (!c.language && !c.lang && this._effectiveLang() === "uk")) ? "selected" : ""}>🇺🇦 Українська</option>
-          </select>
+          <div class="lang-picker-wrap" style="margin-top:0;">
+            <button type="button" class="lang-picker-btn" id="bms-editor-lang-picker-btn" aria-haspopup="dialog" aria-expanded="${this._editorLangModalOpen ? "true" : "false"}">
+              <span class="lang-picker-current">
+                <span class="lang-picker-flag">${(AVAILABLE_LANGUAGES.find(l => l.code === (c.language || c.lang || this._effectiveLang())) || AVAILABLE_LANGUAGES[0]).flag}</span>
+                <span class="lang-picker-name">${(AVAILABLE_LANGUAGES.find(l => l.code === (c.language || c.lang || this._effectiveLang())) || AVAILABLE_LANGUAGES[0]).name}</span>
+              </span>
+              <ha-icon icon="mdi:chevron-down" class="lang-picker-chevron"></ha-icon>
+            </button>
+          </div>
           <div style="font-size:11px; opacity:0.65; margin-top:4px;">${this._t("editor_language_hint")}</div>
         </div>
         <div>
@@ -2345,6 +2420,32 @@ class HaBmsBleCardEditor extends HTMLElement {
         </div>` : ""}
         
       </div>
+      <div class="bms-modal-overlay ${this._editorLangModalOpen ? "open" : ""}" id="bms-editor-lang-modal">
+        <div class="bms-modal-dialog" role="dialog" aria-modal="true" aria-label="${this._t("editor_language")}">
+          <div class="bms-modal-header">
+            <div class="bms-modal-title">
+              <ha-icon icon="mdi:translate" style="--mdc-icon-size:18px; color:var(--accent);"></ha-icon>
+              <span>${this._t("editor_language")}</span>
+            </div>
+            <button type="button" class="bms-modal-close" id="bms-editor-lang-modal-close" aria-label="${this._t("btn_close") || "Close"}">
+              <ha-icon icon="mdi:close" style="--mdc-icon-size:18px;"></ha-icon>
+            </button>
+          </div>
+          <div class="bms-modal-body">
+            <div class="bms-lang-list">
+              ${AVAILABLE_LANGUAGES.map(item => `
+                <button type="button" class="lang-btn ${(c.language || c.lang || this._effectiveLang()) === item.code ? "active" : ""}" data-editor-lang="${item.code}">
+                  <span class="lang-btn-left">
+                    <span class="lang-flag">${item.flag}</span>
+                    <span class="lang-name">${item.name}</span>
+                  </span>
+                  ${(c.language || c.lang || this._effectiveLang()) === item.code ? '<ha-icon icon="mdi:check" class="lang-check" style="--mdc-icon-size:18px; color:var(--accent);"></ha-icon>' : ''}
+                </button>
+              `).join("")}
+            </div>
+          </div>
+        </div>
+      </div>
     `;
     this.querySelectorAll(".bms-tab").forEach((btn) => {
       btn.addEventListener("click", () => {
@@ -2352,12 +2453,36 @@ class HaBmsBleCardEditor extends HTMLElement {
         this._render();
       });
     });
-    const langSelect = this.querySelector("#bms-editor-language");
-    if (langSelect) {
-      langSelect.addEventListener("change", (e) => {
-        this._update("language", e.target.value);
+    const editorLangPickerBtn = this.querySelector("#bms-editor-lang-picker-btn");
+    if (editorLangPickerBtn) {
+      editorLangPickerBtn.addEventListener("click", () => {
+        this._editorLangModalOpen = !this._editorLangModalOpen;
+        this._render();
       });
     }
+    const editorLangModalClose = this.querySelector("#bms-editor-lang-modal-close");
+    if (editorLangModalClose) {
+      editorLangModalClose.addEventListener("click", () => {
+        this._editorLangModalOpen = false;
+        this._render();
+      });
+    }
+    const editorLangModal = this.querySelector("#bms-editor-lang-modal");
+    if (editorLangModal) {
+      editorLangModal.addEventListener("click", (ev) => {
+        if (ev.target === editorLangModal) {
+          this._editorLangModalOpen = false;
+          this._render();
+        }
+      });
+    }
+    this.querySelectorAll("[data-editor-lang]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const lang = btn.dataset.editorLang;
+        this._editorLangModalOpen = false;
+        this._update("language", lang);
+      });
+    });
     const nameEl = this.querySelector("#name");
     if (nameEl) nameEl.addEventListener("change", (e) => this._update("name", e.target.value));
     const modeEl = this.querySelector("#display_mode");
@@ -4068,7 +4193,28 @@ class HaBmsBleCard extends HTMLElement {
         </div>
         </div>
 
-                <div class="bms-modal-overlay ${this._langModalOpen ? "open" : ""}" id="bms-lang-modal">
+                
+
+        <div class="nav-bar">
+          <div class="nav-item ${activeTab === "home" ? "active" : ""}" data-tab="home">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 11 L12 4 L20 11 M6 10 V20 H18 V10" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <span>${t("nav_home")}</span>
+          </div>
+          <div class="nav-item ${activeTab === "info" ? "active" : ""}" data-tab="info">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 11v6" stroke-linecap="round"/><circle cx="12" cy="7.5" r="0.9" fill="currentColor" stroke="none"/></svg>
+            <span>${t("nav_info")}</span>
+          </div>
+          <div class="nav-item ${activeTab === "stats" ? "active" : ""}" data-tab="stats">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20V10M12 20V4M20 20v-7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <span>${t("nav_stats")}</span>
+          </div>
+          <div class="nav-item ${activeTab === "settings" ? "active" : ""}" data-tab="settings">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+            <span>${t("nav_settings")}</span>
+          </div>
+        </div>
+      </div>
+      <div class="bms-modal-overlay ${this._langModalOpen ? "open" : ""}" id="bms-lang-modal">
           <div class="bms-modal-dialog" role="dialog" aria-modal="true" aria-label="${t("settings_language")}">
             <div class="bms-modal-header">
               <div class="bms-modal-title">
@@ -4094,26 +4240,6 @@ class HaBmsBleCard extends HTMLElement {
             </div>
           </div>
         </div>
-
-        <div class="nav-bar">
-          <div class="nav-item ${activeTab === "home" ? "active" : ""}" data-tab="home">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 11 L12 4 L20 11 M6 10 V20 H18 V10" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            <span>${t("nav_home")}</span>
-          </div>
-          <div class="nav-item ${activeTab === "info" ? "active" : ""}" data-tab="info">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 11v6" stroke-linecap="round"/><circle cx="12" cy="7.5" r="0.9" fill="currentColor" stroke="none"/></svg>
-            <span>${t("nav_info")}</span>
-          </div>
-          <div class="nav-item ${activeTab === "stats" ? "active" : ""}" data-tab="stats">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20V10M12 20V4M20 20v-7" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            <span>${t("nav_stats")}</span>
-          </div>
-          <div class="nav-item ${activeTab === "settings" ? "active" : ""}" data-tab="settings">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-            <span>${t("nav_settings")}</span>
-          </div>
-        </div>
-      </div>
     `;
   }
 
@@ -5483,8 +5609,13 @@ class HaBmsBleCard extends HTMLElement {
       
         /* Modal & Dropdown Popup Design System */
         .bms-modal-overlay {
-          position: absolute;
-          inset: 0;
+          position: fixed;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          width: 100vw;
+          height: 100vh;
           background: rgba(7, 11, 16, 0.78);
           backdrop-filter: blur(10px);
           -webkit-backdrop-filter: blur(10px);
@@ -5492,11 +5623,12 @@ class HaBmsBleCard extends HTMLElement {
           align-items: center;
           justify-content: center;
           padding: 16px;
-          z-index: 100;
+          z-index: 999999;
           opacity: 0;
           pointer-events: none;
           transition: opacity 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-          border-radius: 24px;
+          border-radius: 0;
+          box-sizing: border-box;
         }
         .bms-modal-overlay.open {
           opacity: 1;

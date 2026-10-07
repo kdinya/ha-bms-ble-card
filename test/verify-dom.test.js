@@ -362,12 +362,12 @@ console.log("ALL VERIFICATION CHECKS PASSED SUCCESSFULLY!");
   editor._tab = "main";
 
   editor._render();
-  assert.ok(editor.innerHTML.includes('id="bms-editor-language"'), "Селектор мови присутній у візуальному редакторі");
-  assert.ok(editor.innerHTML.includes('🇬🇧 English'), "Опція англійської мови присутня");
-  assert.ok(editor.innerHTML.includes('🇺🇦 Українська'), "Опція української мови присутня");
-
-  // Перевірка селектора мови в розмітці та дефолтної мови
-  assert.ok(editor.innerHTML.includes('value="en" selected'), "Англійська мова вибрана за замовчуванням у селекторі");
+  assert.ok(editor.innerHTML.includes('id="bms-editor-lang-picker-btn"'), "Кнопка вибору мови у дизайні картки присутня у візуальному редакторі");
+  assert.ok(editor.innerHTML.includes('id="bms-editor-lang-modal"'), "Модальне вікно вибору мови присутнє у візуальному редакторі");
+  assert.ok(editor.innerHTML.includes('🇬🇧'), "Опція англійської мови присутня");
+  assert.ok(editor.innerHTML.includes('🇺🇦'), "Опція української мови присутня");
+  assert.ok(editor.innerHTML.includes('data-editor-lang="en"'), "Атрибут вибору англійської мови присутній");
+  assert.ok(editor.innerHTML.includes('data-editor-lang="uk"'), "Атрибут вибору української мови присутній");
 
   // Перевірка наявності попередження про кеш у налаштуваннях
   const card = Object.create(mod.HaBmsBleCard.prototype);
