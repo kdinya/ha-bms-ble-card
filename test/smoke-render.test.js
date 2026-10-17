@@ -706,6 +706,22 @@ const _statsWsRegressionPromise = (async () => {
   assert.strictEqual(testCard._clockIntervalSeconds, 10, "clock_interval зчитується з конфігу (10 с)");
   assert.strictEqual(testCard._homeSections.metrics, false, "home_sections.metrics false зберігається");
 
+  // Старе локальне значення конкретного пристрою не повинно перекривати
+  // свіжий вибір, який приходить із візуального редактора в конфіг картки.
+  const previousLocalStorage = global.localStorage;
+  const scopedKey = "ha-bms-ble-card-home-sections-device-editor-test";
+  global.localStorage = {
+    getItem(key) { return key === scopedKey ? JSON.stringify({ status: true, metrics: true, chips: true }) : null; },
+    setItem() {},
+  };
+  const editorConfigCard = Object.create(mod.HaBmsBleCard.prototype);
+  editorConfigCard._config = { entities: { device_id: "device-editor-test" }, home_sections: { status: false, metrics: false, chips: true } };
+  editorConfigCard._getDeviceOrCardKey = () => "device-editor-test";
+  editorConfigCard._syncSettings();
+  assert.deepStrictEqual(editorConfigCard._homeSections, { status: false, metrics: false, chips: true }, "явні значення з візуального редактора мають пріоритет над застарілим локальним сховищем");
+  if (previousLocalStorage === undefined) delete global.localStorage;
+  else global.localStorage = previousLocalStorage;
+
   // Перевірка початкового стану секцій статистики: обидві згорнуті
   const statsHtml = testCard._renderStatsPane();
   assert.strictEqual(testCard._statsSections.discharge, false, "секція розряду за замовчуванням згорнута");

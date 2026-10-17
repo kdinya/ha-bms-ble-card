@@ -2505,7 +2505,7 @@ class HaBmsBleCardEditor extends HTMLElement {
         const sec = el.dataset.sec;
         const cur = Object.assign({ status: true, metrics: true, chips: true }, this._config.home_sections || {});
         cur[sec] = el.checked;
-        const devId = (this._config && this._config.entities && this._config.entities.device_id) || "";
+        const devId = this._autoDeviceId() || (this._config && this._config.entities && this._config.entities.device_id) || "";
         try {
           const json = JSON.stringify(cur);
           window.localStorage.setItem(HOME_SECTIONS_STORAGE_KEY, json);
@@ -2771,9 +2771,9 @@ class HaBmsBleCard extends HTMLElement {
     const cfgSecs = c.home_sections || {};
     // Пріоритет: явний збережений вибір користувача в localStorage, потім конфіг картки, потім значення true
     this._homeSections = {
-      status: storedHomeSecs?.status !== undefined ? !!storedHomeSecs.status : (cfgSecs.status !== undefined ? !!cfgSecs.status : (c.show_status !== undefined ? !!c.show_status : true)),
-      metrics: storedHomeSecs?.metrics !== undefined ? !!storedHomeSecs.metrics : (cfgSecs.metrics !== undefined ? !!cfgSecs.metrics : (c.show_metrics !== undefined ? !!c.show_metrics : true)),
-      chips: storedHomeSecs?.chips !== undefined ? !!storedHomeSecs.chips : (cfgSecs.chips !== undefined ? !!cfgSecs.chips : (c.show_chips !== undefined ? !!c.show_chips : true)),
+      status: cfgSecs.status !== undefined ? !!cfgSecs.status : (storedHomeSecs?.status !== undefined ? !!storedHomeSecs.status : (c.show_status !== undefined ? !!c.show_status : true)),
+      metrics: cfgSecs.metrics !== undefined ? !!cfgSecs.metrics : (storedHomeSecs?.metrics !== undefined ? !!storedHomeSecs.metrics : (c.show_metrics !== undefined ? !!c.show_metrics : true)),
+      chips: cfgSecs.chips !== undefined ? !!cfgSecs.chips : (storedHomeSecs?.chips !== undefined ? !!storedHomeSecs.chips : (c.show_chips !== undefined ? !!c.show_chips : true)),
     };
 
     let storedReduced;
