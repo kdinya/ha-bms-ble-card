@@ -4792,7 +4792,7 @@ class HaBmsBleCard extends HTMLElement {
           z-index: 1;
           display: flex; align-items: center; justify-content: center; gap: 4px;
           margin-top: calc(6px + var(--bms-flow-y, 0px));
-          margin-bottom: calc(16px - var(--bms-flow-y, 0px));
+          margin-bottom: calc(16px - var(--bms-flow-y, 0px) + max(0px, (var(--bms-bat-scale, 1) - 1) * 180px));
           margin-left: 0;
           margin-right: 0;
           width: 100%;
@@ -5589,7 +5589,7 @@ class HaBmsBleCard extends HTMLElement {
         .info-tile-lbl { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; }
         .info-tile-val { font-size: 14.5px; font-weight: 700; margin-top: 3px; font-variant-numeric: tabular-nums; }
         .nav-bar {
-          position: sticky; bottom: 8px; z-index: 2; margin-top: 16px;
+          position: relative; bottom: auto; z-index: 2; margin-top: 16px;
           display: flex; gap: 4px; padding: 4px;
           background: rgba(10, 16, 26, 0.94);
           border: 1px solid rgba(255, 255, 255, 0.09); border-radius: 16px;

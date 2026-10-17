@@ -351,7 +351,8 @@ console.log("ALL VERIFICATION CHECKS PASSED SUCCESSFULLY!");
   assert.ok(styles.includes(".header {\n          position: relative;\n          z-index: 5;"), "Шапка має position: relative та z-index: 5");
   assert.ok(styles.includes(".flow-status-wrap { position: relative; z-index: 0; display: flex; flex-direction: column; margin-bottom: 14px; }"), "Увесь flow-блок ізольований на нижньому stacking layer");
   assert.ok(styles.includes(".flow-row {\n          position: relative;\n          z-index: 1;"), "flow-row має z-index: 1 усередині ізольованого блоку");
-  assert.ok(styles.includes("position: sticky; bottom: 8px; z-index: 2; margin-top: 16px;"), "Нижня панель вкладок гарантовано розташована над flow-блоком");
+  assert.ok(styles.includes("position: relative; bottom: auto; z-index: 2; margin-top: 16px;"), "Панель вкладок у звичайному потоці й над flow-блоком без sticky-перекриття");
+  assert.ok(styles.includes("max(0px, (var(--bms-bat-scale, 1) - 1) * 180px)"), "Збільшення батареї резервує вертикальний простір перед панеллю вкладок");
   assert.ok(styles.includes(".flow-battery {\n          position: relative;\n          z-index: 1;"), "Батарея має z-index: 1 (шаром нижче за шапку й статус)");
   assert.ok(styles.includes(".discharge-box {\n          position: relative;\n          z-index: 5;"), "Блок статусу має z-index: 5 (шаром вище за батарею)");
 
