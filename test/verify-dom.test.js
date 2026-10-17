@@ -315,7 +315,20 @@ console.log("ALL VERIFICATION CHECKS PASSED SUCCESSFULLY!");
     }
   };
 
+  card._hass.states["sensor.current"].attributes.heater_current = [2.5];
   const fullHtml = card._renderFullView();
+  assert.ok(fullHtml.includes(mod.I18N.uk.lbl_heater_current), "Струм нагрівача відображається українською, коли атрибут доступний");
+  assert.ok(fullHtml.includes("2.50 A"), "Атрибут heater_current відображається в амперах");
+  card._lang = "en";
+  card._t = (key) => mod.I18N.en[key] || key;
+  const englishHtml = card._renderFullView();
+  assert.ok(englishHtml.includes(mod.I18N.en.lbl_heater_current), "Струм нагрівача відображається англійською");
+  assert.ok(englishHtml.includes("2.50 A"), "Значення струму збережене в англомовному вигляді");
+  card._lang = "uk";
+  card._t = (key) => mod.I18N.uk[key] || key;
+  delete card._hass.states["sensor.current"].attributes.heater_current;
+  const withoutHeaterCurrentHtml = card._renderFullView();
+  assert.ok(!withoutHeaterCurrentHtml.includes(mod.I18N.uk.lbl_heater_current), "Струм нагрівача прихований, якщо атрибут відсутній");
   assert.ok(fullHtml.includes('class="flow-row"'), "flow-row присутній");
   assert.ok(fullHtml.includes('data-flow-state="charging"'), "data-flow-state встановлено в charging");
   assert.ok(fullHtml.includes('--bms-bat-scale: 1.15'), "CSS-змінна --bms-bat-scale встановлена коректно");
@@ -324,15 +337,21 @@ console.log("ALL VERIFICATION CHECKS PASSED SUCCESSFULLY!");
   assert.ok(fullHtml.includes('--bms-flow-y: 20px'), "CSS-змінна --bms-flow-y встановлена коректно (20px)");
 
   const styles = card._styles();
-  assert.ok(styles.includes('transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1)'), "Вузли мають плавну CSS-анімацію переходу");
+  assert.ok(styles.includes('transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1)'), "Іконки мають плавну CSS-анімацію переходу");
   assert.ok(styles.includes('--bms-grid-flow-mult: 1.25'), "Мережа збільшується під час заряду");
   assert.ok(styles.includes('--bms-load-flow-mult: 1.25'), "Навантаження збільшується під час розряду");
+  assert.ok(styles.includes('.flow-node.grid-node .node-icon {'), "Під час заряду масштабується тільки іконка мережі");
+  assert.ok(styles.includes('.flow-node.load-node .node-icon {'), "Під час розряду масштабується тільки іконка навантаження");
+  assert.ok(!styles.includes('.flow-node.grid-node {\n          transform:'), "Контейнер мережі разом із текстом не масштабується");
+  assert.ok(!styles.includes('.flow-node.load-node {\n          transform:'), "Контейнер навантаження разом із текстом не масштабується");
 
   console.log("  ✓ Card responsive scale styles & smooth transitions verified");
 
   // Перевірка шарів (z-index) та поведінки демо-анімації
   assert.ok(styles.includes(".header {\n          position: relative;\n          z-index: 5;"), "Шапка має position: relative та z-index: 5");
-  assert.ok(styles.includes(".flow-row {\n          position: relative;\n          z-index: 1;"), "flow-row має z-index: 1");
+  assert.ok(styles.includes(".flow-status-wrap { position: relative; z-index: 0; display: flex; flex-direction: column; margin-bottom: 14px; }"), "Увесь flow-блок ізольований на нижньому stacking layer");
+  assert.ok(styles.includes(".flow-row {\n          position: relative;\n          z-index: 1;"), "flow-row має z-index: 1 усередині ізольованого блоку");
+  assert.ok(styles.includes("position: sticky; bottom: 8px; z-index: 2; margin-top: 16px;"), "Нижня панель вкладок гарантовано розташована над flow-блоком");
   assert.ok(styles.includes(".flow-battery {\n          position: relative;\n          z-index: 1;"), "Батарея має z-index: 1 (шаром нижче за шапку й статус)");
   assert.ok(styles.includes(".discharge-box {\n          position: relative;\n          z-index: 5;"), "Блок статусу має z-index: 5 (шаром вище за батарею)");
 

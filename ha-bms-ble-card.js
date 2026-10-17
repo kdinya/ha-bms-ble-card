@@ -139,6 +139,7 @@ const I18N = {
     lbl_stored_energy: "Запасена енергія",
     lbl_runtime: "Час роботи (BMS)",
     lbl_balance_current: "Струм балансування",
+    lbl_heater_current: "Струм нагрівача",
     lbl_cell_bitmask: "Бітова маска комірок",
     lbl_link_quality: "Якість звʼязку",
     lbl_rssi: "RSSI",
@@ -309,6 +310,7 @@ editor_tab_general: "Основне",
     lbl_stored_energy: "Stored Energy",
     lbl_runtime: "Runtime (BMS)",
     lbl_balance_current: "Balance Current",
+    lbl_heater_current: "Heater Current",
     lbl_cell_bitmask: "Cell Bitmask",
     lbl_link_quality: "Link Quality",
     lbl_rssi: "RSSI",
@@ -3461,6 +3463,15 @@ class HaBmsBleCard extends HTMLElement {
     return Number.isFinite(v) ? v : undefined;
   }
 
+  _heaterCurrentA() {
+    const attr = attrOf(this._hass, this._e("current"), "heater_current");
+    if (attr === undefined || attr === null) return undefined;
+    const raw = Array.isArray(attr) ? attr[0] : attr;
+    if (raw === undefined || raw === null || String(raw).trim() === "") return undefined;
+    const value = Number(raw);
+    return Number.isFinite(value) ? value : undefined;
+  }
+
   /**
    * Cell Bitmask — у BMS_BLE-HA це атрибут "cells" на entity балансира
    * (binary_sensor.*_balancer), бінарний рядок типу "1111":
@@ -3877,6 +3888,7 @@ class HaBmsBleCard extends HTMLElement {
     const stored = this._storedEnergyWh();
     const design = stateOf(this._hass, this._e("design_capacity"));
     const balanceCur = this._balanceCurrentA();
+    const heaterCur = this._heaterCurrentA();
     const cellBitmask = this._cellBitmask();
     const status = this._statusInfo();
     const statusSc = this._statusColorVars(status.color);
@@ -4111,6 +4123,7 @@ class HaBmsBleCard extends HTMLElement {
               addRow(t("lbl_stored_energy"), stored !== undefined ? `${fmt(stored, 0)} Wh` : undefined, this._e("cycle_capacity"));
               addRow(t("lbl_runtime"), runtimeVal !== undefined ? `~${secondsToHuman(Number(runtimeVal))}` : undefined, this._e("runtime"));
               addRow(t("lbl_balance_current"), balanceCur !== undefined ? `${fmt(balanceCur, 2)} A` : undefined, this._e("current"));
+              addRow(t("lbl_heater_current"), heaterCur !== undefined ? `${fmt(heaterCur, 2)} A` : undefined, this._e("current"));
               addRow(t("lbl_link_quality"), link !== undefined ? `${fmt(link, 0)}%` : undefined, this._e("link_quality"));
               addRow(t("lbl_rssi"), rssi !== undefined ? `${fmt(rssi, 0)} dBm` : undefined, this._e("rssi"));
               if (st) {
@@ -4773,7 +4786,7 @@ class HaBmsBleCard extends HTMLElement {
         .top-row { display: flex; gap: 14px; margin-bottom: 14px; align-items: stretch; flex-wrap: wrap; }
 
         /* Flow-діаграма заряд/розряд навколо батареї (захищена геометрія) */
-        .flow-status-wrap { display: flex; flex-direction: column; margin-bottom: 14px; }
+        .flow-status-wrap { position: relative; z-index: 0; display: flex; flex-direction: column; margin-bottom: 14px; }
         .flow-row {
           position: relative;
           z-index: 1;
@@ -4800,20 +4813,16 @@ class HaBmsBleCard extends HTMLElement {
         .flow-node {
           display: flex; flex-direction: column; align-items: center; gap: 4px;
           flex: 1 1 135px; min-width: 54px; max-width: 135px;
-          transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1);
-          will-change: transform;
         }
-        .flow-node.grid-node {
+        .flow-node.grid-node .node-icon {
           transform: scale(calc(var(--bms-grid-scale, 1) * var(--bms-grid-flow-mult, 1)));
           transform-origin: center center;
-          margin-right: calc(max(0px, (var(--bms-grid-scale, 1) * var(--bms-grid-flow-mult, 1) - 1) * 22px));
-          transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1), margin-right 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+          transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1);
         }
-        .flow-node.load-node {
+        .flow-node.load-node .node-icon {
           transform: scale(calc(var(--bms-load-scale, 1) * var(--bms-load-flow-mult, 1)));
           transform-origin: center center;
-          margin-left: calc(max(0px, (var(--bms-load-scale, 1) * var(--bms-load-flow-mult, 1) - 1) * 22px));
-          transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1), margin-left 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+          transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1);
         }
         .flow-battery {
           position: relative;
@@ -5580,7 +5589,7 @@ class HaBmsBleCard extends HTMLElement {
         .info-tile-lbl { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; }
         .info-tile-val { font-size: 14.5px; font-weight: 700; margin-top: 3px; font-variant-numeric: tabular-nums; }
         .nav-bar {
-          position: sticky; bottom: 8px; margin-top: 16px;
+          position: sticky; bottom: 8px; z-index: 2; margin-top: 16px;
           display: flex; gap: 4px; padding: 4px;
           background: rgba(10, 16, 26, 0.94);
           border: 1px solid rgba(255, 255, 255, 0.09); border-radius: 16px;
