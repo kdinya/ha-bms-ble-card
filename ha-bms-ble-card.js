@@ -4827,11 +4827,10 @@ class HaBmsBleCard extends HTMLElement {
         .flow-battery {
           position: relative;
           z-index: 1;
-          transform: scale(var(--bms-bat-scale, 1));
-          transform-origin: center center;
-          margin: 0 calc(max(0px, (var(--bms-bat-scale, 1) - 1) * 48px));
-          transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1), margin 0.6s cubic-bezier(0.4, 0, 0.2, 1);
-          will-change: transform, margin;
+          flex: 1 1 calc(203px * var(--bms-bat-scale, 1));
+          min-width: calc(70px * var(--bms-bat-scale, 1));
+          max-width: calc(210px * var(--bms-bat-scale, 1));
+          transition: flex-basis 0.6s cubic-bezier(0.4, 0, 0.2, 1), min-width 0.6s cubic-bezier(0.4, 0, 0.2, 1), max-width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
         }
         .flow-icon-circle {
           width: 78px; height: 78px; border-radius: 50%; border: 2px solid #334155;
@@ -4860,7 +4859,6 @@ class HaBmsBleCard extends HTMLElement {
         }
         .flow-battery {
           display: flex; flex-direction: column; align-items: center; gap: 8px;
-          flex: 1 1 203px; min-width: 70px; max-width: 210px;
           filter: drop-shadow(0 8px 18px rgba(0, 0, 0, 0.4));
         }
         .battery-svg { width: 100%; height: auto; }
